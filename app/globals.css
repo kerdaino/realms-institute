@@ -1,8 +1,43 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --realm-navy: #050d1c;
+  --realm-navy-soft: #0a1930;
+  --realm-midnight: #101f3b;
+  --realm-gold: #d7aa45;
+  --realm-gold-soft: #f2d27a;
+  --realm-white: #f8fbff;
+  --realm-muted: #b7c2d6;
+  --realm-slate: #7f8da8;
+  --realm-success: #66d9a5;
+  --realm-warning: #f2c66d;
+  --realm-surface: rgba(12, 28, 54, 0.68);
+  --realm-surface-alt: rgba(255, 255, 255, 0.055);
+  --realm-border: rgba(255, 255, 255, 0.12);
+  --realm-border-strong: rgba(215, 170, 69, 0.24);
+  --realm-radius-sm: 0.75rem;
+  --realm-radius-md: 1rem;
+  --realm-radius-lg: 1.5rem;
+  --realm-radius-xl: 2rem;
+  --realm-shadow-sm: 0 14px 40px rgba(0, 0, 0, 0.22);
+  --realm-shadow-md: 0 24px 80px rgba(0, 0, 0, 0.28);
+  --realm-shadow-lg: 0 36px 120px rgba(0, 0, 0, 0.36);
+  --realm-glow-gold: 0 16px 48px rgba(5, 13, 28, 0.14);
+  --realm-glow-blue: 0 16px 56px rgba(5, 13, 28, 0.12);
+  --realm-duration-fast: 160ms;
+  --realm-duration-base: 240ms;
+  --realm-duration-slow: 520ms;
+  --realm-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --color-brand-navy: var(--realm-navy);
+  --color-brand-navy-soft: var(--realm-navy-soft);
+  --color-brand-midnight: var(--realm-midnight);
+  --color-brand-gold: var(--realm-gold);
+  --color-brand-gold-soft: var(--realm-gold-soft);
+  --color-brand-white: var(--realm-white);
+  --color-brand-muted: var(--realm-muted);
+  --color-brand-slate: var(--realm-slate);
+  --background: var(--realm-navy);
+  --foreground: var(--realm-white);
 }
 
 @theme inline {
@@ -12,15 +47,157 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 body {
-  background: var(--background);
+  background: linear-gradient(180deg, #071327 0%, #050d1c 100%);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--color-brand-gold);
+  color: var(--color-brand-navy);
+}
+
+a {
+  text-underline-offset: 0.2em;
+}
+
+button,
+a {
+  transition:
+    color var(--realm-duration-fast) var(--realm-ease),
+    background-color var(--realm-duration-fast) var(--realm-ease),
+    border-color var(--realm-duration-fast) var(--realm-ease),
+    box-shadow var(--realm-duration-fast) var(--realm-ease),
+    transform var(--realm-duration-fast) var(--realm-ease);
+}
+
+.gold-gradient-text {
+  background: linear-gradient(115deg, #fff8df 0%, #e7bd55 38%, #fff0b7 70%, #b88422 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.glass-card {
+  border: 1px solid var(--realm-border);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.025)),
+    var(--realm-surface);
+  box-shadow:
+    var(--realm-shadow-md),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.realm-logo-frame {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(15, 35, 65, 0.12);
+  border-radius: 0.75rem;
+  background: #ffffff;
+  padding: 0.2rem;
+  box-shadow: 0 8px 24px rgba(5, 13, 28, 0.12);
+  isolation: isolate;
+}
+
+.realm-logo-mark {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.realm-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: linear-gradient(to bottom, transparent, black 18%, black 76%, transparent);
+}
+
+.glow-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(18px);
+  pointer-events: none;
+}
+
+.section-shell {
+  position: relative;
+  padding: 6rem 1.5rem;
+}
+
+.light-rays {
+  background:
+    linear-gradient(112deg, transparent 6%, rgba(255, 255, 255, 0.08) 8%, transparent 14%),
+    linear-gradient(76deg, transparent 44%, rgba(215, 170, 69, 0.12) 47%, transparent 58%);
+  opacity: 0.55;
+  mask-image: linear-gradient(to bottom, black, transparent 78%);
+}
+
+@keyframes realm-float {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: translate3d(0, -14px, 0);
+  }
+}
+
+@keyframes realm-grid-drift {
+  from {
+    background-position: 0 0;
+  }
+
+  to {
+    background-position: 48px 48px;
+  }
+}
+
+@keyframes realm-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 767px) {
+  .section-shell {
+    padding-block: 4.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
 }
