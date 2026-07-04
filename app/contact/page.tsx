@@ -10,8 +10,8 @@ import { SectionContainer } from "@/components/ui/SectionContainer";
 import { realmClasses } from "@/lib/theme";
 
 export const metadata: Metadata = {
-  title: "REALMS Institute | Contact",
-  description: "Contact REALMS Institute to register interest, ask questions, volunteer, or discuss partnership.",
+  title: "Contact REALMS Institute",
+  description: "Contact REALMS Institute with questions about the School of Discovery, registration, learning modes, or the next cohort.",
 };
 
 const fieldClassName = "mt-2 min-h-12 w-full rounded-xl border border-white/[0.14] bg-[var(--realm-navy)]/70 px-4 py-3 text-[var(--realm-white)] outline-none placeholder:text-[var(--realm-slate)] focus:border-[var(--realm-gold)] focus:ring-2 focus:ring-[var(--realm-gold)]/20";
@@ -21,7 +21,7 @@ export default function ContactPage() {
     <PageShell>
       <PageHero
         title="Contact REALMS Institute"
-        subtitle="Reach out to register interest, ask questions, partner, or learn more about the vision."
+        subtitle="Ask questions about the School of Discovery, registration, learning modes, or the next cohort."
         breadcrumbs={[{ label: "Home", href: "/" }, { label: "Contact" }]}
       />
       <SectionContainer labelledBy="contact-form-title">

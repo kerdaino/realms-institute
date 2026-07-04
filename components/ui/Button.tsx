@@ -20,9 +20,9 @@ type ButtonBaseProps = {
 
 const variants = {
   primary:
-    "border-transparent bg-[var(--realm-gold)] text-[var(--realm-navy)] shadow-[0_0_32px_rgba(215,170,69,0.22)] hover:-translate-y-0.5 hover:scale-[1.01] hover:bg-[var(--realm-gold-soft)] hover:shadow-[0_0_42px_rgba(215,170,69,0.34)] active:scale-[0.98]",
+    "border-transparent bg-[var(--realm-gold)] text-[var(--realm-navy)] shadow-sm hover:-translate-y-0.5 hover:bg-[var(--realm-gold-soft)] active:scale-[0.98]",
   secondary:
-    "border-white/[0.18] bg-white/[0.07] text-[var(--realm-white)] backdrop-blur-xl hover:-translate-y-0.5 hover:scale-[1.01] hover:border-[var(--realm-gold)]/45 hover:bg-white/[0.12] active:scale-[0.98]",
+    "border-white/[0.18] bg-white/[0.07] text-[var(--realm-white)] hover:-translate-y-0.5 hover:border-[var(--realm-gold)]/45 hover:bg-white/[0.12] active:scale-[0.98]",
   ghost:
     "border-transparent bg-transparent text-[var(--realm-white)] hover:bg-white/[0.08] active:scale-[0.98]",
 };

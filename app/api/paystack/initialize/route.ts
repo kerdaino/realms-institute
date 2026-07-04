@@ -1,53 +1,51 @@
-import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
-import { calculateCohortFee, validateRegistration } from "@/lib/registration";
+import { initializePaystackTransaction } from "@/lib/paystack";
+import { calculateCohortFee, generatePaymentReference, validateRegistrationPayload } from "@/lib/registration";
 
 export async function POST(request: Request) {
-  const secretKey = process.env.PAYSTACK_SECRET_KEY;
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-  if (!secretKey || !siteUrl) {
-    return NextResponse.json({ error: "Payment service is not configured." }, { status: 503 });
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ success: false, message: "Please submit a valid registration form.", errors: { form: "Invalid request body." } }, { status: 400 });
   }
 
-  let body: unknown;
-  try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid request body." }, { status: 400 }); }
-  const registration = validateRegistration(body);
-  if (!registration) return NextResponse.json({ error: "Please complete every required field correctly." }, { status: 400 });
-  const fee = calculateCohortFee(registration.country, registration.learningMode);
-  if (!fee) return NextResponse.json({ error: "The selected learning mode could not be priced." }, { status: 400 });
+  const validation = validateRegistrationPayload(body);
+  if (!validation.success) {
+    return NextResponse.json({ success: false, message: validation.message, errors: validation.errors }, { status: 400 });
+  }
 
-  const reference = `REALMS-${Date.now()}-${randomUUID().slice(0, 8)}`;
-  const callbackUrl = new URL("/payment/verify", siteUrl).toString();
-  const payload: Record<string, unknown> = {
-    email: registration.email,
-    amount: fee.amount * 100,
-    currency: fee.currency,
-    reference,
-    callback_url: callbackUrl,
-    metadata: {
-      registration,
-      learningMode: registration.learningMode,
-      skillPathway: registration.skillPathway,
-      calculatedFee: fee.amount,
-      currency: fee.currency,
-    },
-  };
-  if (process.env.PAYSTACK_REALMS_SUBACCOUNT) payload.subaccount = process.env.PAYSTACK_REALMS_SUBACCOUNT;
+  const fee = calculateCohortFee(validation.data);
+  if (!fee) {
+    return NextResponse.json({ success: false, message: "The selected learning mode could not be priced.", errors: { learningMode: "Please select a valid learning mode." } }, { status: 400 });
+  }
+
+  if (!process.env.PAYSTACK_SECRET_KEY || !process.env.NEXT_PUBLIC_SITE_URL) {
+    return NextResponse.json({ success: false, message: "Payment configuration is missing." }, { status: 500 });
+  }
+
+  const reference = generatePaymentReference();
+  const callbackUrl = new URL("/payment/verify", process.env.NEXT_PUBLIC_SITE_URL);
+  callbackUrl.searchParams.set("reference", reference);
 
   try {
-    const response = await fetch("https://api.paystack.co/transaction/initialize", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${secretKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      cache: "no-store",
+    const transaction = await initializePaystackTransaction({
+      email: validation.data.email,
+      fee,
+      reference,
+      callbackUrl: callbackUrl.toString(),
+      registration: validation.data,
     });
-    const result = await response.json();
-    if (!response.ok || !result.status || !result.data?.authorization_url) {
-      return NextResponse.json({ error: result.message || "Payment could not be initialized." }, { status: 502 });
-    }
-    return NextResponse.json({ authorization_url: result.data.authorization_url, reference });
-  } catch {
-    return NextResponse.json({ error: "Payment service is temporarily unavailable." }, { status: 502 });
+
+    return NextResponse.json({
+      success: true,
+      authorizationUrl: transaction.authorization_url,
+      reference: transaction.reference,
+      fee,
+    });
+  } catch (error) {
+    console.error("Paystack initialization failed", error);
+    return NextResponse.json({ success: false, message: "Unable to initialize payment. Please try again." }, { status: 502 });
   }
 }

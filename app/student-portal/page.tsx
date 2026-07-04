@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 export default function StudentPortalPage() {
   return (
     <PageShell>
-      <PageHero title="Student Portal" subtitle="A future learning environment for enrolled students to access classes, assignments, quizzes, certificates, and announcements." breadcrumbs={[{ label: "Home", href: "/" }, { label: "Student Portal" }]} />
+      <PageHero eyebrow="Coming Soon" title="Student Portal" subtitle="A planned learning area for enrolled students. Portal access and features are not yet available." breadcrumbs={[{ label: "Home", href: "/" }, { label: "Student Portal" }]} />
       <SectionContainer labelledBy="portal-status-title" withGrid>
         <div className={realmClasses.container}>
           <StatusPanel title="Student learning environment" description="The portal is planned for a later phase. There is no student login, dashboard, or connected learning system on this website yet.">

@@ -12,6 +12,11 @@ import { Spheres } from "@/components/sections/Spheres";
 import { Testimonials } from "@/components/sections/Testimonials";
 import { Vision } from "@/components/sections/Vision";
 
+export const metadata: Metadata = {
+  title: "REALMS Institute | Christian Formation & Skill Equipping",
+  description: "REALMS Institute is a Christian formation and skill-equipping institute offering discipleship and practical pathways through the School of Discovery.",
+};
+
 export default function Home() {
   return (
     <div className="flex min-h-dvh flex-col">
@@ -33,3 +38,4 @@ export default function Home() {
     </div>
   );
 }
+import type { Metadata } from "next";

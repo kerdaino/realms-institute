@@ -21,7 +21,7 @@ export default function AdmissionsPage() {
   return (
     <PageShell>
       <PageHero
-        eyebrow="August Cohort"
+        eyebrow="Next Cohort"
         title="Admissions"
         subtitle="Apply online, confirm your application interest, and prepare for a structured season of Christian formation and practical skill development."
         breadcrumbs={[{ label: "Home", href: "/" }, { label: "Admissions" }]}
@@ -58,10 +58,10 @@ export default function AdmissionsPage() {
           <Callout
             eyebrow="Important Note"
             titleId="admission-note-title"
-            title="Formation, Not Certificate Chasing"
+            title="Understand the Learning Commitment"
             actions={<PrimaryButton href="/register" showIcon>Apply for Next Cohort</PrimaryButton>}
           >
-            <p>REALMS Institute is not for certificate chasing. It is for believers who desire formation, obedience, discipline, and usefulness to God.</p>
+            <p>REALMS Institute is designed for participants who desire Christian formation, disciplined learning, and practical equipping. Certificates are issued by REALMS Institute as records of completed learning requirements.</p>
           </Callout>
         </div>
       </SectionContainer>

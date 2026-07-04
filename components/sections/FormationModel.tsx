@@ -13,7 +13,7 @@ export function FormationModel() {
           id="formation-title"
           eyebrow="Formation Model"
           title="One Integrated Formation Journey"
-          description="Every student completes a Theology & Discipleship Core alongside a Skill / Field Pathway. Spiritual depth and practical excellence are formed together for faithful service."
+          description="Every School of Discovery student completes Discipleship & Theology Formation alongside one selected practical skill pathway."
         />
         <AnimatedReveal
           className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4"

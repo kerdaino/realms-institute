@@ -14,7 +14,7 @@ export function RegistrationForm() {
   const [skillPathway, setSkillPathway] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const fee = calculateCohortFee(country, learningMode);
+  const fee = calculateCohortFee({ country, learningMode });
   const isInternationalPhysical = Boolean(country.trim())
     && country.trim().toLowerCase() !== "nigeria"
     && learningMode === "Physical";
@@ -23,7 +23,11 @@ export function RegistrationForm() {
     event.preventDefault();
     setError("");
     if (!fee) {
-      setError("Select a country and learning mode to calculate your registration fee.");
+      setError("Please select your country and learning mode to calculate the registration and cohort participation fee.");
+      return;
+    }
+    if (isInternationalPhysical) {
+      setError("Physical attendance is currently designed for students who can attend onsite in Nigeria. Please select Online unless you have confirmed onsite availability.");
       return;
     }
     setLoading(true);
@@ -35,8 +39,8 @@ export function RegistrationForm() {
     try {
       const response = await fetch("/api/paystack/initialize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const result = await response.json();
-      if (!response.ok || !result.authorization_url) throw new Error(result.error || "Payment could not be started.");
-      window.location.assign(result.authorization_url);
+      if (!response.ok || !result.success || !result.authorizationUrl) throw new Error(result.message || "Payment could not be started.");
+      window.location.href = result.authorizationUrl;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Payment could not be started.");
       setLoading(false);
@@ -56,7 +60,7 @@ export function RegistrationForm() {
         <Field name="city" label="State / City" autoComplete="address-level1" />
         <GenderField />
         <Select name="ageRange" label="Age range" options={ageRanges} />
-        <Field name="church" label="Church / fellowship" />
+        <Field name="church" label="Church / fellowship (optional)" required={false} />
         <ControlledSelect name="learningMode" label="Preferred learning mode" options={learningModes} value={learningMode} onChange={setLearningMode} />
         <ControlledSelect name="skillPathway" label="Skill pathway of interest" options={skillPathways} value={skillPathway} onChange={setSkillPathway} />
         <TextArea name="reason" label="Why do you want to join REALMS Institute?" />
@@ -71,28 +75,28 @@ export function RegistrationForm() {
       </label>
 
       <div className="rounded-2xl border border-[#d7aa45]/35 bg-[#071327] p-5 text-white">
-        <p className="text-sm font-semibold text-[var(--realm-gold-soft)]">Fee Summary</p>
+        <p className="text-sm font-semibold text-[var(--realm-gold-soft)]">Registration and Cohort Participation Fee</p>
         <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
           <Summary label="Learning Mode" value={learningMode || "Not selected"} />
           <Summary label="Skill Pathway" value={skillPathway || "Not selected"} />
           {learningMode === "Online" ? <Summary label="Country" value={country || "Not entered"} /> : null}
-          <Summary label="Registration Fee" value={fee?.display || "Select your options"} />
+          <Summary label="Amount" value={fee?.display || "Select your options"} />
         </dl>
         <p className="mt-5 border-t border-white/10 pt-4 text-sm leading-6 text-white/65">Secure checkout is handled by Paystack. REALMS Institute does not collect your card details.</p>
       </div>
 
-      <p id="registration-note" className="text-sm leading-6 text-slate-600">Registration payment confirms your application interest. Cohort onboarding details, class schedule, and student instructions will be communicated by REALMS Institute.</p>
-      <p id="pricing-note" className="text-sm leading-6 text-slate-600">Fees are for registration and cohort participation support. REALMS Institute will communicate onboarding, schedule, and class requirements after payment confirmation.</p>
+      <p id="registration-note" className="text-sm leading-6 text-slate-600">Payment confirms your registration interest and supports cohort participation. Onboarding details, class schedule, and student instructions will be communicated after payment confirmation.</p>
+      <p id="pricing-note" className="text-sm leading-6 text-slate-600">The applicable fee is Physical: ₦10,000, Online Nigeria: ₦15,000, or International Online: $20.</p>
       {error ? <p id="registration-error" role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}</p> : <span id="registration-error" />}
       <PrimaryButton type="submit" disabled={loading || !fee} className="w-full sm:w-fit" showIcon>
-        {loading ? "Preparing secure checkout…" : fee ? `Pay ${fee.display} and Submit Application` : "Select Options to Continue"}
+        {loading ? "Preparing secure payment..." : fee ? `Pay ${fee.display} and Submit Application` : "Select Options to Continue"}
       </PrimaryButton>
     </form>
   );
 }
 
-function Field({ name, label, type = "text", autoComplete }: { name: string; label: string; type?: string; autoComplete?: string }) {
-  return <label className="grid gap-2 text-sm font-semibold text-slate-800"><span>{label}</span><input required name={name} id={name} type={type} autoComplete={autoComplete} className={inputClass} /></label>;
+function Field({ name, label, type = "text", autoComplete, required = true }: { name: string; label: string; type?: string; autoComplete?: string; required?: boolean }) {
+  return <label className="grid gap-2 text-sm font-semibold text-slate-800"><span>{label}</span><input required={required} name={name} id={name} type={type} autoComplete={autoComplete} className={inputClass} /></label>;
 }
 function Select({ name, label, options }: { name: string; label: string; options: readonly string[] }) {
   return <label className="grid gap-2 text-sm font-semibold text-slate-800"><span>{label}</span><select required defaultValue="" name={name} id={name} className={inputClass}><option value="" disabled>Select an option</option>{options.map((option) => <option key={option}>{option}</option>)}</select></label>;

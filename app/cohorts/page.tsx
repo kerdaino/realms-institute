@@ -10,7 +10,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { InfoPanel } from "@/components/ui/InfoPanel";
 import { SectionContainer } from "@/components/ui/SectionContainer";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { cohortExpectations } from "@/lib/constants";
+import { certificateNote, cohortExpectations } from "@/lib/constants";
 import { realmClasses } from "@/lib/theme";
 
 export const metadata: Metadata = {
@@ -34,7 +34,7 @@ export default function CohortsPage() {
             <Badge>Next Cohort</Badge>
             <h2 id="next-cohort-title" className="mt-6 text-3xl font-semibold text-[var(--realm-white)] md:text-5xl">Formation for the Next Assignment</h2>
             <div className="mt-8 grid gap-3 md:grid-cols-3">
-              {["August Cohort", "Web Development", "Cybersecurity Foundations"].map((detail) => (
+              {["Next Cohort", "Web Development", "Cybersecurity Foundations"].map((detail) => (
                 <div key={detail} className="rounded-2xl border border-white/10 bg-[var(--realm-navy)]/45 px-5 py-5 font-semibold text-[var(--realm-white)]">{detail}</div>
               ))}
             </div>
@@ -50,6 +50,7 @@ export default function CohortsPage() {
               return <InfoPanel key={expectation} title={expectation} icon={<Icon aria-hidden="true" className="size-5" />} />;
             })}
           </div>
+          <p className="mt-6 text-sm leading-6 text-[var(--realm-muted)]">{certificateNote}</p>
         </div>
       </SectionContainer>
       <SectionContainer labelledBy="cohort-impact-title">

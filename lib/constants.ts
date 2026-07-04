@@ -1,24 +1,20 @@
 export const siteConfig = {
   instituteName: "REALMS Institute",
-  motto: "Bringing the Will of the Father into the Earth Realm",
-  headline: "Raising Glory-Revealing Christians for Every Sphere of Influence",
+  motto: "Christian Formation and Skill Equipping",
+  headline: "Be Formed in God. Be Equipped for Your Field.",
   shortVision:
-    "Raising glory-revealing Christians in every sphere of influence.",
+    "Helping believers grow in God and serve faithfully in every sphere of influence.",
   vision:
-    "REALMS Institute is not just a learning platform. It is a formation system for believers who want to become useful to God in their generation—rooted in discipleship, doctrine, prayer, purity, calling, and practical obedience.",
+    "REALMS Institute is a Christian formation and skill-equipping institute for believers who desire deeper formation in God and practical preparation for faithful service.",
   poweredBy: "Powered by Gloryrealm Christian Centre",
 } as const;
 
 export const navLinks = [
   { label: "Home", href: "/" },
-  { label: "About", href: "/about" },
-  { label: "Schools", href: "/schools" },
-  { label: "Programs", href: "/programs" },
+  { label: "School of Discovery", href: "/schools/discovery" },
   { label: "Admissions", href: "/admissions" },
-  { label: "Cohorts", href: "/cohorts" },
-  { label: "Resources", href: "/resources" },
-  { label: "Contact", href: "/contact" },
   { label: "Register", href: "/register" },
+  { label: "Contact", href: "/contact" },
 ] as const;
 
 export const mobileNavLinks = [
@@ -75,7 +71,6 @@ export const futureSkillPathways = [
   "Kingdom Enterprise",
   "Leadership & Administration",
   "Missions Support Skills",
-  "Creative Communication",
 ] as const;
 
 export const learningModes = ["Physical", "Online"] as const;
@@ -86,19 +81,40 @@ export const ageRanges = ["Under 18", "18–24", "25–34", "35–44", "45+"] as
 
 export const testimonials = [
   {
-    quote: "School of Discovery helped me become more intentional about my walk with God, prayer life, and understanding of purpose.",
-    name: "Cohort 1 Student",
+    name: "Mrs Terna Promise",
+    location: "Nigeria",
     role: "School of Discovery Participant",
+    quote: "School of Discovery has helped sharpen my mindset. It has been insightful, and I have experienced self-discovery, discipline, answers to unclarified questions, and a deeper sense of responsibility. I have truly experienced tremendous growth.",
   },
   {
-    quote: "The teachings and assignments helped me think more seriously about calling, discipline, and being useful to God beyond church attendance.",
-    name: "School of Discovery Participant",
-    role: "First Cohort",
+    name: "Miss Funmike",
+    location: "United Kingdom",
+    role: "School of Discovery Participant",
+    quote: "The classes have been very impactful.",
   },
   {
-    quote: "The cohort gave me structure, accountability, and a clearer hunger to grow in doctrine, prayer, and service.",
-    name: "Graduate, First Cohort",
-    role: "School of Discovery",
+    name: "Mr Ekure Noah",
+    location: "Nigeria",
+    role: "School of Discovery Participant",
+    quote: "The program was a refreshing moment with the Lord. I was truly blessed.",
+  },
+  {
+    name: "Julius Nanor",
+    location: "China",
+    role: "School of Discovery Participant",
+    quote: "The session I joined was good, and I really appreciate that the recordings are available on the site. They make it possible to go back and keep learning.",
+  },
+  {
+    name: "Mrs Priv",
+    location: "United Kingdom",
+    role: "School of Discovery Participant",
+    quote: "The sessions have really challenged and empowered me to get into the Word, meditate, and pray. The teachings brought a different dimension to salvation, identity, and purpose, and having access to recordings has really helped me listen again.",
+  },
+  {
+    name: "Mr Stephen Tobi",
+    location: "Nigeria",
+    role: "School of Discovery Participant",
+    quote: "The sessions have been helpful in bringing back the consciousness of realities I walked in during my early days in the faith. I have also received clarity around responsibilities in the Kingdom.",
   },
 ] as const;
 
@@ -120,13 +136,18 @@ export const discoverySkillPathways = [
 
 export const discoveryStudentReceives = [
   "Institute-issued certificate of completion in Discipleship & Theology Formation",
-  "Institute-issued certificate of completion in selected skill pathway",
+  "Institute-issued certificate of completion in the selected Skill Pathway",
   "Access to live classes",
   "Assignments and assessments",
   "Prayer and accountability structure",
 ] as const;
 
+export const certificateNote = "Certificates are issued by REALMS Institute as records of completed learning requirements.";
+
 export const footerLinks = [
+  { label: "About", href: "/about" },
+  { label: "Programs", href: "/programs" },
+  { label: "Resources", href: "/resources" },
   { label: "Student Portal", href: "/student-portal" },
   { label: "Certificates", href: "/certificates" },
   { label: "Partners", href: "/partners" },
@@ -134,7 +155,7 @@ export const footerLinks = [
 
 export const programs = {
   current: [
-    { title: "Realms School of Discovery", description: "Integrated Christian formation through a Theology & Discipleship Core and a practical skill pathway." },
+    { title: "REALMS School of Discovery", description: "Integrated Christian formation through Discipleship & Theology Formation and one practical skill pathway." },
     { title: "Web Development Pathway", description: "Practical foundations for building accessible, useful experiences for the web." },
     { title: "Cybersecurity Foundations Pathway", description: "Foundational principles for responsible digital security, awareness, and practice." },
   ],
@@ -269,7 +290,7 @@ export const visionCards = [
   {
     title: "Influence",
     description:
-      "Glory-revealing Christians carrying wisdom, excellence, and truth into public life.",
+      "Believers carrying wisdom, excellence, and faithful Christian witness into public life.",
   },
 ] as const;
 
@@ -308,12 +329,12 @@ export const discoveryLearningFormat = [
   "Assignments",
   "Prayer emphasis",
   "Quizzes and exams",
-  "Certificate of completion",
+  "Institute-issued certificates of completion",
 ] as const;
 
 export const admissionProcess = [
   { title: "Apply Online", description: "Complete the cohort application with your contact and pathway details." },
-  { title: "Pay Registration Fee", description: "Proceed to secure Paystack checkout to confirm your application interest." },
+  { title: "Pay Registration and Cohort Participation Fee", description: "Proceed to secure Paystack checkout to confirm your registration interest and support cohort participation." },
   { title: "Receive Confirmation", description: "Receive confirmation and further cohort information from REALMS Institute." },
   { title: "Join Onboarding / Orientation", description: "Understand the formation culture, schedule, expectations, and learning structure." },
   { title: "Begin Formation", description: "Enter the cohort ready for learning, prayer, accountability, and obedience." },
@@ -333,14 +354,14 @@ export const cohortExpectations = [
   "Assignments",
   "Community accountability",
   "Skill development",
-  "Certificate of completion",
+  "Institute-issued certificates of completion",
 ] as const;
 
 export const impactStats = [
-  "5 Schools of Formation",
-  "Physical or Online Cohorts",
-  "Doctrine • Prayer • Skill",
-  "Missions & Marketplace Focus",
+  "Christian Formation Institute",
+  "Physical + Online",
+  "Discipleship Core",
+  "2 Practical Skill Pathways",
 ] as const;
 
 export const formationJourney = [

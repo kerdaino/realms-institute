@@ -16,6 +16,27 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Backend setup
+
+1. Copy `.env.example` to `.env.local`.
+2. Add your `PAYSTACK_SECRET_KEY`.
+3. Set `NEXT_PUBLIC_SITE_URL=http://localhost:3000`.
+4. Run `npm run dev`.
+5. Complete a registration using Paystack test credentials.
+
+Use Paystack test mode first before any live announcement. Do not commit secret keys or use a live key during local testing.
+
+## Supabase setup
+
+1. Create a Supabase project.
+2. Open the SQL Editor.
+3. Run `supabase/schema.sql`.
+4. Copy the project URL into `NEXT_PUBLIC_SUPABASE_URL`.
+5. Copy the service role key into `SUPABASE_SERVICE_ROLE_KEY`.
+6. Restart the development server.
+
+Never expose `SUPABASE_SERVICE_ROLE_KEY` in client-side code or commit it to the repository.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

@@ -17,7 +17,7 @@ export function Cohort() {
               id="cohort-title"
               eyebrow="Next Cohort"
               title="Next Cohort"
-              description="The upcoming August cohort combines the Theology & Discipleship Core with Web Development or Cybersecurity Foundations."
+              description="The next cohort combines Discipleship & Theology Formation with Web Development or Cybersecurity Foundations."
             />
             </div>
             <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">

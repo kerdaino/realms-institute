@@ -14,7 +14,6 @@ const trustItems = [
 export function Hero() {
   return (
     <section id="home" aria-labelledby="hero-title" className="relative isolate overflow-hidden bg-[linear-gradient(125deg,#050d1c_0%,#0b2140_58%,#15345c_100%)] px-5 pb-0 pt-16 md:px-8 md:pt-24">
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_75%_22%,rgba(215,170,69,0.12),transparent_25rem)]" />
       <div className="mx-auto grid max-w-7xl gap-12 pb-16 lg:grid-cols-[1.2fr_0.8fr] lg:items-center lg:pb-24">
         <div>
           <Badge>Next Cohort Opening Soon</Badge>
@@ -23,7 +22,7 @@ export function Hero() {
             Be Formed in God. <span className="text-[var(--realm-gold-soft)]">Be Equipped for Your Field.</span>
           </h1>
           <p className="mt-7 max-w-3xl text-lg leading-8 text-[var(--realm-muted)] md:text-xl md:leading-9">
-            Join REALMS School of Discovery, a Christian formation and skill-equipping program designed to ground believers in God while training them in practical pathways like Web Development and Cybersecurity Foundations.
+            REALMS Institute combines Christian discipleship, doctrine, prayer, calling discovery, and practical skill training to raise believers who can serve God faithfully in every sphere of influence.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
             <PrimaryButton href="/register" showIcon>Apply for Next Cohort</PrimaryButton>

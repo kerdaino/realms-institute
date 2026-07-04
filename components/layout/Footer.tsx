@@ -17,7 +17,7 @@ export function Footer() {
           </div>
         </div>
         <nav aria-label="Institutional links">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--realm-gold-soft)]">Future Platform</p>
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--realm-gold-soft)]">Explore</p>
           <ul className="grid gap-2">
             {footerLinks.map((link) => (
               <li key={link.href}><Link className="hover:text-[var(--realm-white)]" href={link.href}>{link.label}</Link></li>

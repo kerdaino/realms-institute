@@ -30,8 +30,8 @@ export function Mission() {
         <SectionHeading
           id="mission-title"
           eyebrow="Mission"
-          title="From the Classroom to the Nations"
-          description="Learning becomes powerful when it produces formation, deployment, and faithful influence. REALMS Institute prepares believers to carry Christ into missions, campuses, communities, media, technology, families, governance, and the marketplace with purity, intelligence, and excellence."
+          title="Learning for Faithful Service"
+          description="REALMS Institute helps believers connect Christian formation and practical learning with faithful service in missions, campuses, communities, media, technology, families, governance, and the marketplace."
         />
       </div>
     </SectionContainer>

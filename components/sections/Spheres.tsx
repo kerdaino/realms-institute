@@ -11,13 +11,13 @@ const icons = [Heart, GraduationCap, Church, Megaphone, Cpu, Building2, Send, La
 
 export function Spheres() {
   return (
-    <SectionContainer id="spheres" labelledBy="spheres-title" withGrid>
+    <SectionContainer id="spheres" labelledBy="spheres-title">
       <div className={realmClasses.container}>
         <SectionHeading
           id="spheres-title"
           eyebrow="Kingdom Influence"
           title="Formed for Every Sphere of Influence"
-          description="REALMS prepares glory-revealing Christians to carry truth, wisdom, excellent work, and faithful witness wherever God assigns them."
+          description="REALMS encourages participants to carry truth, wisdom, excellent work, and faithful Christian witness into every area of service."
           align="center"
         />
         <AnimatedReveal className="mt-12 grid grid-cols-2 gap-3 md:grid-cols-4" variant="staggerChildren">

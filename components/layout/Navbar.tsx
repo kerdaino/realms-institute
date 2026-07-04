@@ -34,17 +34,17 @@ export function Navbar() {
               {siteConfig.instituteName}
             </span>
             <span className="mt-1 hidden text-xs text-[var(--realm-muted)] sm:block">
-              Kingdom formation institute
+              Christian formation &amp; skill equipping
             </span>
           </span>
         </Link>
-        <ul className="hidden items-center gap-1 xl:flex">
+        <ul className="hidden items-center gap-2 lg:flex">
           {navLinks.map((link) => (
             <li key={link.href}>
               <Link
                 href={link.href}
                 className={cn(
-                  "rounded-full px-2.5 py-2 text-[0.8rem] text-[var(--realm-muted)] hover:bg-white/[0.05] hover:text-[var(--realm-white)]",
+                  "rounded-full px-3 py-2 text-sm text-[var(--realm-muted)] hover:bg-white/[0.05] hover:text-[var(--realm-white)]",
                   realmClasses.focus,
                 )}
               >
@@ -53,7 +53,7 @@ export function Navbar() {
             </li>
           ))}
         </ul>
-        <div className="hidden items-center gap-3 xl:flex">
+        <div className="hidden items-center gap-3 lg:flex">
           <PrimaryButton href="/register" className="min-h-10 px-4">
             Apply Now
           </PrimaryButton>
@@ -64,7 +64,7 @@ export function Navbar() {
           aria-controls="mobile-navigation"
           aria-expanded={isOpen}
           className={cn(
-            "inline-flex size-11 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.06] text-[var(--realm-white)] xl:hidden",
+            "inline-flex size-11 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.06] text-[var(--realm-white)] lg:hidden",
             realmClasses.focus,
           )}
           onClick={() => setIsOpen((open) => !open)}
@@ -79,7 +79,7 @@ export function Navbar() {
       <div
         id="mobile-navigation"
         className={cn(
-          "grid border-t border-[var(--realm-border)] bg-[var(--realm-navy)]/96 px-5 transition-[grid-template-rows] duration-200 xl:hidden",
+            "grid border-t border-[var(--realm-border)] bg-[var(--realm-navy)]/96 px-5 transition-[grid-template-rows] duration-200 lg:hidden",
           isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
         )}
       >

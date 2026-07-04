@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     : undefined,
   title: "REALMS Institute",
   description:
-    "Bringing the Will of the Father into the Earth Realm through discipleship, doctrine, prayer, calling discovery, and skill formation.",
+    "A Christian formation and skill-equipping institute offering discipleship and practical learning pathways.",
   applicationName: "REALMS Institute",
   creator: "REALMS Institute",
   icons: {
