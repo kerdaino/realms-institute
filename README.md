@@ -37,6 +37,27 @@ Use Paystack test mode first before any live announcement. Do not commit secret 
 
 Never expose `SUPABASE_SERVICE_ROLE_KEY` in client-side code or commit it to the repository.
 
+## Email setup
+
+1. Create a Resend account.
+2. Verify your sending domain.
+3. Add `RESEND_API_KEY` to `.env.local`.
+4. Add `RESEND_FROM_EMAIL` (for example, `REALMS Institute <noreply@yourdomain.com>`).
+5. Add `REALMS_ADMIN_EMAIL`.
+6. Restart the development server.
+
+Use a verified sender and domain before production. Email delivery is attempted only after Paystack confirms a successful payment and Supabase saves the registration.
+
+## Admin setup
+
+1. Add `REALMS_ADMIN_PASSWORD` to `.env.local`.
+2. Run the app.
+3. Visit `/admin`.
+4. Log in with the configured password.
+5. Manage registrations from `/admin/dashboard` and `/admin/registrations`.
+
+This is temporary password protection for launch. Replace it with proper user authentication and role-based access for long-term use.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

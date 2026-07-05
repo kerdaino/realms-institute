@@ -5,8 +5,33 @@ import { validateRegistrationPayload } from "@/lib/registration";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type RegistrationSaveResult =
-  | { saved: true; id: string }
+  | { saved: true; id: string; registration: SavedRegistration }
   | { saved: false; reason: string };
+
+export type SavedRegistration = {
+  id: string;
+  full_name: string;
+  email: string;
+  whatsapp: string;
+  country: string;
+  city: string;
+  gender: string;
+  age_range: string;
+  church: string | null;
+  learning_mode: string;
+  skill_pathway: string;
+  reason: string;
+  referral_source: string;
+  amount: number;
+  currency: string;
+  amount_display: string | null;
+  payment_reference: string;
+  paid_at: string | null;
+  confirmation_email_sent: boolean;
+  confirmation_email_sent_at: string | null;
+  admin_email_sent: boolean;
+  admin_email_sent_at: string | null;
+};
 
 type CalculatedFeeMetadata = {
   amount: number;
@@ -67,9 +92,9 @@ export async function saveVerifiedRegistrationFromPaystack(paystackData: Paystac
       paystack_raw: paystackData,
       metadata,
     }, { onConflict: "payment_reference" })
-    .select("id")
+    .select("id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, amount, currency, amount_display, payment_reference, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at")
     .single();
 
   if (error || !data?.id) throw new Error(`Supabase registration save failed: ${error?.message || "No saved record was returned."}`);
-  return { saved: true, id: String(data.id) };
+  return { saved: true, id: String(data.id), registration: data as SavedRegistration };
 }

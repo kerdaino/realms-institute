@@ -22,8 +22,19 @@ create table if not exists public.registrations (
   paid_at timestamptz,
   paystack_customer_email text,
   paystack_raw jsonb,
-  metadata jsonb
+  metadata jsonb,
+  confirmation_email_sent boolean not null default false,
+  confirmation_email_sent_at timestamptz,
+  admin_email_sent boolean not null default false,
+  admin_email_sent_at timestamptz
 );
+
+-- Safe migration for projects where registrations already exists.
+alter table public.registrations
+  add column if not exists confirmation_email_sent boolean not null default false,
+  add column if not exists confirmation_email_sent_at timestamptz,
+  add column if not exists admin_email_sent boolean not null default false,
+  add column if not exists admin_email_sent_at timestamptz;
 
 -- The unique constraint above creates the required unique payment-reference index.
 create index if not exists registrations_email_idx on public.registrations (email);

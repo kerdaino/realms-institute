@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { verifyPaystackTransaction } from "@/lib/paystack";
 import { calculateCohortFee, validateRegistrationPayload } from "@/lib/registration";
+import { sendRegistrationEmailsIfNeeded, type RegistrationEmailStatus } from "@/lib/registrationEmails";
 import { saveVerifiedRegistrationFromPaystack, type RegistrationSaveResult } from "@/lib/saveRegistration";
 
 export async function GET(request: Request) {
@@ -39,6 +40,18 @@ export async function GET(request: Request) {
       registrationSave = { saved: false, reason: "Payment confirmed, but registration could not be saved automatically." };
     }
 
+    let emailStatus: RegistrationEmailStatus = {
+      applicant: { sent: false, reason: "Supabase is required to prevent duplicate emails." },
+      admin: { sent: false, reason: "Supabase is required to prevent duplicate emails." },
+    };
+    if (registrationSave.saved) {
+      emailStatus = await sendRegistrationEmailsIfNeeded(registrationSave.registration);
+    }
+
+    const publicRegistrationSave = registrationSave.saved
+      ? { saved: true as const, id: registrationSave.id }
+      : registrationSave;
+
     return NextResponse.json({
       success: true,
       status: "success",
@@ -49,7 +62,8 @@ export async function GET(request: Request) {
       paidAt: transaction.paid_at ?? transaction.paidAt ?? null,
       customer: transaction.customer ?? null,
       metadata,
-      registrationSave,
+      registrationSave: publicRegistrationSave,
+      emailStatus,
     });
   } catch (error) {
     console.error("Paystack verification failed", error);
