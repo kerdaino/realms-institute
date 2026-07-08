@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import type { RegistrationSummary } from "@/lib/adminRegistrations";
 
-const labels: Array<[keyof RegistrationSummary, string]> = [["total", "Total registrations"], ["paid", "Paid registrations"], ["physical", "Physical students"], ["online", "Online students"], ["webDevelopment", "Web Development"], ["cybersecurity", "Cybersecurity Foundations"], ["nigerian", "Nigerian students"], ["international", "International students"]];
+const labels: Array<[keyof RegistrationSummary, string]> = [["pendingReview", "Pending Review"], ["admitted", "Admitted"], ["contacted", "Contacted"], ["waitlisted", "Waitlisted"], ["notAdmitted", "Not Admitted"], ["total", "Total registrations"], ["paid", "Paid registrations"], ["physical", "Physical applicants"], ["online", "Online applicants"], ["webDevelopment", "Web Development"], ["cybersecurity", "Cybersecurity Foundations"], ["nigerian", "Nigerian applicants"], ["international", "International applicants"]];
 
 export function DashboardStats() {
   const [summary, setSummary] = useState<RegistrationSummary | null>(null);

@@ -85,7 +85,7 @@ export function RegistrationForm() {
         <p className="mt-5 border-t border-white/10 pt-4 text-sm leading-6 text-white/65">Secure checkout is handled by Paystack. REALMS Institute does not collect your card details.</p>
       </div>
 
-      <p id="registration-note" className="text-sm leading-6 text-slate-600">Payment confirms your registration interest and supports cohort participation. Onboarding details, class schedule, and student instructions will be communicated after payment confirmation.</p>
+      <p id="registration-note" className="text-sm leading-6 text-slate-600">Payment confirms your registration interest and allows REALMS Institute to process your application for the next cohort. Admission/onboarding details will be communicated after review.</p>
       <p id="pricing-note" className="text-sm leading-6 text-slate-600">The applicable fee is Physical: ₦10,000, Online Nigeria: ₦15,000, or International Online: $20.</p>
       {error ? <p id="registration-error" role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}</p> : <span id="registration-error" />}
       <PrimaryButton type="submit" disabled={loading || !fee} className="w-full sm:w-fit" showIcon>

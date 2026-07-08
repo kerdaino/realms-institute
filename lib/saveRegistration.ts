@@ -26,6 +26,10 @@ export type SavedRegistration = {
   currency: string;
   amount_display: string | null;
   payment_reference: string;
+  application_status: string;
+  admin_note: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
   paid_at: string | null;
   confirmation_email_sent: boolean;
   confirmation_email_sent_at: string | null;
@@ -54,6 +58,8 @@ function readCustomerEmail(customer: unknown) {
   return typeof email === "string" && email.trim() ? email.trim() : null;
 }
 
+const savedRegistrationSelect = "id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, amount, currency, amount_display, payment_reference, application_status, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at";
+
 export async function saveVerifiedRegistrationFromPaystack(paystackData: PaystackVerificationData): Promise<RegistrationSaveResult> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { saved: false, reason: "Supabase is not configured." };
@@ -68,7 +74,7 @@ export async function saveVerifiedRegistrationFromPaystack(paystackData: Paystac
   const registration = validation.data;
   const { data, error } = await supabase
     .from("registrations")
-    .upsert({
+    .insert({
       full_name: registration.fullName,
       email: registration.email,
       whatsapp: registration.whatsapp,
@@ -87,13 +93,25 @@ export async function saveVerifiedRegistrationFromPaystack(paystackData: Paystac
       amount_display: calculatedFee.display,
       payment_reference: paystackData.reference,
       payment_status: "success",
+      application_status: "pending_review",
       paid_at: paystackData.paid_at ?? paystackData.paidAt ?? null,
       paystack_customer_email: readCustomerEmail(paystackData.customer),
       paystack_raw: paystackData,
       metadata,
-    }, { onConflict: "payment_reference" })
-    .select("id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, amount, currency, amount_display, payment_reference, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at")
+    })
+    .select(savedRegistrationSelect)
     .single();
+
+  if (error?.code === "23505") {
+    const { data: existing, error: existingError } = await supabase
+      .from("registrations")
+      .select(savedRegistrationSelect)
+      .eq("payment_reference", paystackData.reference)
+      .maybeSingle();
+
+    if (existingError || !existing?.id) throw new Error(`Supabase registration lookup failed: ${existingError?.message || "No saved record was returned."}`);
+    return { saved: true, id: String(existing.id), registration: existing as SavedRegistration };
+  }
 
   if (error || !data?.id) throw new Error(`Supabase registration save failed: ${error?.message || "No saved record was returned."}`);
   return { saved: true, id: String(data.id), registration: data as SavedRegistration };

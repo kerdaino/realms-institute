@@ -23,6 +23,10 @@ create table if not exists public.registrations (
   paystack_customer_email text,
   paystack_raw jsonb,
   metadata jsonb,
+  application_status text not null default 'pending_review' check (application_status in ('pending_review', 'admitted', 'not_admitted', 'waitlisted', 'contacted')),
+  admin_note text,
+  reviewed_at timestamptz,
+  reviewed_by text,
   confirmation_email_sent boolean not null default false,
   confirmation_email_sent_at timestamptz,
   admin_email_sent boolean not null default false,
@@ -31,6 +35,10 @@ create table if not exists public.registrations (
 
 -- Safe migration for projects where registrations already exists.
 alter table public.registrations
+  add column if not exists application_status text not null default 'pending_review',
+  add column if not exists admin_note text,
+  add column if not exists reviewed_at timestamptz,
+  add column if not exists reviewed_by text,
   add column if not exists confirmation_email_sent boolean not null default false,
   add column if not exists confirmation_email_sent_at timestamptz,
   add column if not exists admin_email_sent boolean not null default false,

@@ -6,13 +6,14 @@ import { sendRegistrationEmailsIfNeeded, type RegistrationEmailStatus } from "@/
 import { saveVerifiedRegistrationFromPaystack, type RegistrationSaveResult } from "@/lib/saveRegistration";
 
 export async function GET(request: Request) {
-  if (!process.env.PAYSTACK_SECRET_KEY) {
-    return NextResponse.json({ success: false, message: "Payment configuration is missing." }, { status: 500 });
-  }
-
-  const reference = new URL(request.url).searchParams.get("reference")?.trim();
+  const reference = new URL(request.url).searchParams.get("reference")?.trim() ?? "";
+  console.info("Paystack verification reference received", { reference: reference || null });
   if (!reference || reference.length > 160 || !/^[A-Za-z0-9._-]+$/.test(reference)) {
     return NextResponse.json({ success: false, message: "A valid payment reference is required." }, { status: 400 });
+  }
+
+  if (!process.env.PAYSTACK_SECRET_KEY) {
+    return NextResponse.json({ success: false, message: "Payment configuration is missing." }, { status: 500 });
   }
 
   try {
