@@ -1,13 +1,13 @@
 import "server-only";
 
-import type { CohortFee, RegistrationPayload } from "@/lib/registration";
+import type { CohortFee } from "@/lib/registration";
 
 type InitializeParams = {
   email: string;
   fee: CohortFee;
   reference: string;
   callbackUrl: string;
-  registration: RegistrationPayload;
+  metadata: Record<string, unknown>;
 };
 
 type PaystackEnvelope<T> = {
@@ -46,11 +46,7 @@ export async function initializePaystackTransaction(params: InitializeParams) {
     currency: params.fee.currency,
     reference: params.reference,
     callback_url: params.callbackUrl,
-    metadata: {
-      registration: params.registration,
-      calculatedFee: params.fee,
-      source: "realms_next_cohort_registration",
-    },
+    metadata: params.metadata,
   };
 
   if (process.env.PAYSTACK_REALMS_SUBACCOUNT) payload.subaccount = process.env.PAYSTACK_REALMS_SUBACCOUNT;

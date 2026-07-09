@@ -37,16 +37,49 @@ Use Paystack test mode first before any live announcement. Do not commit secret 
 
 Never expose `SUPABASE_SERVICE_ROLE_KEY` in client-side code or commit it to the repository.
 
-## Email setup
+For an existing `registrations` table, run this migration before testing new payments:
 
-1. Create a Resend account.
-2. Verify your sending domain.
-3. Add `RESEND_API_KEY` to `.env.local`.
-4. Add `RESEND_FROM_EMAIL` (for example, `REALMS Institute <noreply@yourdomain.com>`).
-5. Add `REALMS_ADMIN_EMAIL`.
-6. Restart the development server.
+```sql
+alter table registrations
+add column if not exists fee_policy_consent boolean not null default false,
+add column if not exists computer_access_confirmed boolean not null default false,
+add column if not exists public_fee_display text,
+add column if not exists exchange_note text,
+add column if not exists application_status text not null default 'pending_review',
+add column if not exists admin_note text,
+add column if not exists reviewed_at timestamptz,
+add column if not exists reviewed_by text;
+```
 
-Use a verified sender and domain before production. Email delivery is attempted only after Paystack confirms a successful payment and Supabase saves the registration.
+For email tracking on an existing `registrations` table, run this migration:
+
+```sql
+alter table registrations
+add column if not exists confirmation_email_sent boolean not null default false,
+add column if not exists confirmation_email_sent_at timestamptz,
+add column if not exists admin_email_sent boolean not null default false,
+add column if not exists admin_email_sent_at timestamptz,
+add column if not exists admission_email_sent boolean not null default false,
+add column if not exists admission_email_sent_at timestamptz;
+```
+
+## Resend Email Setup
+
+1. Add and verify domain in Resend.
+2. Add DNS records in Vercel DNS.
+3. Create Resend API key.
+4. Add environment variables:
+
+```bash
+RESEND_API_KEY=
+RESEND_FROM_EMAIL="REALMS Institute <admissions@mail.grccglobal.org>"
+REALMS_ADMIN_EMAIL=gloryrealm2025@gmail.com
+```
+
+5. Restart dev server.
+6. Test with a fresh Paystack transaction.
+
+Email sending should never block payment verification or registration saving. Use `NEXT_PUBLIC_SITE_URL=https://realms.grccglobal.org` in production and `NEXT_PUBLIC_SITE_URL=http://localhost:3000` for local testing.
 
 ## Admin setup
 

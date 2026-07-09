@@ -48,11 +48,25 @@ export const cohortPricing = {
   },
   internationalOnline: {
     label: "International Online",
-    amount: 20,
-    currency: "USD",
-    display: "$20",
+    publicDisplay: "$20 equivalent",
+    amount: 24000,
+    currency: "NGN",
+    display: "₦24,000",
+    exchangeRate: 1200,
+    exchangeNote: "International Online: $20 equivalent.",
   },
 } as const;
+
+export const whatsappChannelUrl = "https://whatsapp.com/channel/0029VbC6zkX9mrGkzCTXTS0s";
+
+export const feeLabel = "Non-refundable Registration/Application Fee";
+export const feeClarification = "The REALMS School of Discovery program is free after registration. No additional tuition or program fee will be charged for this cohort.";
+export const feePolicyNote = "The registration/application fee is non-refundable and helps cover application processing, cohort preparation, and participation support.";
+export const feePricingNote = "Physical Nigeria: ₦10,000, Online Nigeria: ₦15,000, International Online: $20 equivalent.";
+export const computerRequirementText = "Applicants choosing Web Development or Cybersecurity Foundations should have regular access to a laptop or desktop computer. A mobile phone alone will not be sufficient for the practical skill pathway.";
+export const computerRequirementShort = "This pathway requires access to a laptop or desktop computer for practical classes, assignments, and exercises.";
+export const programStructureNote = "REALMS School of Discovery includes Discipleship & Theology Formation and one Practical Skill Pathway.";
+export const skillPathwayParticipationNote = "The skill pathway requires practical participation, assignments, and access to a computer.";
 
 export const skillPathways = [
   "Web Development",
@@ -334,8 +348,8 @@ export const discoveryLearningFormat = [
 
 export const admissionProcess = [
   { title: "Apply Online", description: "Complete the cohort application with your contact and pathway details." },
-  { title: "Pay Registration and Cohort Participation Fee", description: "Proceed to secure Paystack checkout to confirm your registration interest and support cohort participation." },
-  { title: "Receive Confirmation", description: "Receive confirmation and further cohort information from REALMS Institute." },
+  { title: `Pay ${feeLabel}`, description: "Proceed to secure Paystack checkout so REALMS Institute can process your application for review." },
+  { title: "Application Review", description: "REALMS Institute reviews your application and contacts you with admission/onboarding status and next steps." },
   { title: "Join Onboarding / Orientation", description: "Understand the formation culture, schedule, expectations, and learning structure." },
   { title: "Begin Formation", description: "Enter the cohort ready for learning, prayer, accountability, and obedience." },
 ] as const;
@@ -345,6 +359,7 @@ export const admissionRequirements = [
   "Willingness to learn and submit to structure",
   "Commitment to prayer and assignments",
   "Access to WhatsApp and internet for online students",
+  computerRequirementText,
   "Openness to discipleship and correction",
 ] as const;
 

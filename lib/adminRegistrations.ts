@@ -5,13 +5,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isApplicationStatus, type ApplicationStatus } from "@/lib/applicationStatus";
 import { learningModes, skillPathways } from "@/lib/constants";
 
-export const adminRegistrationFields = "id, created_at, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, consent, amount, currency, amount_display, payment_reference, payment_status, application_status, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, admin_email_sent";
+export const adminRegistrationFields = "id, created_at, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, consent, fee_policy_consent, computer_access_confirmed, amount, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status, application_status, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, admission_email_sent, admission_email_sent_at";
 
 export type AdminRegistration = {
   id: string; created_at: string; full_name: string; email: string; whatsapp: string; country: string; city: string;
   gender: string; age_range: string; church: string | null; learning_mode: string; skill_pathway: string; reason: string;
-  referral_source: string; consent: boolean; amount: number; currency: string; amount_display: string | null;
-  payment_reference: string; payment_status: string; application_status: ApplicationStatus; admin_note: string | null; reviewed_at: string | null; reviewed_by: string | null; paid_at: string | null; confirmation_email_sent: boolean; admin_email_sent: boolean;
+  referral_source: string; consent: boolean; fee_policy_consent: boolean; computer_access_confirmed: boolean; amount: number; currency: string; public_fee_display: string | null; amount_display: string | null; exchange_note: string | null;
+  payment_reference: string; payment_status: string; application_status: ApplicationStatus; admin_note: string | null; reviewed_at: string | null; reviewed_by: string | null; paid_at: string | null; confirmation_email_sent: boolean; confirmation_email_sent_at: string | null; admin_email_sent: boolean; admin_email_sent_at: string | null; admission_email_sent: boolean; admission_email_sent_at: string | null;
 };
 
 export type RegistrationSummary = { total: number; paid: number; physical: number; online: number; webDevelopment: number; cybersecurity: number; nigerian: number; international: number; pendingReview: number; admitted: number; contacted: number; waitlisted: number; notAdmitted: number };

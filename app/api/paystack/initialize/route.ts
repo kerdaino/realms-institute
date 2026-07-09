@@ -28,14 +28,52 @@ export async function POST(request: Request) {
   const reference = generatePaymentReference();
   const callbackUrl = new URL("/payment/verify", process.env.NEXT_PUBLIC_SITE_URL);
   callbackUrl.searchParams.set("reference", reference);
+  const registration = validation.data;
+  const metadata = {
+    source: "realms_next_cohort_registration",
+    registration: {
+      fullName: registration.fullName,
+      email: registration.email,
+      whatsapp: registration.whatsapp,
+      country: registration.country,
+      city: registration.city,
+      gender: registration.gender,
+      ageRange: registration.ageRange,
+      church: registration.church,
+      learningMode: registration.learningMode,
+      skillPathway: registration.skillPathway,
+      reason: registration.reason,
+      referralSource: registration.referralSource,
+      consent: registration.consent,
+      feePolicyConsent: registration.feePolicyConsent,
+      computerAccessConfirmed: registration.computerAccessConfirmed,
+    },
+    calculatedFee: {
+      amount: fee.amount,
+      currency: fee.currency,
+      display: fee.display,
+      publicDisplay: "publicDisplay" in fee ? fee.publicDisplay : fee.display,
+      exchangeRate: "exchangeRate" in fee ? fee.exchangeRate : undefined,
+      exchangeNote: "exchangeNote" in fee ? fee.exchangeNote : undefined,
+    },
+  };
+
+  console.log("Initializing REALMS payment:", {
+    email: registration.email,
+    reference,
+    amount: fee.amount,
+    currency: fee.currency,
+    hasRegistrationMetadata: Boolean(metadata.registration),
+    source: metadata.source,
+  });
 
   try {
     const transaction = await initializePaystackTransaction({
-      email: validation.data.email,
+      email: registration.email,
       fee,
       reference,
       callbackUrl: callbackUrl.toString(),
-      registration: validation.data,
+      metadata,
     });
 
     return NextResponse.json({

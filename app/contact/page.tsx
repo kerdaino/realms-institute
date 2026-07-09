@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { InfoPanel } from "@/components/ui/InfoPanel";
 import { SectionContainer } from "@/components/ui/SectionContainer";
+import { whatsappChannelUrl } from "@/lib/constants";
 import { realmClasses } from "@/lib/theme";
 
 export const metadata: Metadata = {
@@ -70,6 +71,11 @@ export default function ContactPage() {
             <InfoPanel title="Email" description="realmsinstitute@grccglobal.org" icon={<Mail aria-hidden="true" className="size-5" />} />
             <InfoPanel title="Location" description="Gloryrealm Christian Centre" icon={<MapPin aria-hidden="true" className="size-5" />} />
             <InfoPanel title="Learning Mode" description="Physical or Online" icon={<MonitorSmartphone aria-hidden="true" className="size-5" />} />
+            <GlassCard className="p-5 sm:col-span-3 lg:col-span-1">
+              <h2 className="text-lg font-semibold text-[var(--realm-white)]">REALMS WhatsApp Channel</h2>
+              <p className="mt-2 text-sm leading-6 text-[var(--realm-muted)]">Stay updated through the REALMS Institute WhatsApp Channel.</p>
+              <div className="mt-4"><Button href={whatsappChannelUrl} target="_blank" rel="noopener noreferrer" showIcon>Join WhatsApp Channel</Button></div>
+            </GlassCard>
           </div>
         </div>
       </SectionContainer>

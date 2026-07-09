@@ -14,35 +14,50 @@ create table if not exists public.registrations (
   reason text not null,
   referral_source text not null,
   consent boolean not null default false,
+  fee_policy_consent boolean not null default false,
+  computer_access_confirmed boolean not null default false,
   amount numeric not null,
   currency text not null,
+  public_fee_display text,
   amount_display text,
+  exchange_note text,
   payment_reference text not null constraint registrations_payment_reference_key unique,
   payment_status text not null,
   paid_at timestamptz,
   paystack_customer_email text,
   paystack_raw jsonb,
   metadata jsonb,
-  application_status text not null default 'pending_review' check (application_status in ('pending_review', 'admitted', 'not_admitted', 'waitlisted', 'contacted')),
+  application_status text not null default 'pending_review' check (application_status in ('pending_review', 'admitted', 'contacted', 'waitlisted', 'not_admitted')),
   admin_note text,
   reviewed_at timestamptz,
   reviewed_by text,
   confirmation_email_sent boolean not null default false,
   confirmation_email_sent_at timestamptz,
   admin_email_sent boolean not null default false,
-  admin_email_sent_at timestamptz
+  admin_email_sent_at timestamptz,
+  admission_email_sent boolean not null default false,
+  admission_email_sent_at timestamptz
 );
 
--- Safe migration for projects where registrations already exists.
-alter table public.registrations
+-- Required migration for projects where registrations already exists.
+alter table registrations
+  add column if not exists fee_policy_consent boolean not null default false,
+  add column if not exists computer_access_confirmed boolean not null default false,
+  add column if not exists public_fee_display text,
+  add column if not exists exchange_note text,
   add column if not exists application_status text not null default 'pending_review',
   add column if not exists admin_note text,
   add column if not exists reviewed_at timestamptz,
-  add column if not exists reviewed_by text,
+  add column if not exists reviewed_by text;
+
+-- Email tracking migration for projects where registrations already exists.
+alter table public.registrations
   add column if not exists confirmation_email_sent boolean not null default false,
   add column if not exists confirmation_email_sent_at timestamptz,
   add column if not exists admin_email_sent boolean not null default false,
-  add column if not exists admin_email_sent_at timestamptz;
+  add column if not exists admin_email_sent_at timestamptz,
+  add column if not exists admission_email_sent boolean not null default false,
+  add column if not exists admission_email_sent_at timestamptz;
 
 -- The unique constraint above creates the required unique payment-reference index.
 create index if not exists registrations_email_idx on public.registrations (email);

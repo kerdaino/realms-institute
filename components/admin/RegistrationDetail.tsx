@@ -12,6 +12,8 @@ export function RegistrationDetail({ id }: { id: string }) {
   const [message, setMessage] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
 
   useEffect(() => {
     fetch(`/api/admin/registrations/${encodeURIComponent(id)}`, { cache: "no-store" })
@@ -35,16 +37,35 @@ export function RegistrationDetail({ id }: { id: string }) {
         body: JSON.stringify({
           applicationStatus: form.get("applicationStatus"),
           adminNote: form.get("adminNote"),
+          sendEmail: form.get("sendEmail") === "on",
         }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.message || "Review status could not be saved.");
       setRegistration(body.registration);
-      setSaveMessage("Review status saved.");
+      setSaveMessage(body.emailStatus?.sent ? "Review status saved and status update email sent." : "Review status saved.");
     } catch (error) {
       setSaveMessage(error instanceof Error ? error.message : "Review status could not be saved.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function resendApplicationEmails() {
+    setResending(true);
+    setResendMessage("");
+    try {
+      const response = await fetch(`/api/admin/registrations/${encodeURIComponent(id)}/resend-emails`, { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.message || "Application emails could not be resent.");
+      setRegistration(body.registration);
+      const applicant = body.emailStatus?.applicant?.sent ? "applicant sent" : `applicant: ${body.emailStatus?.applicant?.reason || "not sent"}`;
+      const admin = body.emailStatus?.admin?.sent ? "admin sent" : `admin: ${body.emailStatus?.admin?.reason || "not sent"}`;
+      setResendMessage(`Resend attempted (${applicant}; ${admin}).`);
+    } catch (error) {
+      setResendMessage(error instanceof Error ? error.message : "Application emails could not be resent.");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -60,16 +81,16 @@ export function RegistrationDetail({ id }: { id: string }) {
       </Section>
 
       <Section title="Cohort">
-        <Details items={[["Learning mode", registration.learning_mode], ["Skill pathway", registration.skill_pathway], ["Reason for joining", registration.reason], ["Referral source", registration.referral_source], ["Consent", registration.consent ? "Confirmed" : "Not confirmed"]]} />
+        <Details items={[["Learning mode", registration.learning_mode], ["Skill pathway", registration.skill_pathway], ["Reason for joining", registration.reason], ["Referral source", registration.referral_source], ["Formation consent", registration.consent ? "Confirmed" : "Not confirmed"], ["Fee Policy Consent", registration.fee_policy_consent ? "Confirmed" : "Not confirmed"], ["Computer Access Confirmed", registration.computer_access_confirmed ? "Confirmed" : "Not confirmed"]]} />
       </Section>
 
       <Section title="Payment">
-        <Details items={[["Amount", registration.amount_display || `${registration.currency} ${registration.amount}`], ["Currency", registration.currency], ["Payment reference", registration.payment_reference], ["Payment status", registration.payment_status], ["Paid at", formatDate(registration.paid_at)]]} />
+        <Details items={[["Public Fee", registration.public_fee_display || registration.amount_display || `${registration.currency} ${registration.amount}`], ["Amount Paid", registration.amount_display || `${registration.currency} ${registration.amount}`], ["Currency", registration.currency], ["Payment reference", registration.payment_reference], ["Payment status", registration.payment_status], ["Paid at", formatDate(registration.paid_at)]]} />
       </Section>
 
       <Section title="Application Review">
         <Details items={[["Application status", applicationStatusLabels[registration.application_status]], ["Admin note", registration.admin_note || "No note recorded"], ["Reviewed at", formatDate(registration.reviewed_at)], ["Reviewed by", registration.reviewed_by || "Not recorded"]]} />
-        <p className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">After reviewing this applicant, contact them via WhatsApp or email with their admission/onboarding status and next steps.</p>
+        <p className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">After reviewing this applicant, contact them by email with their admission/onboarding status and next steps.</p>
         <form onSubmit={updateStatus} className="mt-6 grid gap-4">
           <label className="grid gap-2 text-sm font-semibold text-slate-800">
             <span>Application status</span>
@@ -81,13 +102,19 @@ export function RegistrationDetail({ id }: { id: string }) {
             <span>Admin note</span>
             <textarea name="adminNote" defaultValue={registration.admin_note || ""} rows={5} className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-normal text-slate-950 outline-none focus:border-amber-600" />
           </label>
+          <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-[#f7f5ef] p-4 text-sm leading-6 text-slate-700">
+            <input name="sendEmail" type="checkbox" className="mt-1 size-4 accent-[#a47720]" />
+            <span>Send status update email to applicant</span>
+          </label>
           <button disabled={saving} className="w-fit rounded-lg bg-[#071327] px-5 py-3 text-sm font-semibold text-white hover:bg-[#102344] disabled:cursor-not-allowed disabled:opacity-60">{saving ? "Saving..." : "Save Review Status"}</button>
         </form>
         {saveMessage ? <p className="mt-4 text-sm font-semibold text-slate-700">{saveMessage}</p> : null}
       </Section>
 
       <Section title="Emails">
-        <Details items={[["Confirmation email sent", registration.confirmation_email_sent ? "Yes" : "No"], ["Admin email sent", registration.admin_email_sent ? "Yes" : "No"]]} />
+        <Details items={[["Applicant confirmation email", registration.confirmation_email_sent ? "Sent" : "Not sent"], ["Applicant confirmation sent at", formatDate(registration.confirmation_email_sent_at)], ["Admin notification email", registration.admin_email_sent ? "Sent" : "Not sent"], ["Admin notification sent at", formatDate(registration.admin_email_sent_at)], ["Admission/status email", registration.admission_email_sent ? "Sent" : "Not sent"], ["Admission/status sent at", formatDate(registration.admission_email_sent_at)]]} />
+        <button type="button" disabled={resending} onClick={resendApplicationEmails} className="mt-5 w-fit rounded-lg border border-[#071327] px-5 py-3 text-sm font-semibold text-[#071327] hover:bg-[#071327] hover:text-white disabled:cursor-not-allowed disabled:opacity-60">{resending ? "Resending..." : "Resend Application Emails"}</button>
+        {resendMessage ? <p className="mt-4 text-sm font-semibold text-slate-700">{resendMessage}</p> : null}
       </Section>
     </div>
   );

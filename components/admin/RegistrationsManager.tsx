@@ -92,7 +92,7 @@ function RegistrationList({ registrations }: { registrations: AdminRegistration[
       <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white lg:block">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
-            <tr>{["Name", "Email", "WhatsApp", "Country", "Mode", "Skill Pathway", "Amount", "Payment Status", "Application Status", "Paid At", "Actions"].map((label) => <th key={label} className="px-4 py-3 font-semibold">{label}</th>)}</tr>
+            <tr>{["Name", "Email", "WhatsApp", "Country", "Mode", "Skill Pathway", "Public Fee", "Amount Paid", "Payment Status", "Application Status", "Paid At", "Actions"].map((label) => <th key={label} className="px-4 py-3 font-semibold">{label}</th>)}</tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {registrations.map((registration) => (
@@ -103,6 +103,7 @@ function RegistrationList({ registrations }: { registrations: AdminRegistration[
                 <Cell>{registration.country}</Cell>
                 <Cell>{registration.learning_mode}</Cell>
                 <Cell>{registration.skill_pathway}</Cell>
+                <Cell>{registration.public_fee_display || registration.amount_display || `${registration.currency} ${registration.amount}`}</Cell>
                 <Cell>{registration.amount_display || `${registration.currency} ${registration.amount}`}</Cell>
                 <Cell>{registration.payment_status}</Cell>
                 <Cell>{applicationStatusLabels[registration.application_status]}</Cell>
@@ -130,7 +131,8 @@ function RegistrationList({ registrations }: { registrations: AdminRegistration[
               <MobileDetail label="Mode" value={registration.learning_mode} />
               <MobileDetail label="Pathway" value={registration.skill_pathway} />
               <MobileDetail label="Payment" value={registration.payment_status} />
-              <MobileDetail label="Amount" value={registration.amount_display || `${registration.currency} ${registration.amount}`} />
+              <MobileDetail label="Public Fee" value={registration.public_fee_display || registration.amount_display || `${registration.currency} ${registration.amount}`} />
+              <MobileDetail label="Amount Paid" value={registration.amount_display || `${registration.currency} ${registration.amount}`} />
               <MobileDetail label="Paid at" value={formatDate(registration.paid_at)} />
             </dl>
             <Link className="mt-5 inline-block font-semibold text-amber-800 hover:underline" href={`/admin/registrations/${registration.id}`}>View details</Link>

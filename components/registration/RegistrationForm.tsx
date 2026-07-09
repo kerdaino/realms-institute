@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 
 import { PrimaryButton } from "@/components/ui/Button";
-import { ageRanges, genderOptions, learningModes, skillPathways } from "@/lib/constants";
+import { ageRanges, computerRequirementShort, computerRequirementText, currentCohortPathways, feeClarification, feeLabel, feePolicyNote, feePricingNote, genderOptions, learningModes, skillPathways } from "@/lib/constants";
 import { calculateCohortFee } from "@/lib/registration";
 
 const inputClass = "min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base text-slate-950 outline-none placeholder:text-slate-400 focus:border-[#a47720] focus:ring-2 focus:ring-[#d7aa45]/20";
@@ -15,15 +15,18 @@ export function RegistrationForm() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const fee = calculateCohortFee({ country, learningMode });
+  const publicFeeDisplay = fee && "publicDisplay" in fee ? fee.publicDisplay : fee?.display;
+  const showAmountToPay = Boolean(fee && publicFeeDisplay && publicFeeDisplay !== fee.display);
   const isInternationalPhysical = Boolean(country.trim())
     && country.trim().toLowerCase() !== "nigeria"
     && learningMode === "Physical";
+  const requiresComputerAccess = (currentCohortPathways as readonly string[]).includes(skillPathway);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     if (!fee) {
-      setError("Please select your country and learning mode to calculate the registration and cohort participation fee.");
+      setError("Please select your country and learning mode to calculate the non-refundable registration/application fee.");
       return;
     }
     if (isInternationalPhysical) {
@@ -34,6 +37,8 @@ export function RegistrationForm() {
     const form = new FormData(event.currentTarget);
     const payload: Record<string, unknown> = Object.fromEntries(form.entries());
     payload.consent = form.get("consent") === "on";
+    payload.feePolicyConsent = form.get("feePolicyConsent") === "on";
+    payload.computerAccessConfirmed = form.get("computerAccessConfirmed") === "on";
     payload.amount = fee.amount;
     payload.currency = fee.currency;
     try {
@@ -62,7 +67,15 @@ export function RegistrationForm() {
         <Select name="ageRange" label="Age range" options={ageRanges} />
         <Field name="church" label="Church / fellowship (optional)" required={false} />
         <ControlledSelect name="learningMode" label="Preferred learning mode" options={learningModes} value={learningMode} onChange={setLearningMode} />
-        <ControlledSelect name="skillPathway" label="Skill pathway of interest" options={skillPathways} value={skillPathway} onChange={setSkillPathway} />
+        <div className="grid gap-3 md:col-span-2">
+          <ControlledSelect name="skillPathway" label="Skill pathway of interest" options={skillPathways} value={skillPathway} onChange={setSkillPathway} />
+          <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-700">{computerRequirementText}</p>
+          {requiresComputerAccess ? <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-900">{computerRequirementShort}</p> : null}
+          <label className={`flex items-start gap-3 rounded-xl border p-4 text-sm leading-6 ${requiresComputerAccess ? "border-slate-200 bg-[#f7f5ef] text-slate-700" : "border-slate-200 bg-white text-slate-500"}`}>
+            <input required={requiresComputerAccess} name="computerAccessConfirmed" type="checkbox" className="mt-1 size-4 accent-[#a47720]" />
+            <span>I confirm that I have access to a laptop or desktop computer for the skill pathway.</span>
+          </label>
+        </div>
         <TextArea name="reason" label="Why do you want to join REALMS Institute?" />
         <TextArea name="referralSource" label="How did you hear about REALMS Institute?" />
       </div>
@@ -75,18 +88,35 @@ export function RegistrationForm() {
       </label>
 
       <div className="rounded-2xl border border-[#d7aa45]/35 bg-[#071327] p-5 text-white">
-        <p className="text-sm font-semibold text-[var(--realm-gold-soft)]">Registration and Cohort Participation Fee</p>
+        <p className="text-sm font-semibold text-[var(--realm-gold-soft)]">{feeLabel}</p>
         <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
           <Summary label="Learning Mode" value={learningMode || "Not selected"} />
           <Summary label="Skill Pathway" value={skillPathway || "Not selected"} />
           {learningMode === "Online" ? <Summary label="Country" value={country || "Not entered"} /> : null}
-          <Summary label="Amount" value={fee?.display || "Select your options"} />
+          <Summary label="Registration/Application Fee" value={publicFeeDisplay || "Select your options"} />
+          {showAmountToPay ? <Summary label="Amount to Pay" value={fee?.display || "Select your options"} /> : null}
         </dl>
         <p className="mt-5 border-t border-white/10 pt-4 text-sm leading-6 text-white/65">Secure checkout is handled by Paystack. REALMS Institute does not collect your card details.</p>
       </div>
 
-      <p id="registration-note" className="text-sm leading-6 text-slate-600">Payment confirms your registration interest and allows REALMS Institute to process your application for the next cohort. Admission/onboarding details will be communicated after review.</p>
-      <p id="pricing-note" className="text-sm leading-6 text-slate-600">The applicable fee is Physical: ₦10,000, Online Nigeria: ₦15,000, or International Online: $20.</p>
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950">
+        <p className="font-semibold text-[#071327]">Payment Notice</p>
+        <ul className="mt-3 grid gap-2">
+          <li>This is a non-refundable registration/application fee.</li>
+          <li>Payment does not mean automatic admission.</li>
+          <li>REALMS Institute will review your application and contact you with your admission/onboarding status.</li>
+          <li>{feeClarification}</li>
+          <li>Please ensure your details are correct before proceeding to payment.</li>
+        </ul>
+      </div>
+
+      <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-[#f7f5ef] p-4 text-sm leading-6 text-slate-700">
+        <input required name="feePolicyConsent" type="checkbox" className="mt-1 size-4 accent-[#a47720]" />
+        <span>I understand that the registration/application fee is non-refundable, that payment does not guarantee automatic admission, and that REALMS Institute will review my application before sending admission/onboarding details.</span>
+      </label>
+
+      <p id="registration-note" className="text-sm leading-6 text-slate-600">Payment confirms your application interest and allows REALMS Institute to process your application for the next cohort. Admission/onboarding details will be communicated after review.</p>
+      <p id="pricing-note" className="text-sm leading-6 text-slate-600">{feeLabel}: {feePricingNote} {feeClarification} {feePolicyNote}</p>
       {error ? <p id="registration-error" role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}</p> : <span id="registration-error" />}
       <PrimaryButton type="submit" disabled={loading || !fee} className="w-full sm:w-fit" showIcon>
         {loading ? "Preparing secure payment..." : fee ? `Pay ${fee.display} and Submit Application` : "Select Options to Continue"}

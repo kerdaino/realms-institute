@@ -1,4 +1,4 @@
-import { ageRanges, cohortPricing, genderOptions, learningModes, skillPathways } from "@/lib/constants";
+import { ageRanges, cohortPricing, currentCohortPathways, genderOptions, learningModes, skillPathways } from "@/lib/constants";
 
 export type RegistrationPayload = {
   fullName: string;
@@ -14,6 +14,8 @@ export type RegistrationPayload = {
   reason: string;
   referralSource: string;
   consent: boolean;
+  feePolicyConsent: boolean;
+  computerAccessConfirmed: boolean;
 };
 
 export type RegistrationDetails = RegistrationPayload;
@@ -65,10 +67,14 @@ export function validateRegistrationPayload(value: unknown): RegistrationValidat
   const email = typeof input.email === "string" ? input.email.trim() : "";
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = "Please enter a valid email address.";
   if (input.consent !== true) errors.consent = "Please confirm your consent before continuing.";
+  if (input.feePolicyConsent !== true) errors.feePolicyConsent = "Please confirm the registration/application fee policy before continuing.";
   if (typeof input.gender === "string" && !(genderOptions as readonly string[]).includes(input.gender)) errors.gender = "Please select Male or Female.";
   if (typeof input.ageRange === "string" && !(ageRanges as readonly string[]).includes(input.ageRange)) errors.ageRange = "Please select a valid age range.";
   if (typeof input.learningMode === "string" && !(learningModes as readonly string[]).includes(input.learningMode)) errors.learningMode = "Please select Physical or Online.";
   if (typeof input.skillPathway === "string" && !(skillPathways as readonly string[]).includes(input.skillPathway)) errors.skillPathway = "Please select an available skill pathway.";
+  if ((currentCohortPathways as readonly string[]).includes(String(input.skillPathway)) && input.computerAccessConfirmed !== true) {
+    errors.computerAccessConfirmed = "Please confirm access to a laptop or desktop computer for this skill pathway.";
+  }
 
   const country = typeof input.country === "string" ? normalizeCountry(input.country) : "";
   if (country && !isNigeria(country) && input.learningMode === "Physical") errors.learningMode = internationalPhysicalMessage;
@@ -93,6 +99,8 @@ export function validateRegistrationPayload(value: unknown): RegistrationValidat
       reason: String(input.reason).trim(),
       referralSource: String(input.referralSource).trim(),
       consent: true,
+      feePolicyConsent: true,
+      computerAccessConfirmed: input.computerAccessConfirmed === true,
     },
   };
 }

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { adminRegistrationFields } from "@/lib/adminRegistrations";
 import { isApplicationStatus } from "@/lib/applicationStatus";
+import { sendApplicationStatusEmail } from "@/lib/registrationEmails";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -24,6 +25,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const payload = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
   const status = typeof payload.applicationStatus === "string" ? payload.applicationStatus.trim() : "";
   const adminNote = typeof payload.adminNote === "string" ? payload.adminNote.trim().slice(0, 2000) : "";
+  const shouldSendEmail = payload.sendEmail === true;
 
   if (!isApplicationStatus(status)) return NextResponse.json({ message: "A valid application status is required." }, { status: 400 });
 
@@ -45,5 +47,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
   if (!data) return NextResponse.json({ message: "Registration not found." }, { status: 404 });
 
-  return NextResponse.json({ registration: data });
+  const emailStatus = shouldSendEmail ? await sendApplicationStatusEmail(data) : null;
+
+  const { data: refreshed, error: refreshError } = await supabase
+    .from("registrations")
+    .select(adminRegistrationFields)
+    .eq("id", id)
+    .maybeSingle();
+
+  if (refreshError) {
+    console.error("Admin registration refresh after status update failed", refreshError);
+  }
+
+  return NextResponse.json({ registration: refreshed || data, emailStatus });
 }

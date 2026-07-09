@@ -9,7 +9,7 @@ import { InfoPanel } from "@/components/ui/InfoPanel";
 import { SectionContainer } from "@/components/ui/SectionContainer";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { Timeline } from "@/components/ui/Timeline";
-import { admissionProcess, admissionRequirements } from "@/lib/constants";
+import { admissionProcess, admissionRequirements, computerRequirementText, feeClarification, feeLabel, feePolicyNote, programStructureNote, skillPathwayParticipationNote, whatsappChannelUrl } from "@/lib/constants";
 import { realmClasses } from "@/lib/theme";
 
 export const metadata: Metadata = {
@@ -59,9 +59,15 @@ export default function AdmissionsPage() {
             eyebrow="Important Note"
             titleId="admission-note-title"
             title="Understand the Learning Commitment"
-            actions={<PrimaryButton href="/register" showIcon>Apply for Next Cohort</PrimaryButton>}
+            actions={<div className="flex flex-wrap gap-3"><PrimaryButton href="/register" showIcon>Apply for Next Cohort</PrimaryButton><PrimaryButton href={whatsappChannelUrl} target="_blank" rel="noopener noreferrer" showIcon>Join WhatsApp Channel</PrimaryButton></div>}
           >
-            <p>REALMS Institute is designed for participants who desire Christian formation, disciplined learning, and practical equipping. Certificates are issued by REALMS Institute as records of completed learning requirements.</p>
+            <div className="grid gap-3">
+              <p>REALMS Institute is designed for participants who desire Christian formation, disciplined learning, and practical equipping. Certificates are issued by REALMS Institute as records of completed learning requirements.</p>
+              <p>{programStructureNote} For this cohort, available skill pathways are Web Development and Cybersecurity Foundations. {skillPathwayParticipationNote}</p>
+              <p>{computerRequirementText}</p>
+              <p>{feeLabel}: Physical Nigeria: ₦10,000, Online Nigeria: ₦15,000, International Online: $20 equivalent. {feeClarification} {feePolicyNote}</p>
+              <p>Stay updated through the REALMS Institute WhatsApp Channel.</p>
+            </div>
           </Callout>
         </div>
       </SectionContainer>
