@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { footerLinks, siteConfig } from "@/lib/constants";
+import { contactEmail, footerLinks, gloryrealmChristianCentreUrl, physicalAddress, siteConfig } from "@/lib/constants";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { realmClasses } from "@/lib/theme";
 
@@ -13,7 +13,11 @@ export function Footer() {
           <div>
             <p className="text-lg font-semibold tracking-[0.14em] text-[var(--realm-white)] uppercase">{siteConfig.instituteName}</p>
             <p className="mt-3 leading-7">{siteConfig.motto}</p>
-            <p className="mt-2 text-[var(--realm-gold-soft)]">{siteConfig.poweredBy}</p>
+            <p className="mt-2 text-[var(--realm-gold-soft)]">
+              <a href={gloryrealmChristianCentreUrl} target="_blank" rel="noopener noreferrer" className="hover:text-[var(--realm-white)]">
+                {siteConfig.poweredBy}
+              </a>
+            </p>
           </div>
         </div>
         <nav aria-label="Institutional links">
@@ -26,9 +30,9 @@ export function Footer() {
         </nav>
         <address className="not-italic leading-7 lg:text-right">
           <span className="text-[var(--realm-white)]">Email:</span>{" "}
-          <a className="hover:text-[var(--realm-white)]" href="mailto:realmsinstitute@grccglobal.org">realmsinstitute@grccglobal.org</a>
+          <a className="hover:text-[var(--realm-white)]" href={`mailto:${contactEmail}`}>{contactEmail}</a>
           <br />
-          <span className="text-[var(--realm-white)]">Location:</span> Gloryrealm Christian Centre
+          <span className="text-[var(--realm-white)]">Physical classes/location:</span> {physicalAddress}
         </address>
       </div>
     </footer>

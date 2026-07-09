@@ -4,7 +4,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { cn } from "@/lib/utils";
 
 type InfoPanelProps = {
-  title: string;
+  title: ReactNode;
   description?: string;
   icon?: ReactNode;
   children?: ReactNode;

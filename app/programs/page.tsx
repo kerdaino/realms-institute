@@ -18,10 +18,10 @@ export const metadata: Metadata = {
 export default function ProgramsPage() {
   return (
     <PageShell>
-      <PageHero eyebrow="Next Cohort" title="Programs & Learning Pathways" subtitle="The next cohort combines the REALMS School of Discovery formation core with one currently available practical skill pathway." breadcrumbs={[{ label: "Home", href: "/" }, { label: "Programs" }]} />
+      <PageHero eyebrow="Registration Open" title="Programs & Learning Pathways" subtitle="Registration is open for the next cohort. The cohort combines the REALMS School of Discovery formation core with one currently available practical skill pathway." breadcrumbs={[{ label: "Home", href: "/" }, { label: "Programs" }]} />
       <SectionContainer labelledBy="current-program-title">
         <div className={realmClasses.container}>
-          <SectionHeading id="current-program-title" eyebrow="Current Programs" title="Available for the Next Cohort" description="These are the institute and skill pathways currently open for application." />
+          <SectionHeading id="current-program-title" eyebrow="Current Programs" title="Available for the Next Cohort" description="Applications are now open for the next REALMS School of Discovery cohort." />
           <div className="mt-10 grid gap-5 md:grid-cols-3">
             {programs.current.map((program) => <ProgramCard key={program.title} {...program} />)}
           </div>
@@ -38,8 +38,8 @@ export default function ProgramsPage() {
       </SectionContainer>
       <SectionContainer labelledBy="programs-cta-title">
         <div className={realmClasses.container}>
-          <Callout eyebrow="Next Step" titleId="programs-cta-title" title="Find Your Formation Pathway" actions={<><PrimaryButton href="/register" showIcon>Apply for Next Cohort</PrimaryButton><SecondaryButton href="/schools">Explore Schools</SecondaryButton></>}>
-            <p>Explore the pathways and register your interest in a future cohort with clear expectations.</p>
+          <Callout eyebrow="Next Step" titleId="programs-cta-title" title="Find Your Formation Pathway" actions={<><PrimaryButton href="/register" showIcon>Apply Now</PrimaryButton><SecondaryButton href="/schools">Explore Schools</SecondaryButton></>}>
+            <p>Explore the pathways and apply for the next cohort with clear expectations. Class schedule and onboarding details will be communicated to admitted applicants.</p>
           </Callout>
         </div>
       </SectionContainer>

@@ -79,7 +79,7 @@ function whatsappButton() {
 }
 
 function whatsappCard(title: string, copy: string, note: string) {
-  return `<div style="border:1px solid #d7aa45;background:#fff8e6;padding:18px;margin:22px 0;border-radius:8px"><h3 style="margin:0 0 10px;color:#071327">${escapeHtml(title)}</h3><p style="margin:0 0 14px;color:#0f172a">${escapeHtml(copy)}</p><p style="margin:0 0 16px">${whatsappButton()}</p><p style="margin:0;color:#475569;font-size:14px">${escapeHtml(note)}</p></div>`;
+  return `<div style="border:1px solid #d7aa45;background:#fff8e6;padding:18px;margin:22px 0;border-radius:8px"><h3 style="margin:0 0 10px;color:#071327">${escapeHtml(title)}</h3><p style="margin:0 0 14px;color:#0f172a">${escapeHtml(copy)}</p><p style="margin:0 0 12px">${whatsappButton()}</p><p style="margin:0 0 16px;color:#071327;font-weight:700">${escapeHtml(whatsappChannelUrl)}</p><p style="margin:0;color:#475569;font-size:14px">${escapeHtml(note)}</p></div>`;
 }
 
 export function createApplicantApplicationReceivedEmail(registration: EmailRegistration): EmailTemplate {
@@ -97,13 +97,13 @@ export function createApplicantApplicationReceivedEmail(registration: EmailRegis
 
 Your registration payment has been confirmed and your application for the next REALMS Institute cohort has been received.
 
-Please note that payment does not mean automatic admission. REALMS Institute will review your application and contact you by email with your admission/onboarding status and next steps.
+Payment does not mean automatic admission. REALMS Institute will review your application and contact you by email with your admission/onboarding status and next steps.
 
 Application Summary:
 ${textLines(summary)}
 
-Important Next Step: Join the WhatsApp Channel
-Please join the REALMS Institute WhatsApp Channel so you do not miss cohort updates, announcements, onboarding reminders, and future program notices while your application is being reviewed.
+Important Next Step:
+Join the REALMS Institute WhatsApp Channel for cohort updates, announcements, onboarding reminders, and future program notices.
 
 ${whatsappChannelUrl}
 
@@ -116,7 +116,7 @@ REALMS Institute
 
 Motto:
 ${motto}`;
-  const html = layout("Application Received", `<p>Dear ${escapeHtml(registration.full_name)},</p><p>Your registration payment has been confirmed and your application for the next REALMS Institute cohort has been received.</p><p>Please note that payment does not mean automatic admission. REALMS Institute will review your application and contact you by email with your admission/onboarding status and next steps.</p><h3 style="margin-top:24px;color:#071327">Application Summary</h3><table style="border-collapse:collapse;width:100%;margin:12px 0 20px">${rows(summary)}</table>${whatsappCard("Important Next Step: Join the WhatsApp Channel", "Please join the REALMS Institute WhatsApp Channel so you do not miss cohort updates, announcements, onboarding reminders, and future program notices while your application is being reviewed.", "Joining the WhatsApp Channel does not confirm admission, but it helps you stay informed while your application is being reviewed.")}<p>Please save your payment reference for your records.</p><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+  const html = layout("Application Received", `<p>Dear ${escapeHtml(registration.full_name)},</p><p>Your registration payment has been confirmed and your application for the next REALMS Institute cohort has been received.</p><p>Payment does not mean automatic admission. REALMS Institute will review your application and contact you by email with your admission/onboarding status and next steps.</p><h3 style="margin-top:24px;color:#071327">Application Summary</h3><table style="border-collapse:collapse;width:100%;margin:12px 0 20px">${rows(summary)}</table>${whatsappCard("Important Next Step", "Join the REALMS Institute WhatsApp Channel for cohort updates, announcements, onboarding reminders, and future program notices.", "Joining the WhatsApp Channel does not confirm admission, but it helps you stay informed while your application is being reviewed.")}<p>Please save your payment reference for your records.</p><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
   return { subject: "REALMS Institute Application Received", html, text };
 }
 

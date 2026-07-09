@@ -9,6 +9,10 @@ export const siteConfig = {
   poweredBy: "Powered by Gloryrealm Christian Centre",
 } as const;
 
+export const contactEmail = "gloryrealm2025@gmail.com";
+export const physicalAddress = "No. 3 Shina Olaogun Street, Agbado";
+export const gloryrealmChristianCentreUrl = "https://www.grccglobal.org/";
+
 export const navLinks = [
   { label: "Home", href: "/" },
   { label: "School of Discovery", href: "/schools/discovery" },
@@ -338,7 +342,7 @@ export const discoveryOutcomes = [
 ] as const;
 
 export const discoveryLearningFormat = [
-  "Physical or Online",
+  "Physical + Online",
   "Live sessions",
   "Assignments",
   "Prayer emphasis",
@@ -347,10 +351,10 @@ export const discoveryLearningFormat = [
 ] as const;
 
 export const admissionProcess = [
-  { title: "Apply Online", description: "Complete the cohort application with your contact and pathway details." },
+  { title: "Apply Online", description: "Applications are now open for the next REALMS School of Discovery cohort. Complete the cohort application with your contact and pathway details." },
   { title: `Pay ${feeLabel}`, description: "Proceed to secure Paystack checkout so REALMS Institute can process your application for review." },
   { title: "Application Review", description: "REALMS Institute reviews your application and contacts you with admission/onboarding status and next steps." },
-  { title: "Join Onboarding / Orientation", description: "Understand the formation culture, schedule, expectations, and learning structure." },
+  { title: "Join Onboarding / Orientation", description: "Class schedule and onboarding details will be communicated to admitted applicants." },
   { title: "Begin Formation", description: "Enter the cohort ready for learning, prayer, accountability, and obedience." },
 ] as const;
 

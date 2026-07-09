@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { InfoPanel } from "@/components/ui/InfoPanel";
 import { SectionContainer } from "@/components/ui/SectionContainer";
-import { whatsappChannelUrl } from "@/lib/constants";
+import { contactEmail, physicalAddress, whatsappChannelUrl } from "@/lib/constants";
 import { realmClasses } from "@/lib/theme";
 
 export const metadata: Metadata = {
@@ -29,7 +29,7 @@ export default function ContactPage() {
         <div className={`${realmClasses.container} grid gap-6 lg:grid-cols-[1.15fr_0.85fr]`}>
           <GlassCard className="p-6 md:p-8">
             <h2 id="contact-form-title" className="text-2xl font-semibold text-[var(--realm-white)] md:text-3xl">Send an Enquiry</h2>
-            <p className="mt-3 leading-7 text-[var(--realm-muted)]">This form is currently a preview. For immediate enquiries, please use the email address provided.</p>
+            <p className="mt-3 leading-7 text-[var(--realm-muted)]">For immediate enquiries, please use the email address provided.</p>
             <form className="mt-8 grid gap-5" aria-describedby="contact-form-note">
               <div className="grid gap-5 sm:grid-cols-2">
                 <div>
@@ -61,16 +61,16 @@ export default function ContactPage() {
                 <label className="text-sm font-medium text-[var(--realm-white)]" htmlFor="message">Message</label>
                 <textarea className={`${fieldClassName} min-h-36 resize-y`} id="message" name="message" rows={5} />
               </div>
-              <p id="contact-form-note" className="text-sm text-[var(--realm-slate)]">Online submission is not enabled yet.</p>
+              <p id="contact-form-note" className="text-sm text-[var(--realm-slate)]">Online submission is not enabled yet. Please email REALMS Institute directly.</p>
               <div>
                 <Button disabled type="button">Send Message</Button>
               </div>
             </form>
           </GlassCard>
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
-            <InfoPanel title="Email" description="realmsinstitute@grccglobal.org" icon={<Mail aria-hidden="true" className="size-5" />} />
-            <InfoPanel title="Location" description="Gloryrealm Christian Centre" icon={<MapPin aria-hidden="true" className="size-5" />} />
-            <InfoPanel title="Learning Mode" description="Physical or Online" icon={<MonitorSmartphone aria-hidden="true" className="size-5" />} />
+            <InfoPanel title="Email" description={contactEmail} icon={<Mail aria-hidden="true" className="size-5" />} />
+            <InfoPanel title="Physical Classes/Location" description={physicalAddress} icon={<MapPin aria-hidden="true" className="size-5" />} />
+            <InfoPanel title="Learning Mode" description="Physical + Online" icon={<MonitorSmartphone aria-hidden="true" className="size-5" />} />
             <GlassCard className="p-5 sm:col-span-3 lg:col-span-1">
               <h2 className="text-lg font-semibold text-[var(--realm-white)]">REALMS WhatsApp Channel</h2>
               <p className="mt-2 text-sm leading-6 text-[var(--realm-muted)]">Stay updated through the REALMS Institute WhatsApp Channel.</p>

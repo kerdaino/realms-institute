@@ -31,10 +31,11 @@ export default function CohortsPage() {
       <SectionContainer labelledBy="next-cohort-title">
         <div className={realmClasses.container}>
           <GlassCard intensity="strong" className="p-6 md:p-10">
-            <Badge>Next Cohort</Badge>
-            <h2 id="next-cohort-title" className="mt-6 text-3xl font-semibold text-[var(--realm-white)] md:text-5xl">Formation for the Next Assignment</h2>
+            <Badge>Registration Open</Badge>
+            <h2 id="next-cohort-title" className="mt-6 text-3xl font-semibold text-[var(--realm-white)] md:text-5xl">Applications Are Now Open</h2>
+            <p className="mt-5 max-w-3xl leading-7 text-[var(--realm-muted)]">Applications are now open for the next REALMS School of Discovery cohort. Class schedule and onboarding details will be communicated to admitted applicants.</p>
             <div className="mt-8 grid gap-3 md:grid-cols-3">
-              {["Next Cohort", "Web Development", "Cybersecurity Foundations"].map((detail) => (
+              {["Physical + Online", "Web Development", "Cybersecurity Foundations"].map((detail) => (
                 <div key={detail} className="rounded-2xl border border-white/10 bg-[var(--realm-navy)]/45 px-5 py-5 font-semibold text-[var(--realm-white)]">{detail}</div>
               ))}
             </div>
@@ -59,7 +60,7 @@ export default function CohortsPage() {
             eyebrow="Past Cohort Impact"
             titleId="cohort-impact-title"
             title="The Beginning of a Larger Burden"
-            actions={<PrimaryButton href="/register" showIcon>Apply for Next Cohort</PrimaryButton>}
+            actions={<PrimaryButton href="/register" showIcon>Apply Now</PrimaryButton>}
           >
             <p>The first School of Discovery cohort marked the beginning of a larger burden to raise believers who are formed for doctrine, prayer, calling, and practical usefulness.</p>
           </Callout>

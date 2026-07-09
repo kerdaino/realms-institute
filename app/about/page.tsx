@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { BookOpen, Church, Compass, Flame } from "lucide-react";
 
 import { PageHero } from "@/components/layout/PageHero";
@@ -7,7 +8,7 @@ import { Callout } from "@/components/ui/Callout";
 import { InfoPanel } from "@/components/ui/InfoPanel";
 import { SectionContainer } from "@/components/ui/SectionContainer";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { formationPillars, spheresOfInfluence } from "@/lib/constants";
+import { formationPillars, gloryrealmChristianCentreUrl, spheresOfInfluence } from "@/lib/constants";
 import { realmClasses } from "@/lib/theme";
 
 export const metadata: Metadata = {
@@ -56,7 +57,13 @@ export default function AboutPage() {
           />
           <div className="mt-10 grid gap-4 md:grid-cols-2">
             {storySections.map((section) => (
-              <InfoPanel key={section.title} {...section} />
+              <InfoPanel
+                key={section.title}
+                {...section}
+                title={section.title === "Powered by Gloryrealm Christian Centre"
+                  ? <Link href={gloryrealmChristianCentreUrl} target="_blank" rel="noopener noreferrer" className="hover:text-[var(--realm-gold-soft)]">Powered by Gloryrealm Christian Centre</Link>
+                  : section.title}
+              />
             ))}
           </div>
         </div>

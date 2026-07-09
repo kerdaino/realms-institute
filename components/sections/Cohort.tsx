@@ -15,14 +15,14 @@ export function Cohort() {
               <Badge className="mb-6">Announcement</Badge>
             <SectionHeading
               id="cohort-title"
-              eyebrow="Next Cohort"
-              title="Next Cohort"
-              description="The next cohort combines Discipleship & Theology Formation with Web Development or Cybersecurity Foundations."
+              eyebrow="Registration Open"
+              title="Applications Are Now Open"
+              description="Applications are now open for the next REALMS School of Discovery cohort. Class schedule and onboarding details will be communicated to admitted applicants."
             />
             </div>
             <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
               {[
-                "Physical or Online",
+                "Physical + Online",
                 "Web Development",
                 "Cybersecurity Foundations",
               ].map((item) => (
@@ -37,7 +37,7 @@ export function Cohort() {
           </div>
           <div className="relative mt-8">
             <PrimaryButton href="/register" showIcon>
-              Apply for Next Cohort
+              Apply Now
             </PrimaryButton>
           </div>
         </GlassCard>

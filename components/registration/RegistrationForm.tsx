@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 
 import { PrimaryButton } from "@/components/ui/Button";
-import { ageRanges, computerRequirementShort, computerRequirementText, currentCohortPathways, feeClarification, feeLabel, feePolicyNote, feePricingNote, genderOptions, learningModes, skillPathways } from "@/lib/constants";
+import { ageRanges, computerRequirementShort, computerRequirementText, contactEmail, currentCohortPathways, feeClarification, feeLabel, feePolicyNote, feePricingNote, genderOptions, learningModes, physicalAddress, skillPathways } from "@/lib/constants";
 import { calculateCohortFee } from "@/lib/registration";
 
 const inputClass = "min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base text-slate-950 outline-none placeholder:text-slate-400 focus:border-[#a47720] focus:ring-2 focus:ring-[#d7aa45]/20";
@@ -66,7 +66,8 @@ export function RegistrationForm() {
         <GenderField />
         <Select name="ageRange" label="Age range" options={ageRanges} />
         <Field name="church" label="Church / fellowship (optional)" required={false} />
-        <ControlledSelect name="learningMode" label="Preferred learning mode" options={learningModes} value={learningMode} onChange={setLearningMode} />
+          <ControlledSelect name="learningMode" label="Preferred learning mode" options={learningModes} value={learningMode} onChange={setLearningMode} />
+          <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-700">Physical classes/location: {physicalAddress}</p>
         <div className="grid gap-3 md:col-span-2">
           <ControlledSelect name="skillPathway" label="Skill pathway of interest" options={skillPathways} value={skillPathway} onChange={setSkillPathway} />
           <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-700">{computerRequirementText}</p>
@@ -115,7 +116,7 @@ export function RegistrationForm() {
         <span>I understand that the registration/application fee is non-refundable, that payment does not guarantee automatic admission, and that REALMS Institute will review my application before sending admission/onboarding details.</span>
       </label>
 
-      <p id="registration-note" className="text-sm leading-6 text-slate-600">Payment confirms your application interest and allows REALMS Institute to process your application for the next cohort. Admission/onboarding details will be communicated after review.</p>
+      <p id="registration-note" className="text-sm leading-6 text-slate-600">Registration is open for the next cohort. Payment confirms your application interest and allows REALMS Institute to process your application. Admission/onboarding details will be communicated after review. For help, contact {contactEmail}.</p>
       <p id="pricing-note" className="text-sm leading-6 text-slate-600">{feeLabel}: {feePricingNote} {feeClarification} {feePolicyNote}</p>
       {error ? <p id="registration-error" role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}</p> : <span id="registration-error" />}
       <PrimaryButton type="submit" disabled={loading || !fee} className="w-full sm:w-fit" showIcon>
