@@ -32,7 +32,7 @@ export function Footer() {
           <span className="text-[var(--realm-white)]">Email:</span>{" "}
           <a className="hover:text-[var(--realm-white)]" href={`mailto:${contactEmail}`}>{contactEmail}</a>
           <br />
-          <span className="text-[var(--realm-white)]">Physical classes/location:</span> {physicalAddress}
+          <span className="text-[var(--realm-white)]">Physical skill-pathway location:</span> {physicalAddress}
         </address>
       </div>
     </footer>

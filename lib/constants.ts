@@ -64,12 +64,11 @@ export const cohortPricing = {
 export const whatsappChannelUrl = "https://whatsapp.com/channel/0029VbC6zkX9mrGkzCTXTS0s";
 
 export const feeLabel = "Non-refundable Registration/Application Fee";
-export const feeClarification = "The REALMS School of Discovery program is free after registration. No additional tuition or program fee will be charged for this cohort.";
+export const feeClarification = "The REALMS School of Discovery programme is free after registration. No additional tuition or programme fee will be charged for this cohort.";
 export const feePolicyNote = "The registration/application fee is non-refundable and helps cover application processing, cohort preparation, and participation support.";
-export const feePricingNote = "Physical Nigeria: ₦10,000, Online Nigeria: ₦15,000, International Online: $20 equivalent.";
+export const feePricingNote = "Physical Nigeria: ₦10,000, Online Nigeria: ₦15,000, International Online: $20 equivalent / ₦24,000.";
 export const computerRequirementText = "Applicants choosing Web Development or Cybersecurity Foundations should have regular access to a laptop or desktop computer. A mobile phone alone will not be sufficient for the practical skill pathway.";
 export const computerRequirementShort = "This pathway requires access to a laptop or desktop computer for practical classes, assignments, and exercises.";
-export const programStructureNote = "REALMS School of Discovery includes Discipleship & Theology Formation and one Practical Skill Pathway.";
 export const skillPathwayParticipationNote = "The skill pathway requires practical participation, assignments, and access to a computer.";
 
 export const skillPathways = [
@@ -93,14 +92,6 @@ export const applicantTypeOptions = [
     label: "Prior Theological / Discipleship Education",
     description: "I have completed structured theological, Bible-school, seminary, ministry or equivalent discipleship training outside REALMS and would like to be assessed for Advanced Discipleship entry.",
   },
-] as const;
-
-export const advancedDiscipleshipCourses = [
-  { code: "RSD-ADV 201", title: "Marriage, Relationships and Family Life" },
-  { code: "RSD-ADV 202", title: "Marketplace Ministry and Kingdom Influence" },
-  { code: "RSD-ADV 203", title: "Ministry, Priesthood and Church Service" },
-  { code: "RSD-ADV 204", title: "Biblical Principles of Counselling" },
-  { code: "RSD-ADV 205", title: "Christian Philosophy and Critical Thinking" },
 ] as const;
 
 export const currentCohortPathways = [
@@ -161,32 +152,6 @@ export const testimonials = [
   },
 ] as const;
 
-export const discoveryCore = [
-  "Gospel & New Creation",
-  "Identity in Christ",
-  "Doctrine Foundations",
-  "Prayer & Spiritual Discipline",
-  "Calling & Assignment",
-  "Evangelism",
-  "Stewardship",
-  "Christian Character",
-] as const;
-
-export const discoverySkillPathways = [
-  "Web Development",
-  "Cybersecurity Foundations",
-] as const;
-
-export const discoveryStudentReceives = [
-  "Institute-issued certificate of completion in Discipleship & Theology Formation",
-  "Institute-issued certificate of completion in the selected Skill Pathway",
-  "Access to live classes",
-  "Assignments and assessments",
-  "Prayer and accountability structure",
-] as const;
-
-export const certificateNote = "Certificates are issued by REALMS Institute as records of completed learning requirements.";
-
 export const footerLinks = [
   { label: "About", href: "/about" },
   { label: "Programs", href: "/programs" },
@@ -198,7 +163,7 @@ export const footerLinks = [
 
 export const programs = {
   current: [
-    { title: "REALMS School of Discovery", description: "Integrated Christian formation through Discipleship & Theology Formation and one practical skill pathway." },
+    { title: "REALMS School of Discovery", description: "One approved discipleship route—Foundational or Advanced—alongside one practical skill pathway." },
     { title: "Web Development Pathway", description: "Practical foundations for building accessible, useful experiences for the web." },
     { title: "Cybersecurity Foundations Pathway", description: "Foundational principles for responsible digital security, awareness, and practice." },
   ],
@@ -239,13 +204,6 @@ export const portalFeatures = [
   "Learning progress",
 ] as const;
 
-export const certificateRequirements = [
-  "Required learning",
-  "Assignments",
-  "Quizzes",
-  "Assessments",
-] as const;
-
 export const partnerAreas = [
   "Prayer",
   "Teaching",
@@ -261,9 +219,9 @@ export const schools = [
   {
     title: "School of Discovery",
     description:
-      "Foundational discipleship for identity, calling, prayer, doctrine, evangelism, stewardship, and marketplace assignment.",
-    focusAreas: ["Identity", "Calling", "Spiritual disciplines"],
-    status: "Foundational",
+      "Foundational Discipleship or Advanced Discipleship for eligible students, alongside Web Development or Cybersecurity Foundations.",
+    focusAreas: ["Foundational or Advanced Discipleship", "Web Development", "Cybersecurity Foundations"],
+    status: "Open · August 2026",
     href: "/schools/discovery",
   },
   {
@@ -337,49 +295,11 @@ export const visionCards = [
   },
 ] as const;
 
-export const discoveryModules = [
-  "Gospel & New Creation",
-  "Identity in Christ",
-  "Calling & Assignment",
-  "Purpose Discovery",
-  "Prayer & Spiritual Discipline",
-  "The Word & Study",
-  "Evangelism",
-  "Stewardship & Marketplace Relevance",
-] as const;
-
-export const discoveryAudiences = [
-  "New believers seeking foundation",
-  "Believers seeking clarity of calling",
-  "Young ministers and workers",
-  "Marketplace Christians",
-  "Students and emerging leaders",
-] as const;
-
-export const discoveryOutcomes = [
-  "Biblical foundation",
-  "Personal devotion",
-  "Clarity of assignment",
-  "Evangelistic burden",
-  "Stewardship",
-  "Disciplined Christian living",
-  "Marketplace usefulness",
-] as const;
-
-export const discoveryLearningFormat = [
-  "Physical + Online",
-  "Live sessions",
-  "Assignments",
-  "Prayer emphasis",
-  "Quizzes and exams",
-  "Institute-issued certificates of completion",
-] as const;
-
 export const admissionProcess = [
-  { title: "Apply Online", description: "Applications are now open for the next REALMS School of Discovery cohort. Complete the cohort application with your contact and pathway details." },
+  { title: "Apply Online", description: "Applications are open for the August 2026 School of Discovery cohort. Select the applicant path that truthfully describes your background and choose one practical skill pathway." },
   { title: `Pay ${feeLabel}`, description: "Proceed to secure Paystack checkout so REALMS Institute can process your application for review." },
   { title: "Application Review", description: "REALMS Institute reviews your application and contacts you with admission/onboarding status and next steps." },
-  { title: "Join Onboarding / Orientation", description: "Class schedule and onboarding details will be communicated to admitted applicants." },
+  { title: "Review Schedule & Join Onboarding", description: "Review the published August 2026 schedule and, if admitted, follow the onboarding instructions provided by REALMS Institute." },
   { title: "Begin Formation", description: "Enter the cohort ready for learning, prayer, accountability, and obedience." },
 ] as const;
 
@@ -395,16 +315,16 @@ export const admissionRequirements = [
 export const cohortExpectations = [
   "Live teaching",
   "Prayer sessions",
-  "Assignments",
-  "Community accountability",
+  "Attendance and participation",
+  "Integrity and assessment requirements",
   "Skill development",
-  "Institute-issued certificates of completion",
+  "Practical skill capstone",
 ] as const;
 
 export const impactStats = [
   "Christian Formation Institute",
-  "Physical + Online",
-  "Discipleship Core",
+  "Practical Skills: Physical or Online",
+  "Discipleship: Online",
   "2 Practical Skill Pathways",
 ] as const;
 

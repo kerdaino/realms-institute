@@ -12,7 +12,7 @@ import { realmClasses } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: "REALMS Institute | Schools",
-  description: "Explore the REALMS Institute schools of formation for discipleship, mission, leadership, technology, and enterprise.",
+  description: "Explore the active August 2026 School of Discovery programme and REALMS Institute schools planned for future development.",
 };
 
 export default function SchoolsPage() {
@@ -21,7 +21,7 @@ export default function SchoolsPage() {
       <PageHero
         eyebrow="Learning Pathways"
         title="Schools of Formation"
-        subtitle="Every school within REALMS Institute is designed to form believers for obedience, excellence, and influence in specific spheres of assignment."
+        subtitle="The School of Discovery is open for August 2026. Other REALMS Institute schools shown here remain future plans and are not open for enrolment."
         breadcrumbs={[{ label: "Home", href: "/" }, { label: "Schools" }]}
       />
       <SectionContainer labelledBy="schools-list-title" withGrid>

@@ -16,7 +16,7 @@ export function Schools() {
           id="schools-title"
           eyebrow="Schools"
           title="Current and Future Schools"
-          description="The School of Discovery is currently active. Other schools shown here are future plans and are not open for the next cohort."
+          description="The School of Discovery is currently active. Other schools shown here are future plans and are not open for August 2026 registration."
         />
         <AnimatedReveal
           className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3"

@@ -4,7 +4,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { SecondaryButton } from "@/components/ui/Button";
 import { SectionContainer } from "@/components/ui/SectionContainer";
-import { discoveryModules } from "@/lib/constants";
+import { foundationalDiscipleshipCourses, schoolOfDiscoveryStructureStatement } from "@/lib/schoolOfDiscoveryCurriculum";
 import { realmClasses } from "@/lib/theme";
 
 export function FeaturedSchool() {
@@ -20,13 +20,13 @@ export function FeaturedSchool() {
       >
         <div className="flex flex-col justify-between gap-8">
           <div>
-            <Badge>Foundational School</Badge>
+            <Badge>August 2026 Programme</Badge>
             <SectionHeading
               id="featured-school-title"
               className="mt-6"
               eyebrow="Featured School"
               title="Realms School of Discovery"
-              description="The foundational discipleship school for believers being formed in identity, calling, prayer, doctrine, evangelism, stewardship, and marketplace assignment."
+              description={schoolOfDiscoveryStructureStatement}
             />
           </div>
           <div>
@@ -36,11 +36,11 @@ export function FeaturedSchool() {
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          {discoveryModules.map((module, index) => (
+          {foundationalDiscipleshipCourses.map((course) => (
             <FeatureCard
-              key={module}
-              meta={String(index + 1).padStart(2, "0")}
-              title={module}
+              key={course.code}
+              meta={course.code}
+              title={course.title}
             />
           ))}
         </div>

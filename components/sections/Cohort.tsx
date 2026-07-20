@@ -4,6 +4,7 @@ import { SectionHeading } from "@/components/ui/SectionHeading";
 import { PrimaryButton } from "@/components/ui/Button";
 import { SectionContainer } from "@/components/ui/SectionContainer";
 import { realmClasses } from "@/lib/theme";
+import { schoolOfDiscoveryLearningModeStatement, schoolOfDiscoveryStructureStatement } from "@/lib/schoolOfDiscoveryCurriculum";
 
 export function Cohort() {
   return (
@@ -16,13 +17,13 @@ export function Cohort() {
             <SectionHeading
               id="cohort-title"
               eyebrow="Registration Open"
-              title="Applications Are Now Open"
-              description="Applications are now open for the next REALMS School of Discovery cohort. Class schedule and onboarding details will be communicated to admitted applicants."
+              title="Applications Open for August 2026"
+              description={`${schoolOfDiscoveryStructureStatement} The detailed cohort schedule is now published.`}
             />
             </div>
-            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
               {[
-                "Physical + Online",
+                schoolOfDiscoveryLearningModeStatement,
                 "Web Development",
                 "Cybersecurity Foundations",
               ].map((item) => (

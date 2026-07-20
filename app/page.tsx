@@ -14,7 +14,7 @@ import { Vision } from "@/components/sections/Vision";
 
 export const metadata: Metadata = {
   title: "REALMS Institute | Christian Formation & Skill Equipping",
-  description: "REALMS Institute is a Christian formation and skill-equipping institute offering discipleship and practical pathways through the School of Discovery.",
+  description: "Apply for the August 2026 REALMS School of Discovery: one approved discipleship route alongside Web Development or Cybersecurity Foundations.",
 };
 
 export default function Home() {

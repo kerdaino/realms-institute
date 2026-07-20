@@ -3,6 +3,7 @@ import { PillarCard } from "@/components/ui/PillarCard";
 import { SectionContainer } from "@/components/ui/SectionContainer";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { formationPillars } from "@/lib/constants";
+import { schoolOfDiscoveryStructureStatement } from "@/lib/schoolOfDiscoveryCurriculum";
 import { realmClasses } from "@/lib/theme";
 
 export function FormationModel() {
@@ -13,7 +14,7 @@ export function FormationModel() {
           id="formation-title"
           eyebrow="Formation Model"
           title="One Integrated Formation Journey"
-          description="Every School of Discovery student completes Discipleship & Theology Formation alongside one selected practical skill pathway."
+          description={schoolOfDiscoveryStructureStatement}
         />
         <AnimatedReveal
           className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4"

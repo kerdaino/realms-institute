@@ -7,29 +7,29 @@ import { InfoPanel } from "@/components/ui/InfoPanel";
 import { SectionContainer } from "@/components/ui/SectionContainer";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { VerificationMockup } from "@/components/ui/VerificationMockup";
-import { certificateNote, certificateRequirements } from "@/lib/constants";
+import { programmeCompletionComponents, schoolOfDiscoveryCertificateStatement } from "@/lib/schoolOfDiscoveryCurriculum";
 import { realmClasses } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: "REALMS Institute | Certificates",
-  description: "Learn how future REALMS Institute certificates will record completed formation and assessed learning pathways.",
+  description: "Learn how the integrated REALMS School of Discovery programme result and institutional certificate reflect published completion requirements.",
 };
 
 export default function CertificatesPage() {
   return (
     <PageShell>
-      <PageHero eyebrow="Coming Soon" title="Certificates" subtitle="Institute-issued certificates will record completion of specified learning requirements. Certificate access and verification are not yet available." breadcrumbs={[{ label: "Home", href: "/" }, { label: "Certificates" }]} />
+      <PageHero eyebrow="Institutional Record" title="Certificates" subtitle="The School of Discovery uses one integrated programme result. Online certificate access and verification are not yet available." breadcrumbs={[{ label: "Home", href: "/" }, { label: "Certificates" }]} />
       <SectionContainer labelledBy="certificate-philosophy-title">
         <div className={realmClasses.container}>
           <SectionHeading id="certificate-philosophy-title" eyebrow="Certificate Philosophy" title="Formation Is the Goal" />
-          <InfoPanel className="mt-10" title="A record of completed learning" description={certificateNote} />
+          <InfoPanel className="mt-10" title="A record of completed learning" description={schoolOfDiscoveryCertificateStatement} />
         </div>
       </SectionContainer>
       <SectionContainer labelledBy="certificate-access-title">
         <div className={realmClasses.container}>
-          <SectionHeading id="certificate-access-title" eyebrow="Certificate Access" title="Access Will Follow Verified Completion" description="Coming soon: Students will be able to verify or access certificates after completing the required parts of their learning pathway." />
-          <FeatureList items={certificateRequirements} className="mt-8 max-w-3xl sm:grid-cols-2" />
-          <div className="mt-8 space-y-2 text-sm leading-7 text-[var(--realm-muted)]"><p>Institute-issued certificate of completion in Discipleship &amp; Theology Formation</p><p>Institute-issued certificate of completion in the selected Skill Pathway</p></div>
+          <SectionHeading id="certificate-access-title" eyebrow="Certificate Access" title="Access Will Follow Verified Completion" description="Certificate access and verification are planned for learners who successfully complete the published School of Discovery programme requirements." />
+          <FeatureList items={programmeCompletionComponents} className="mt-8 max-w-3xl sm:grid-cols-2" />
+          <p className="mt-8 max-w-3xl text-sm leading-7 text-[var(--realm-muted)]">The School of Discovery integrates the student&apos;s approved discipleship route and selected skill pathway within one programme result. It does not automatically issue one separate discipleship certificate plus one separate skill certificate.</p>
         </div>
       </SectionContainer>
       <SectionContainer labelledBy="verification-title">

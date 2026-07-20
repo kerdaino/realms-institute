@@ -53,7 +53,7 @@ export default function AboutPage() {
             id="about-identity-title"
             eyebrow="Our Current Identity"
             title="Christian Formation and Practical Equipping"
-            description="REALMS brings discipleship, biblical teaching, prayer, calling discovery, character, and practical skills into one coherent formation journey. The School of Discovery is the institute's current active school for the next cohort."
+            description="REALMS brings discipleship, biblical teaching, prayer, calling discovery, character, and practical skills into one coherent formation journey. For August 2026, every School of Discovery student completes one approved discipleship route—Foundational or Advanced—and Web Development or Cybersecurity Foundations."
           />
           <div className="mt-10 grid gap-4 md:grid-cols-2">
             {storySections.map((section) => (

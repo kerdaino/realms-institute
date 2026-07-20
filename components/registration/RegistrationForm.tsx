@@ -4,7 +4,6 @@ import { useState, type FormEvent } from "react";
 
 import { PrimaryButton } from "@/components/ui/Button";
 import {
-  advancedDiscipleshipCourses,
   ageRanges,
   applicantTypeOptions,
   computerRequirementShort,
@@ -21,14 +20,20 @@ import {
 } from "@/lib/constants";
 import { foundationalScreeningQuestions, foundationalScreeningShortAnswers } from "@/lib/foundationalScreeningQuestions";
 import { calculateCohortFee, type ApplicantType } from "@/lib/registration";
+import { advancedDiscipleshipCourses, advancedDiscipleshipSchedule } from "@/lib/schoolOfDiscoveryCurriculum";
 
 const inputClass = "min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base text-slate-950 outline-none placeholder:text-slate-400 focus:border-[#a47720] focus:ring-2 focus:ring-[#d7aa45]/20";
 
-export function RegistrationForm() {
+type RegistrationFormProps = {
+  initialSkillPathway?: (typeof skillPathways)[number];
+  advancedEntryRequested?: boolean;
+};
+
+export function RegistrationForm({ initialSkillPathway, advancedEntryRequested = false }: RegistrationFormProps) {
   const [applicantType, setApplicantType] = useState<ApplicantType | "">("");
   const [country, setCountry] = useState("");
   const [learningMode, setLearningMode] = useState("");
-  const [skillPathway, setSkillPathway] = useState("");
+  const [skillPathway, setSkillPathway] = useState(initialSkillPathway ?? "");
   const [fundingRoute, setFundingRoute] = useState<"self_pay" | "scholarship_request">("self_pay");
   const [scholarshipCanContribute, setScholarshipCanContribute] = useState("");
   const [error, setError] = useState("");
@@ -85,6 +90,7 @@ export function RegistrationForm() {
     <form onSubmit={submit} className="grid gap-8" aria-describedby="registration-note pricing-note registration-error">
       <section className="grid gap-4">
         <SectionHeading title="Which best describes you?" copy="Select the option that accurately reflects your previous discipleship or theological education." />
+        {advancedEntryRequested ? <p role="status" className="rounded-xl border border-[#d7aa45]/40 bg-amber-50 p-4 text-sm leading-6 text-amber-950"><span className="font-semibold text-[#071327]">Advanced-entry interest noted.</span> Select the applicant type that truthfully describes your background. Advanced entry remains subject to alumni verification or foundational knowledge screening, followed by admission review.</p> : null}
         <div className="grid gap-3">
           {applicantTypeOptions.map((option) => (
             <label key={option.value} className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-5 transition ${applicantType === option.value ? "border-[#a47720] bg-amber-50/60 ring-2 ring-[#d7aa45]/20" : "border-slate-200 bg-white hover:border-slate-300"}`}>
@@ -202,7 +208,7 @@ export function RegistrationForm() {
 
 function ProgrammeSummary({ applicantType }: { applicantType: ApplicantType }) {
   const advanced = applicantType !== "new_student";
-  return <section className="rounded-2xl border border-[#d7aa45]/40 bg-[#071327] p-5 text-white sm:p-6"><p className="text-sm font-semibold uppercase tracking-wider text-[var(--realm-gold-soft)]">Programme Summary</p><h2 className="mt-2 text-2xl font-semibold">{advanced ? "Advanced Discipleship Programme" : "Foundational Discipleship Programme"}</h2>{advanced ? <><p className="mt-3 text-sm leading-6 text-white/75">Requested Discipleship Route: Advanced Discipleship Programme</p><p className="mt-1 text-sm font-semibold text-[var(--realm-gold-soft)]">{applicantType === "realms_alumnus" ? "Advanced entry requested — alumni verification required." : "Advanced entry requested — screening review required."}</p><p className="mt-1 text-sm leading-6 text-white/70">Status: Subject to eligibility verification/review</p><h3 className="mt-6 font-semibold">All five advanced courses are compulsory:</h3><ol className="mt-3 grid gap-3 text-sm leading-6 text-white/80">{advancedDiscipleshipCourses.map((course) => <li key={course.code}><span className="font-semibold text-white">{course.code}</span><br />{course.title}</li>)}</ol><div className="mt-6 border-t border-white/10 pt-4 text-sm leading-6 text-white/75"><p className="font-semibold text-white">Schedule</p><p>Monday–Wednesday<br />7:00 PM–9:00 PM<br />Online</p></div></> : <div className="mt-4 grid gap-2 text-sm leading-6 text-white/75"><p><span className="font-semibold text-white">Discipleship Route:</span><br />Foundational Discipleship Programme</p><p><span className="font-semibold text-white">Skill Pathway:</span><br />Choose Web Development or Cybersecurity Foundations.</p></div>}</section>;
+  return <section className="rounded-2xl border border-[#d7aa45]/40 bg-[#071327] p-5 text-white sm:p-6"><p className="text-sm font-semibold uppercase tracking-wider text-[var(--realm-gold-soft)]">Programme Summary</p><h2 className="mt-2 text-2xl font-semibold">{advanced ? "Advanced Discipleship Programme" : "Foundational Discipleship Programme"}</h2>{advanced ? <><p className="mt-3 text-sm leading-6 text-white/75">Requested Discipleship Route: Advanced Discipleship Programme</p><p className="mt-1 text-sm font-semibold text-[var(--realm-gold-soft)]">{applicantType === "realms_alumnus" ? "Advanced entry requested — alumni verification required." : "Advanced entry requested — screening review required."}</p><p className="mt-1 text-sm leading-6 text-white/70">Status: Subject to eligibility verification/review</p><h3 className="mt-6 font-semibold">All five advanced courses are compulsory:</h3><ol className="mt-3 grid gap-3 text-sm leading-6 text-white/80">{advancedDiscipleshipCourses.map((course) => <li key={course.code}><span className="font-semibold text-white">{course.code}</span><br />{course.title}</li>)}</ol><div className="mt-6 border-t border-white/10 pt-4 text-sm leading-6 text-white/75"><p className="font-semibold text-white">Schedule</p>{advancedDiscipleshipSchedule.sessions.map((session) => <p key={session.days}>{session.days}<br />{session.time}</p>)}<p>{advancedDiscipleshipSchedule.mode}</p></div></> : <div className="mt-4 grid gap-2 text-sm leading-6 text-white/75"><p><span className="font-semibold text-white">Discipleship Route:</span><br />Foundational Discipleship Programme</p><p><span className="font-semibold text-white">Skill Pathway:</span><br />Choose Web Development or Cybersecurity Foundations.</p></div>}</section>;
 }
 
 function ScreeningSection() {

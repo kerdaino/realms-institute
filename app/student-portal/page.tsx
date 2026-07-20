@@ -23,7 +23,7 @@ export default function StudentPortalPage() {
           <StatusPanel title="Student learning environment" description="The portal is planned for a later phase. There is no student login, dashboard, or connected learning system on this website yet.">
             <h3 id="portal-status-title" className="text-lg font-semibold text-[var(--realm-white)]">Future features</h3>
             <FeatureList items={portalFeatures} className="mt-5 sm:grid-cols-2 lg:grid-cols-4" />
-            <div className="mt-9"><PrimaryButton href="/admissions" showIcon>Register interest for the next cohort</PrimaryButton></div>
+            <div className="mt-9"><PrimaryButton href="/register" showIcon>Apply for August 2026</PrimaryButton></div>
           </StatusPanel>
         </div>
       </SectionContainer>

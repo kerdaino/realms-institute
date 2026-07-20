@@ -12,7 +12,7 @@ import { realmClasses } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: "Contact REALMS Institute",
-  description: "Contact REALMS Institute with questions about the School of Discovery, registration, learning modes, or the next cohort.",
+  description: "Contact REALMS Institute with questions about the School of Discovery, registration, learning modes, or the August 2026 cohort.",
 };
 
 const fieldClassName = "mt-2 min-h-12 w-full rounded-xl border border-white/[0.14] bg-[var(--realm-navy)]/70 px-4 py-3 text-[var(--realm-white)] outline-none placeholder:text-[var(--realm-slate)] focus:border-[var(--realm-gold)] focus:ring-2 focus:ring-[var(--realm-gold)]/20";
@@ -22,7 +22,7 @@ export default function ContactPage() {
     <PageShell>
       <PageHero
         title="Contact REALMS Institute"
-        subtitle="Ask questions about the School of Discovery, registration, learning modes, or the next cohort."
+        subtitle="Ask questions about the School of Discovery, registration, learning modes, or the August 2026 cohort."
         breadcrumbs={[{ label: "Home", href: "/" }, { label: "Contact" }]}
       />
       <SectionContainer labelledBy="contact-form-title">
@@ -69,8 +69,8 @@ export default function ContactPage() {
           </GlassCard>
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
             <InfoPanel title="Email" description={contactEmail} icon={<Mail aria-hidden="true" className="size-5" />} />
-            <InfoPanel title="Physical Classes/Location" description={physicalAddress} icon={<MapPin aria-hidden="true" className="size-5" />} />
-            <InfoPanel title="Learning Mode" description="Physical + Online" icon={<MonitorSmartphone aria-hidden="true" className="size-5" />} />
+            <InfoPanel title="Physical Skill-Pathway Location" description={physicalAddress} icon={<MapPin aria-hidden="true" className="size-5" />} />
+            <InfoPanel title="Learning Mode" description="Practical Skill Pathways: Physical or Online as approved. Discipleship: Online." icon={<MonitorSmartphone aria-hidden="true" className="size-5" />} />
             <GlassCard className="p-5 sm:col-span-3 lg:col-span-1">
               <h2 className="text-lg font-semibold text-[var(--realm-white)]">REALMS WhatsApp Channel</h2>
               <p className="mt-2 text-sm leading-6 text-[var(--realm-muted)]">Stay updated through the REALMS Institute WhatsApp Channel.</p>

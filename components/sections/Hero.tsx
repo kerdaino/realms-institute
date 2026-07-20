@@ -5,8 +5,8 @@ import { BrandLogo } from "@/components/ui/BrandLogo";
 import { PrimaryButton, SecondaryButton } from "@/components/ui/Button";
 
 const trustItems = [
-  [Globe2, "Physical + Online"],
-  [BookOpenCheck, "Discipleship Core"],
+  [Globe2, "Practical Skills: Physical or Online"],
+  [BookOpenCheck, "Discipleship: Online"],
   [Code2, "Web Development"],
   [ShieldCheck, "Cybersecurity Foundations"],
 ] as const;
@@ -16,13 +16,13 @@ export function Hero() {
     <section id="home" aria-labelledby="hero-title" className="relative isolate overflow-hidden bg-[linear-gradient(125deg,#050d1c_0%,#0b2140_58%,#15345c_100%)] px-5 pb-0 pt-16 md:px-8 md:pt-24">
       <div className="mx-auto grid max-w-7xl gap-12 pb-16 lg:grid-cols-[1.2fr_0.8fr] lg:items-center lg:pb-24">
         <div>
-          <Badge>Registration Now Open</Badge>
+          <Badge>Registration Now Open · August 2026 Cohort</Badge>
           <div className="mt-7 h-px w-20 bg-[var(--realm-gold)]" />
           <h1 id="hero-title" className="mt-7 max-w-4xl text-5xl font-semibold leading-[1.02] tracking-tight text-white sm:text-6xl lg:text-7xl">
             Be Formed in God. <span className="text-[var(--realm-gold-soft)]">Be Equipped for Your Field.</span>
           </h1>
           <p className="mt-7 max-w-3xl text-lg leading-8 text-[var(--realm-muted)] md:text-xl md:leading-9">
-            REALMS School of Discovery is now receiving applications for the next cohort. The program combines Christian discipleship, doctrine, prayer, calling discovery, and practical skill training to raise believers who can serve God faithfully in every sphere of influence.
+            Every student completes one approved discipleship route—Foundational or Advanced—and one practical skill pathway: Web Development or Cybersecurity Foundations.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
             <PrimaryButton href="/register" showIcon>Apply Now</PrimaryButton>
