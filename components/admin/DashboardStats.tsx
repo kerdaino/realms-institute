@@ -4,7 +4,26 @@ import { useEffect, useState } from "react";
 
 import type { RegistrationSummary } from "@/lib/adminRegistrations";
 
-const labels: Array<[keyof RegistrationSummary, string]> = [["pendingReview", "Pending Review"], ["admitted", "Admitted"], ["contacted", "Contacted"], ["waitlisted", "Waitlisted"], ["notAdmitted", "Not Admitted"], ["total", "Total registrations"], ["paid", "Paid registrations"], ["physical", "Physical applicants"], ["online", "Online applicants"], ["webDevelopment", "Web Development"], ["cybersecurity", "Cybersecurity Foundations"], ["nigerian", "Nigerian applicants"], ["international", "International applicants"]];
+const labels: Array<[keyof RegistrationSummary, string]> = [
+  ["pendingApplications", "Pending Applications"],
+  ["pendingAlumniVerification", "Pending Alumni Verification"],
+  ["pendingScreeningReviews", "Pending Screening Reviews"],
+  ["pendingScholarshipRequests", "Pending Scholarship Requests"],
+  ["advancedRouteApproved", "Advanced Route Approved"],
+  ["foundationRequired", "Foundation Required"],
+  ["admitted", "Admitted"],
+  ["contacted", "Contacted"],
+  ["waitlisted", "Waitlisted"],
+  ["notAdmitted", "Not Admitted"],
+  ["total", "Total applications"],
+  ["paid", "Paid applications"],
+  ["physical", "Physical skill pathway"],
+  ["online", "Online skill pathway"],
+  ["webDevelopment", "Web Development"],
+  ["cybersecurity", "Cybersecurity Foundations"],
+  ["nigerian", "Nigerian applicants"],
+  ["international", "International applicants"],
+];
 
 export function DashboardStats() {
   const [summary, setSummary] = useState<RegistrationSummary | null>(null);

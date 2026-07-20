@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/adminAuth";
-import { adminRegistrationFields } from "@/lib/adminRegistrations";
+import { adminRegistrationListFields } from "@/lib/adminRegistrations";
 import { isApplicationStatus } from "@/lib/applicationStatus";
 import { sendApplicationStatusEmail } from "@/lib/registrationEmails";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
@@ -24,21 +24,24 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const payload = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
   const status = typeof payload.applicationStatus === "string" ? payload.applicationStatus.trim() : "";
-  const adminNote = typeof payload.adminNote === "string" ? payload.adminNote.trim().slice(0, 2000) : "";
+  const hasAdminNote = Object.hasOwn(payload, "adminNote");
+  const adminNote = typeof payload.adminNote === "string" ? payload.adminNote.trim().slice(0, 5000) : "";
   const shouldSendEmail = payload.sendEmail === true;
 
   if (!isApplicationStatus(status)) return NextResponse.json({ message: "A valid application status is required." }, { status: 400 });
 
+  const update: Record<string, unknown> = {
+    application_status: status,
+    reviewed_at: new Date().toISOString(),
+    reviewed_by: "REALMS Admin",
+  };
+  if (hasAdminNote) update.admin_note = adminNote || null;
+
   const { data, error } = await supabase
     .from("registrations")
-    .update({
-      application_status: status,
-      admin_note: adminNote || null,
-      reviewed_at: new Date().toISOString(),
-      reviewed_by: "REALMS Admin",
-    })
+    .update(update)
     .eq("id", id)
-    .select(adminRegistrationFields)
+    .select(adminRegistrationListFields)
     .maybeSingle();
 
   if (error) {
@@ -51,7 +54,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const { data: refreshed, error: refreshError } = await supabase
     .from("registrations")
-    .select(adminRegistrationFields)
+    .select(adminRegistrationListFields)
     .eq("id", id)
     .maybeSingle();
 

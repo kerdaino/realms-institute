@@ -12,12 +12,12 @@ type SendEmailParams = {
 
 const resendEndpoint = "https://api.resend.com/emails";
 const emailTimeoutMs = 15000;
+export const realmsEmailFrom = "REALMS Institute <admissions@mail.grccglobal.org>";
+export const realmsEmailReplyTo = "gloryrealm2025@gmail.com";
 
 function emailConfig() {
   const apiKey = process.env.RESEND_API_KEY?.trim();
-  const from = process.env.RESEND_FROM_EMAIL?.trim();
-  const replyTo = process.env.REALMS_ADMIN_EMAIL?.trim() || "gloryrealm2025@gmail.com";
-  return apiKey && from ? { apiKey, from, replyTo } : null;
+  return apiKey ? { apiKey, from: realmsEmailFrom, replyTo: realmsEmailReplyTo } : null;
 }
 
 function fetchErrorDetails(error: unknown) {
@@ -32,12 +32,12 @@ function fetchErrorDetails(error: unknown) {
 
 export async function sendEmail({ to, subject, html, text, replyTo }: SendEmailParams): Promise<EmailSendResult> {
   const config = emailConfig();
-  const finalReplyTo = replyTo || process.env.REALMS_ADMIN_EMAIL || "gloryrealm2025@gmail.com";
+  const finalReplyTo = replyTo || realmsEmailReplyTo;
   console.log("Resend direct fetch email attempt:", {
     to,
     subject,
     hasApiKey: Boolean(process.env.RESEND_API_KEY),
-    from: process.env.RESEND_FROM_EMAIL,
+    from: realmsEmailFrom,
     replyTo: finalReplyTo,
   });
   if (!config) return { sent: false, reason: "Email is not configured." };
@@ -52,7 +52,7 @@ export async function sendEmail({ to, subject, html, text, replyTo }: SendEmailP
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: process.env.RESEND_FROM_EMAIL,
+        from: config.from,
         to,
         subject,
         html,

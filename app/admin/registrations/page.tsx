@@ -4,5 +4,5 @@ import { requireAdmin } from "@/lib/adminAuth";
 
 export default async function AdminRegistrationsPage() {
   await requireAdmin();
-  return <AdminShell title="Registrations" description="Search, review, update, and export paid registration applications."><RegistrationsManager /></AdminShell>;
+  return <AdminShell title="Applications" description="Search, filter, and review paid applications and scholarship requests without conflating route approval, funding, or admission."><RegistrationsManager /></AdminShell>;
 }

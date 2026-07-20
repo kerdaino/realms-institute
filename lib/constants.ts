@@ -75,7 +75,32 @@ export const skillPathwayParticipationNote = "The skill pathway requires practic
 export const skillPathways = [
   "Web Development",
   "Cybersecurity Foundations",
-  "Not sure yet",
+] as const;
+
+export const applicantTypeOptions = [
+  {
+    value: "new_student",
+    label: "New Student",
+    description: "I have not previously completed the REALMS School of Discovery foundational programme and I am applying for the Foundational Discipleship route.",
+  },
+  {
+    value: "realms_alumnus",
+    label: "REALMS Alumnus",
+    description: "I previously completed the REALMS School of Discovery foundational programme and would like to be considered for the Advanced Discipleship Programme.",
+  },
+  {
+    value: "prior_theological_education",
+    label: "Prior Theological / Discipleship Education",
+    description: "I have completed structured theological, Bible-school, seminary, ministry or equivalent discipleship training outside REALMS and would like to be assessed for Advanced Discipleship entry.",
+  },
+] as const;
+
+export const advancedDiscipleshipCourses = [
+  { code: "RSD-ADV 201", title: "Marriage, Relationships and Family Life" },
+  { code: "RSD-ADV 202", title: "Marketplace Ministry and Kingdom Influence" },
+  { code: "RSD-ADV 203", title: "Ministry, Priesthood and Church Service" },
+  { code: "RSD-ADV 204", title: "Biblical Principles of Counselling" },
+  { code: "RSD-ADV 205", title: "Christian Philosophy and Critical Thinking" },
 ] as const;
 
 export const currentCohortPathways = [

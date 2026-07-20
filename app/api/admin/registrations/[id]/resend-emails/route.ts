@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/adminAuth";
-import { adminRegistrationFields } from "@/lib/adminRegistrations";
+import { adminRegistrationListFields } from "@/lib/adminRegistrations";
 import { sendRegistrationEmailsIfNeeded } from "@/lib/registrationEmails";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -16,7 +16,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
   const { data, error } = await supabase
     .from("registrations")
-    .select(adminRegistrationFields)
+    .select(adminRegistrationListFields)
     .eq("id", id)
     .maybeSingle();
 
@@ -25,11 +25,14 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ message: "Registration could not be loaded." }, { status: 500 });
   }
   if (!data) return NextResponse.json({ message: "Registration not found." }, { status: 404 });
+  if (data.payment_status !== "success" || !data.payment_reference) {
+    return NextResponse.json({ message: "Payment-confirmation emails can only be sent for applications with verified successful payment." }, { status: 409 });
+  }
 
   const emailStatus = await sendRegistrationEmailsIfNeeded(data, { force: true });
   const { data: refreshed, error: refreshError } = await supabase
     .from("registrations")
-    .select(adminRegistrationFields)
+    .select(adminRegistrationListFields)
     .eq("id", id)
     .maybeSingle();
 

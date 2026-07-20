@@ -37,6 +37,10 @@ Use Paystack test mode first before any live announcement. Do not commit secret 
 
 Never expose `SUPABASE_SERVICE_ROLE_KEY` in client-side code or commit it to the repository.
 
+Before testing the August 2026 registration form, rerun the complete `supabase/schema.sql` file in the Supabase SQL Editor. Its additive migration adds the applicant-route, alumni, theological screening, scholarship, nullable payment, review-audit, and scholarship email-delivery fields required by the upgraded flow. Existing paid records with no `amount_paid` remain readable through the admin UI fallback for verified successful payments; new payments always use Paystack's verified transaction amount.
+
+The upgraded self-pay flow saves the full application before Paystack initialization, uses a real Paystack payment reference, and sends only compact application identifiers and fee context in Paystack metadata. Scholarship requests are saved without creating a Paystack transaction or payment reference. Do not enable the scholarship or prior-theological flows until the schema migration has been applied successfully.
+
 For an existing `registrations` table, run this migration before testing new payments:
 
 ```sql
@@ -59,6 +63,10 @@ add column if not exists confirmation_email_sent boolean not null default false,
 add column if not exists confirmation_email_sent_at timestamptz,
 add column if not exists admin_email_sent boolean not null default false,
 add column if not exists admin_email_sent_at timestamptz,
+add column if not exists scholarship_confirmation_email_sent boolean not null default false,
+add column if not exists scholarship_confirmation_email_sent_at timestamptz,
+add column if not exists scholarship_admin_email_sent boolean not null default false,
+add column if not exists scholarship_admin_email_sent_at timestamptz,
 add column if not exists admission_email_sent boolean not null default false,
 add column if not exists admission_email_sent_at timestamptz;
 ```
@@ -75,6 +83,8 @@ RESEND_API_KEY=
 RESEND_FROM_EMAIL="REALMS Institute <admissions@mail.grccglobal.org>"
 REALMS_ADMIN_EMAIL=gloryrealm2025@gmail.com
 ```
+
+Application emails always use `REALMS Institute <admissions@mail.grccglobal.org>` as the sender and `gloryrealm2025@gmail.com` as the reply-to address. Scholarship applicant and admin confirmations have independent sent/sent-at columns and are marked sent only after Resend returns success.
 
 5. Restart dev server.
 6. Test with a fresh Paystack transaction.
