@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test:build13": "node scripts/test-build-13-audit.mjs",
-    "test:handbook": "node --experimental-strip-types scripts/test-student-handbook.mjs"
+    "test:handbook": "node --experimental-strip-types scripts/test-student-handbook.mjs",
+    "test:portal-auth": "node --experimental-strip-types scripts/test-portal-auth.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

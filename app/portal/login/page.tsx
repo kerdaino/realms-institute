@@ -27,10 +27,10 @@ export default async function PortalLoginPage({ searchParams }: { searchParams: 
           <BrandLogo className="size-14" sizes="56px" priority />
           <span><span className="block font-semibold tracking-[0.12em]">REALMS</span><span className="block text-xs text-[var(--realm-muted)]">Institute</span></span>
         </Link>
-        <p className="mt-9 text-xs font-semibold uppercase tracking-[0.22em] text-[var(--realm-gold-soft)]">Secure Institutional Access</p>
-        <h1 className="mt-3 text-4xl font-semibold tracking-tight md:text-5xl">REALMS Institute Portal</h1>
+        <p className="mt-9 text-xs font-semibold uppercase tracking-[0.22em] text-[var(--realm-gold-soft)]">REALMS Institute</p>
+        <h1 className="mt-3 text-4xl font-semibold tracking-tight md:text-5xl">Portal Sign In</h1>
         <p className="mt-4 leading-7 text-[var(--realm-muted)]">Access your REALMS learning and institutional account.</p>
-        {error ? <p role="alert" className="mt-6 rounded-xl border border-amber-300/25 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">This access link is invalid or has expired. Request a new secure link below.</p> : null}
+        {error ? <p role="alert" className="mt-6 rounded-xl border border-amber-300/25 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">This activation link is no longer valid. Please request a new account activation email or contact REALMS Institute.</p> : null}
         <PortalLoginForm />
         <p className="mt-6 text-xs leading-6 text-[var(--realm-slate)]">Portal access is issued only to activated REALMS students, alumni, facilitators and mentors. An authentication account alone does not create student status.</p>
       </section>

@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { SupabaseClient, User } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Cohort, Student, StudentEnrollment } from "@/lib/lms/types";
 import {
@@ -10,6 +10,7 @@ import {
   webDevelopmentCourses,
 } from "@/lib/schoolOfDiscoveryCurriculum";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { ensurePortalProfile, ensurePortalRole, findOrCreatePortalAuthUser, normalizePortalEmail, PortalIdentityError } from "@/lib/lms/portalIdentity";
 
 const currentCohortCode = "RSD-AUG-2026";
 const registrationSelect = "id, application_status, assigned_discipleship_route, skill_pathway, learning_mode, full_name, email, whatsapp, country, city";
@@ -52,10 +53,6 @@ export type StudentProvisioningResult = {
   cohort: Pick<Cohort, "id" | "code" | "name">;
 };
 
-function normalizeEmail(value: string) {
-  return value.trim().toLowerCase();
-}
-
 function normalizeSkillPathway(value: string): NormalizedSkill | null {
   if (value === "Web Development") {
     return { value: "web_development", courseCodes: webDevelopmentCourses.map((course) => course.code) };
@@ -72,36 +69,6 @@ function normalizeLearningMode(value: string) {
   return null;
 }
 
-async function findAuthUserByEmail(supabase: SupabaseClient, email: string): Promise<User | null> {
-  const perPage = 200;
-  for (let page = 1; page <= 50; page += 1) {
-    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
-    if (error) throw new StudentProvisioningError("The institutional Auth directory could not be checked.", 503);
-    const user = data.users.find((candidate) => normalizeEmail(candidate.email || "") === email);
-    if (user) return user;
-    if (data.users.length < perPage) return null;
-  }
-  throw new StudentProvisioningError("The institutional Auth directory is too large to search safely.", 503);
-}
-
-async function findOrCreateAuthUser(supabase: SupabaseClient, registration: ProvisionableRegistration) {
-  const email = normalizeEmail(registration.email);
-  const existing = await findAuthUserByEmail(supabase, email);
-  if (existing) return { user: existing, status: "existing" as const };
-
-  const { data, error } = await supabase.auth.admin.createUser({
-    email,
-    email_confirm: false,
-    user_metadata: { full_name: registration.full_name },
-  });
-  if (!error && data.user) return { user: data.user, status: "created" as const };
-
-  // A concurrent provisioning request may have created the same Auth user.
-  const racedUser = await findAuthUserByEmail(supabase, email);
-  if (racedUser) return { user: racedUser, status: "existing" as const };
-  throw new StudentProvisioningError("The institutional Auth account could not be prepared.", 503);
-}
-
 async function loadRegistration(supabase: SupabaseClient, registrationId: string) {
   const { data, error } = await supabase.from("registrations").select(registrationSelect).eq("id", registrationId).maybeSingle();
   if (error) throw new StudentProvisioningError("The admitted registration could not be loaded.", 500);
@@ -116,29 +83,6 @@ async function loadCohort(supabase: SupabaseClient, cohortId?: string) {
   if (error) throw new StudentProvisioningError("The cohort could not be loaded.", 500);
   if (!data) throw new StudentProvisioningError("The requested cohort was not found.", 404);
   return data as Pick<Cohort, "id" | "code" | "name">;
-}
-
-async function upsertProfile(supabase: SupabaseClient, authUserId: string, registration: ProvisionableRegistration) {
-  const { data: existing, error: lookupError } = await supabase.from("profiles").select("id").eq("id", authUserId).maybeSingle();
-  if (lookupError) throw new StudentProvisioningError("The institutional profile could not be checked.", 500);
-  const now = new Date().toISOString();
-  const { error } = await supabase.from("profiles").upsert({
-    id: authUserId,
-    full_name: registration.full_name,
-    email: normalizeEmail(registration.email),
-    phone: registration.whatsapp,
-    account_status: "active",
-    updated_at: now,
-  }, { onConflict: "id" });
-  if (error) throw new StudentProvisioningError("The institutional profile could not be saved.", 500);
-  return existing ? "updated" as const : "created" as const;
-}
-
-async function assignStudentRole(supabase: SupabaseClient, authUserId: string) {
-  const { data: role, error: roleError } = await supabase.from("roles").select("id").eq("name", "student").maybeSingle();
-  if (roleError || !role) throw new StudentProvisioningError("The student role is not configured.", 500);
-  const { error } = await supabase.from("user_roles").upsert({ user_id: authUserId, role_id: role.id }, { onConflict: "user_id,role_id", ignoreDuplicates: true });
-  if (error) throw new StudentProvisioningError("The student role could not be assigned.", 500);
 }
 
 async function findStudent(supabase: SupabaseClient, registrationId: string, profileId: string) {
@@ -163,7 +107,7 @@ async function createOrUpdateStudent(supabase: SupabaseClient, authUserId: strin
     profile_id: authUserId,
     registration_id: registration.id,
     legal_name: registration.full_name,
-    email: normalizeEmail(registration.email),
+    email: normalizePortalEmail(registration.email),
     phone: registration.whatsapp,
     country: registration.country,
     city: registration.city,
@@ -283,9 +227,16 @@ export async function provisionStudentFromRegistration(input: { registrationId: 
   if (!skillLearningMode) throw new StudentProvisioningError("A valid skill-pathway learning mode is required before provisioning.", 409);
 
   const cohort = await loadCohort(supabase, input.cohortId);
-  const auth = await findOrCreateAuthUser(supabase, registration);
-  const profileStatus = await upsertProfile(supabase, auth.user.id, registration);
-  await assignStudentRole(supabase, auth.user.id);
+  let auth: Awaited<ReturnType<typeof findOrCreatePortalAuthUser>>;
+  let profileStatus: "created" | "updated";
+  try {
+    auth = await findOrCreatePortalAuthUser(supabase, { email: registration.email, fullName: registration.full_name });
+    profileStatus = await ensurePortalProfile(supabase, { userId: auth.user.id, email: registration.email, fullName: registration.full_name, phone: registration.whatsapp });
+    await ensurePortalRole(supabase, auth.user.id, "student");
+  } catch (error) {
+    if (error instanceof PortalIdentityError) throw new StudentProvisioningError(error.message, error.status);
+    throw error;
+  }
   const student = await createOrUpdateStudent(supabase, auth.user.id, registration);
   const studentEnrollment = await createOrLoadStudentEnrollment(supabase, {
     studentId: student.id,

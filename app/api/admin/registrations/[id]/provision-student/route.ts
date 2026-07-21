@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { provisionStudentFromRegistration, StudentProvisioningError } from "@/lib/lms/provisionStudent";
+import { provisionStudentPortalAccess } from "@/lib/lms/portalInvite";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await isAdminAuthenticated())) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
@@ -22,6 +23,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   try {
     const result = await provisionStudentFromRegistration({ registrationId: id, cohortId });
+    const portalAccess = await provisionStudentPortalAccess(result.student.id);
     return NextResponse.json({
       student_number: result.student.student_number,
       student_id: result.student.id,
@@ -31,6 +33,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       role_status: result.roleStatus,
       cohort: result.cohort,
       course_enrollment_count: result.courseEnrollmentCount,
+      portal_access: portalAccess,
     });
   } catch (error) {
     if (error instanceof StudentProvisioningError) return NextResponse.json({ message: error.message }, { status: error.status });

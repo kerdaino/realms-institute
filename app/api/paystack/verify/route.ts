@@ -77,6 +77,9 @@ export async function GET(request: NextRequest) {
       console.error("Paystack registration payment could not be finalized", { reference });
       return NextResponse.json({ success: false, message: unmatchedPaymentMessage }, { status: 409 });
     }
+    if (registrationSave.paymentVerificationAuditStatus === "pending") {
+      console.error("Paystack payment is confirmed but its verification audit is pending repair");
+    }
 
     const emailStatus: RegistrationEmailStatus = await sendRegistrationEmailsIfNeeded(registrationSave.registration);
     const paidAmount = reconciliation.receivedKobo / 100;

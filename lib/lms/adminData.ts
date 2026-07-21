@@ -6,6 +6,7 @@ import type { Cohort, Course, Facilitator, Student } from "@/lib/lms/types";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { resolveRequiredStudentHandbook } from "@/lib/lms/handbookConfig";
 import { currentStudentEnrollmentStatuses } from "@/lib/lms/currentEnrollment";
+import { fetchPortalAccountEvidence } from "@/lib/lms/portalInvite";
 
 export class LmsAdminDataError extends Error {
   constructor(message: string, public readonly status = 500) {
@@ -95,6 +96,7 @@ export async function fetchAdminStudent(supabase: SupabaseClient, id: string) {
   const cohort = Array.isArray(currentEnrollment?.cohorts) ? currentEnrollment.cohorts[0] : currentEnrollment?.cohorts;
   const requiredHandbook = resolveRequiredStudentHandbook(cohort?.code);
   const acknowledgement = requiredHandbook ? (handbookAcknowledgements.data ?? []).find((item) => item.document_type === requiredHandbook.documentType && item.document_version === requiredHandbook.version) ?? null : null;
+  const portalAccount = await fetchPortalAccountEvidence(supabase, { profileId: studentResult.data.profile_id, entityType: "student", entityId: id });
   return {
     student: studentResult.data,
     enrollments: enrollments.data ?? [],
@@ -103,6 +105,7 @@ export async function fetchAdminStudent(supabase: SupabaseClient, id: string) {
     audits: audits.data ?? [],
     registration: registration.data,
     handbook: { storageAvailable: handbookStorageAvailable, requiredDocument: requiredHandbook, acknowledgement },
+    portalAccount,
   };
 }
 
@@ -173,7 +176,8 @@ export async function fetchAdminFacilitator(supabase: SupabaseClient, id: string
   throwQueryError("Facilitator assignments", assignments.error);
   throwQueryError("Available course offerings", availableOfferings.error);
   if (!facilitator.data) throw new LmsAdminDataError("Facilitator not found.", 404);
-  return { facilitator: facilitator.data, assignments: assignments.data ?? [], availableOfferings: availableOfferings.data ?? [] };
+  const portalAccount = await fetchPortalAccountEvidence(supabase, { profileId: facilitator.data.profile_id, entityType: "facilitator", entityId: id });
+  return { facilitator: facilitator.data, assignments: assignments.data ?? [], availableOfferings: availableOfferings.data ?? [], portalAccount };
 }
 
 export async function fetchAdminDashboard(supabase: SupabaseClient) {

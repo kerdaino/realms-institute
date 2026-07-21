@@ -398,3 +398,118 @@ REALMS Institute`;
   const html = layout(title, `<p>Dear ${escapeHtml(registration.full_name)},</p><p>${escapeHtml(message)}</p><table style="border-collapse:collapse;width:100%;margin:20px 0">${rows(details)}</table><p style="font-weight:700">Admission status remains separately controlled.</p>${whatsappCard("Stay Connected", "Join the REALMS Institute WhatsApp Channel for programme updates.", "Joining the channel does not change your admission status.")}<p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
   return { subject, html, text };
 }
+
+type StudentPortalEmailInput = {
+  name: string;
+  studentNumber: string;
+  cohortName: string;
+  discipleshipRoute: string;
+  skillPathway: string;
+  actionUrl: string;
+  mode: "activation" | "setup" | "reminder";
+};
+
+type FacilitatorPortalEmailInput = {
+  name: string;
+  cohortName: string;
+  assignments: string[];
+  actionUrl: string;
+  mode: "activation" | "setup" | "reminder";
+};
+
+function portalButton(url: string, label: string) {
+  return `<a href="${escapeHtml(url)}" style="display:inline-block;background:#d7aa45;color:#071327;text-decoration:none;font-weight:700;padding:13px 20px;border-radius:999px">${escapeHtml(label)}</a>`;
+}
+
+export function createStudentPortalActivationEmail(input: StudentPortalEmailInput): EmailTemplate {
+  const activation = input.mode === "activation";
+  const reminder = input.mode === "reminder";
+  const subject = activation ? "Welcome to REALMS Institute — Activate Your Student Account" : reminder ? "REALMS Institute — Your Student Portal Is Ready" : "REALMS Institute — Complete Your Student Account Setup";
+  const actionLabel = reminder ? "SIGN IN TO STUDENT PORTAL" : "ACTIVATE STUDENT ACCOUNT";
+  const intro = reminder ? "Your existing REALMS account now has access to the Student Portal." : "Your REALMS Student Portal account is ready.";
+  const nextStep = reminder ? "Sign in with your existing email address and password to continue your student onboarding." : "Use this secure activation process to create your password and complete your student onboarding.";
+  const details = [["Student ID", input.studentNumber], ["Programme", "REALMS School of Discovery"], ["Cohort", input.cohortName], ["Discipleship Route", input.discipleshipRoute], ["Skill Pathway", input.skillPathway]] as Array<[string, string]>;
+  const text = `Dear ${input.name},
+
+Congratulations. Your admission into the REALMS School of Discovery — August 2026 Cohort has been confirmed.
+
+${textLines(details)}
+
+${intro}
+
+${nextStep}
+
+${input.actionUrl}
+
+After activation, you will be required to review and acknowledge the August 2026 Student Handbook before beginning your academic activities.
+
+For support:
+${realmsEmailSupportAddress}
+
+REALMS Institute
+${motto}.`;
+  const html = layout(activation ? "Activate Your Student Account" : reminder ? "Your Student Portal Is Ready" : "Complete Your Student Account Setup", `<p>Dear ${escapeHtml(input.name)},</p><p>Congratulations. Your admission into the REALMS School of Discovery — August 2026 Cohort has been confirmed.</p><table style="border-collapse:collapse;width:100%;margin:22px 0">${rows(details)}</table><p>${escapeHtml(intro)}</p><p>${escapeHtml(nextStep)}</p><p style="margin:24px 0">${portalButton(input.actionUrl, actionLabel)}</p><p>After activation, you will be required to review and acknowledge the August 2026 Student Handbook before beginning your academic activities.</p><p style="margin-top:22px;color:#475569;font-size:14px">For support: <a href="mailto:${realmsEmailSupportAddress}" style="color:#071327">${realmsEmailSupportAddress}</a></p><p style="margin-top:24px"><strong>REALMS Institute</strong><br>${escapeHtml(motto)}.</p>`);
+  return { subject, html, text };
+}
+
+export function createFacilitatorPortalActivationEmail(input: FacilitatorPortalEmailInput): EmailTemplate {
+  const activation = input.mode === "activation";
+  const reminder = input.mode === "reminder";
+  const subject = activation ? "REALMS Institute — Activate Your Facilitator Account" : reminder ? "REALMS Institute — Your Facilitator Portal Is Ready" : "REALMS Institute — Complete Your Facilitator Account Setup";
+  const actionLabel = reminder ? "SIGN IN TO FACILITATOR PORTAL" : "ACTIVATE FACILITATOR ACCOUNT";
+  const assignmentLines = input.assignments.length ? input.assignments.map((item) => `- ${item}`).join("\n") : "- No current course assignment has been published yet.";
+  const assignmentHtml = input.assignments.length ? `<ul style="line-height:1.7;padding-left:20px">${input.assignments.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : "<p>No current course assignment has been published yet.</p>";
+  const instruction = reminder ? "Sign in with your existing email address and password." : "Use this secure activation process to create your password.";
+  const text = `Dear ${input.name},
+
+Your REALMS Institute Facilitator Portal access has been prepared for the ${input.cohortName} School of Discovery cohort.
+
+Your assigned course areas currently include:
+${assignmentLines}
+
+${instruction}
+
+${input.actionUrl}
+
+After activation you will be able to access only your assigned courses, sessions and authorised academic responsibilities through the Facilitator Portal.
+
+For support:
+${realmsEmailSupportAddress}
+
+REALMS Institute`;
+  const html = layout(activation ? "Activate Your Facilitator Account" : reminder ? "Your Facilitator Portal Is Ready" : "Complete Your Facilitator Account Setup", `<p>Dear ${escapeHtml(input.name)},</p><p>Your REALMS Institute Facilitator Portal access has been prepared for the ${escapeHtml(input.cohortName)} School of Discovery cohort.</p><h3 style="margin-top:24px;color:#071327">Your assigned course areas currently include</h3>${assignmentHtml}<p>${escapeHtml(instruction)}</p><p style="margin:24px 0">${portalButton(input.actionUrl, actionLabel)}</p><p>After activation you will be able to access only your assigned courses, sessions and authorised academic responsibilities through the Facilitator Portal.</p><p style="margin-top:22px;color:#475569;font-size:14px">For support: <a href="mailto:${realmsEmailSupportAddress}" style="color:#071327">${realmsEmailSupportAddress}</a></p><p style="margin-top:24px"><strong>REALMS Institute</strong></p>`);
+  return { subject, html, text };
+}
+
+export function createPortalRecoveryEmail(input: { name: string; actionUrl: string }): EmailTemplate {
+  const text = `Dear ${input.name},
+
+We received a request to reset the password for your REALMS Institute Portal account.
+
+Use the secure link below to create a new password:
+${input.actionUrl}
+
+If you did not request this, you can ignore this email. Do not share this link.
+
+For support:
+${realmsEmailSupportAddress}
+
+REALMS Institute`;
+  const html = layout("Reset Your Portal Password", `<p>Dear ${escapeHtml(input.name)},</p><p>We received a request to reset the password for your REALMS Institute Portal account.</p><p style="margin:24px 0">${portalButton(input.actionUrl, "RESET PORTAL PASSWORD")}</p><p style="color:#475569;font-size:14px">If you did not request this, you can ignore this email. Do not share this link.</p><p style="margin-top:22px;color:#475569;font-size:14px">For support: <a href="mailto:${realmsEmailSupportAddress}" style="color:#071327">${realmsEmailSupportAddress}</a></p><p style="margin-top:24px"><strong>REALMS Institute</strong></p>`);
+  return { subject: "REALMS Institute — Reset Your Portal Password", html, text };
+}
+
+export function createPortalSignInLinkEmail(input: { name: string; actionUrl: string }): EmailTemplate {
+  const text = `Dear ${input.name},
+
+Use the secure link below to sign in to the REALMS Institute Portal:
+${input.actionUrl}
+
+If you did not request this link, you can ignore this email. Do not share this link.
+
+REALMS Institute`;
+  const html = layout("Secure Portal Sign-In", `<p>Dear ${escapeHtml(input.name)},</p><p>Use the secure link below to sign in to the REALMS Institute Portal.</p><p style="margin:24px 0">${portalButton(input.actionUrl, "SIGN IN TO REALMS PORTAL")}</p><p style="color:#475569;font-size:14px">If you did not request this link, you can ignore this email. Do not share this link.</p><p style="margin-top:24px"><strong>REALMS Institute</strong></p>`);
+  return { subject: "REALMS Institute — Secure Portal Sign-In", html, text };
+}
+
+const realmsEmailSupportAddress = "gloryrealm2025@gmail.com";

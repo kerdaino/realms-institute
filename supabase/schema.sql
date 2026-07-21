@@ -263,6 +263,11 @@ alter table public.registration_review_events
 create index if not exists registration_review_events_registration_created_at_idx
   on public.registration_review_events (registration_id, created_at desc);
 
+create unique index if not exists registration_review_events_payment_verified_reference_uidx
+  on public.registration_review_events (registration_id, (new_state ->> 'payment_reference'))
+  where event_type = 'payment_verified'
+    and nullif(new_state ->> 'payment_reference', '') is not null;
+
 create index if not exists registrations_applicant_type_idx on public.registrations (applicant_type);
 create index if not exists registrations_requested_route_idx on public.registrations (requested_discipleship_route);
 create index if not exists registrations_advanced_entry_status_idx on public.registrations (advanced_entry_status);

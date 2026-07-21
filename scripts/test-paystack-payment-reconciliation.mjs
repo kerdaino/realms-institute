@@ -37,9 +37,10 @@ assert.deepEqual(
   "Repeated reconciliation must be deterministic.",
 );
 
-const [verificationRoute, saveRegistration, registrationEmails, footer, about, constants] = await Promise.all([
+const [verificationRoute, saveRegistration, paymentVerificationAudit, registrationEmails, footer, about, constants] = await Promise.all([
   readFile(new URL("../app/api/paystack/verify/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/saveRegistration.ts", import.meta.url), "utf8"),
+  readFile(new URL("../lib/paymentVerificationAudit.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/registrationEmails.ts", import.meta.url), "utf8"),
   readFile(new URL("../components/layout/Footer.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/about/page.tsx", import.meta.url), "utf8"),
@@ -48,10 +49,11 @@ const [verificationRoute, saveRegistration, registrationEmails, footer, about, c
 assert.match(verificationRoute, /hasExpectedPaystackRegistrationSource/);
 assert.match(verificationRoute, /reconciliation\.varianceType === "underpayment"/);
 assert.match(verificationRoute, /recordUnconfirmedRegistrationPayment\(transaction, normalized, reconciliation\)/);
+assert.match(verificationRoute, /paymentVerificationAuditStatus === "pending"/);
 assert.match(saveRegistration, /\.neq\("payment_status", "success"\)/);
 assert.match(saveRegistration, /\.eq\("paystack_raw->>id", String\(paystackData\.id\)\)/);
 assert.match(saveRegistration, /realms_payment_reconciliation/);
-assert.match(saveRegistration, /event_type: "payment_verified"/);
+assert.match(paymentVerificationAudit, /event_type: "payment_verified"/);
 assert.match(registrationEmails, /realms-registration-\$\{registration\.id\}-\$\{kind\}/);
 assert.doesNotMatch(`${footer}\n${about}\n${constants}`, /Powered by (?:Gloryrealm Christian Centre|GRCC)|A GRCC institution/i);
 
