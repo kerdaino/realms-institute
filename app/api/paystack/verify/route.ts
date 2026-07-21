@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { verifyPaystackTransaction } from "@/lib/paystack";
 import { hasExpectedPaystackRegistrationSource, reconcileRegistrationPayment } from "@/lib/paymentReconciliation";
+import { consumePublicRateLimits, publicRequestSource } from "@/lib/publicRateLimit.server";
+import { PUBLIC_RATE_LIMIT_MESSAGE } from "@/lib/publicRateLimitPolicy";
 import { sendRegistrationEmailsIfNeeded, type RegistrationEmailStatus } from "@/lib/registrationEmails";
 import { PaymentRegistrationConflictError, recordUnconfirmedRegistrationPayment, resolvePaystackRegistration, saveVerifiedRegistrationFromPaystack, type RegistrationSaveResult } from "@/lib/saveRegistration";
 
@@ -22,6 +24,14 @@ export async function GET(request: NextRequest) {
   console.info("Paystack verification reference received", { reference: reference || null });
   if (!reference || reference.length > 160 || !/^[A-Za-z0-9._-]+$/.test(reference)) return NextResponse.json({ success: false, message: "A valid payment reference is required." }, { status: 400 });
   if (!process.env.PAYSTACK_SECRET_KEY) return NextResponse.json({ success: false, message: "Payment configuration is missing." }, { status: 500 });
+
+  const rateLimit = await consumePublicRateLimits([
+    { policy: "paystack_verify_source", identifier: publicRequestSource(request.headers) },
+    { policy: "paystack_verify_reference", identifier: reference },
+  ]);
+  if (rateLimit.status === "blocked") return NextResponse.json({ success: false, message: PUBLIC_RATE_LIMIT_MESSAGE }, { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } });
+  // Verification deliberately fails open when the limiter store is unavailable:
+  // a confirmed payment must remain recoverable from a later redirect/reload.
 
   try {
     const transaction = await verifyPaystackTransaction(reference);

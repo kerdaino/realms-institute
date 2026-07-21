@@ -1,12 +1,20 @@
 export type PortalSetupContext = "student" | "facilitator" | "recovery";
 export type PortalLinkIntent = "setup" | "signin";
 
+export function isPortalSetupContext(value: unknown): value is PortalSetupContext {
+  return value === "student" || value === "facilitator" || value === "recovery";
+}
+
+export function isPortalLinkIntent(value: unknown): value is PortalLinkIntent {
+  return value === "setup" || value === "signin";
+}
+
 export function normalizePortalSetupContext(value: unknown): PortalSetupContext {
-  return value === "student" || value === "facilitator" ? value : "recovery";
+  return isPortalSetupContext(value) ? value : "recovery";
 }
 
 export function normalizePortalLinkIntent(value: unknown): PortalLinkIntent {
-  return value === "setup" ? "setup" : "signin";
+  return isPortalLinkIntent(value) ? value : "signin";
 }
 
 export function validatePortalPassword(password: string) {

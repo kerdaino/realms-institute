@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 
-import { normalizePortalLinkIntent, normalizePortalSetupContext, validatePortalPassword } from "../lib/lms/portalAuthPolicy.ts";
+import { isPortalLinkIntent, isPortalSetupContext, normalizePortalLinkIntent, normalizePortalSetupContext, validatePortalPassword } from "../lib/lms/portalAuthPolicy.ts";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, root), "utf8");
@@ -14,6 +14,7 @@ const loginForm = await read("components/portal/PortalLoginForm.tsx");
 const recoveryPage = await read("app/portal/forgot-password/page.tsx");
 const confirmPage = await read("app/auth/confirm/page.tsx");
 const confirmAction = await read("app/auth/confirm/actions.ts");
+const confirmForm = await read("components/portal/ConfirmPortalAuthForm.tsx");
 const setupPage = await read("app/auth/setup-password/page.tsx");
 const setupAction = await read("app/auth/setup-password/actions.ts");
 const setupGrant = await read("lib/lms/passwordSetupGrant.ts");
@@ -31,8 +32,17 @@ assert.match(accessService, /createStudentPortalActivationEmail/);
 
 // 2. GET does not consume the token; the explicit server action verifies token_hash and establishes the SSR session.
 assert.match(confirmPage, /Continue Securely/);
-assert.match(confirmPage, /form action=\{confirmPortalAuth\}/);
+assert.doesNotMatch(confirmPage, /verifyOtp/);
+assert.match(confirmForm, /form action=\{action\}/);
+assert.match(confirmForm, /PrimaryButton type="submit" disabled=\{pending\}/);
+assert.match(confirmForm, /Verifying secure link…/);
 assert.match(confirmAction, /verifyOtp\(\{ token_hash: tokenHash, type: suppliedType \}\)/);
+assert.match(confirmAction, /supabase\.auth\.getUser\(\)/);
+assert.match(confirmAction, /redirect\("\/auth\/setup-password"\)/);
+assert.match(confirmAction, /isPortalLinkIntent\(suppliedIntent\)/);
+assert.match(confirmAction, /isPortalSetupContext\(suppliedContext\)/);
+assert.match(confirmAction, /\/auth\/confirm\?error=invalid_link/);
+assert.doesNotMatch(confirmAction, /invalid_link[^\n]*token_hash/);
 
 // 3-4. Password update is authenticated and student routing reuses handbook state before the real /student dashboard.
 assert.match(setupAction, /supabase\.auth\.updateUser\(\{ password \}\)/);
@@ -96,6 +106,10 @@ assert.equal(normalizePortalSetupContext("facilitator"), "facilitator");
 assert.equal(normalizePortalSetupContext("anything"), "recovery");
 assert.equal(normalizePortalLinkIntent("setup"), "setup");
 assert.equal(normalizePortalLinkIntent("anything"), "signin");
+assert.equal(isPortalSetupContext("student"), true);
+assert.equal(isPortalSetupContext("administrator"), false);
+assert.equal(isPortalLinkIntent("setup"), true);
+assert.equal(isPortalLinkIntent("reset"), false);
 assert.equal(validatePortalPassword("StrongPortal1!").valid, true);
 assert.equal(validatePortalPassword("weak").valid, false);
 await access(new URL("app/portal/forgot-password/page.tsx", root));

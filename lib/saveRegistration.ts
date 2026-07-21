@@ -271,7 +271,7 @@ export function buildVerifiedPaymentColumns(paystackData: PaystackVerificationDa
   };
 }
 
-export async function createRegistrationApplication(registration: RegistrationPayload, fee: CohortFee, paymentReference: string | null) {
+export async function createRegistrationApplication(registration: RegistrationPayload, fee: CohortFee, paymentReference: string | null, submissionKeyHash?: string | null) {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
   const payload = {
@@ -279,6 +279,7 @@ export async function createRegistrationApplication(registration: RegistrationPa
     payment_reference: paymentReference,
     payment_status: registration.fundingRoute === "scholarship_request" ? "not_paid" : "pending",
     paid_at: null,
+    submission_key_hash: submissionKeyHash || null,
   };
   if (process.env.NODE_ENV !== "production") {
     console.log("Normalized screening payload:", {
@@ -294,14 +295,73 @@ export async function createRegistrationApplication(registration: RegistrationPa
   const { data, error } = await supabase
     .from("registrations")
     .insert(payload)
-    .select("id")
+    .select("id, payment_reference, payment_status, payment_authorization_url")
     .single();
   if (error || !data?.id) {
+    if (submissionKeyHash) {
+      const existing = await supabase
+        .from("registrations")
+        .select("id, payment_reference, payment_status, payment_authorization_url")
+        .eq("submission_key_hash", submissionKeyHash)
+        .maybeSingle();
+      if (!existing.error && existing.data?.id) {
+        const id = String(existing.data.id);
+        return {
+          id,
+          applicationReference: id,
+          paymentReference: typeof existing.data.payment_reference === "string" ? existing.data.payment_reference : null,
+          paymentStatus: typeof existing.data.payment_status === "string" ? existing.data.payment_status : null,
+          paymentAuthorizationUrl: typeof existing.data.payment_authorization_url === "string" ? existing.data.payment_authorization_url : null,
+          reused: true,
+        };
+      }
+    }
     console.error("Supabase application save failed:", error);
     throw new Error(`APPLICATION_SAVE_FAILED:${error?.message || "No application record was returned."}`);
   }
   const id = String(data.id);
-  return { id, applicationReference: id };
+  return {
+    id,
+    applicationReference: id,
+    paymentReference: typeof data.payment_reference === "string" ? data.payment_reference : null,
+    paymentStatus: typeof data.payment_status === "string" ? data.payment_status : null,
+    paymentAuthorizationUrl: typeof data.payment_authorization_url === "string" ? data.payment_authorization_url : null,
+    reused: false,
+  };
+}
+
+export async function recordRegistrationPaymentInitialization(applicationId: string, paymentReference: string, authorizationUrl: string) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
+  const initializedAt = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("registrations")
+    .update({ payment_authorization_url: authorizationUrl, payment_initialized_at: initializedAt, updated_at: initializedAt })
+    .eq("id", applicationId)
+    .eq("payment_reference", paymentReference)
+    .eq("payment_status", "pending")
+    .select("id")
+    .maybeSingle();
+  if (error || !data?.id) throw new Error(`PAYMENT_INITIALIZATION_SAVE_FAILED:${error?.message || "Application state changed."}`);
+}
+
+export async function validateRegistrationApplicationForPayment(input: { applicationId: string; paymentReference: string; email: string; amount: number; currency: string }) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
+  const { data, error } = await supabase
+    .from("registrations")
+    .select("id, email, funding_route, amount, currency, payment_status, payment_reference, payment_authorization_url")
+    .eq("id", input.applicationId)
+    .maybeSingle();
+  if (error || !data) throw new Error(`APPLICATION_PAYMENT_STATE_UNAVAILABLE:${error?.message || "Application was not found."}`);
+  const valid = data.funding_route === "self_pay"
+    && data.payment_status === "pending"
+    && data.payment_reference === input.paymentReference
+    && String(data.email || "").trim().toLowerCase() === input.email.trim().toLowerCase()
+    && Number(data.amount) === input.amount
+    && String(data.currency || "").toUpperCase() === input.currency.toUpperCase();
+  if (!valid) throw new Error("APPLICATION_PAYMENT_STATE_INVALID");
+  return { authorizationUrl: typeof data.payment_authorization_url === "string" ? data.payment_authorization_url : null };
 }
 
 export function normalizePaystackRegistrationMetadata(metadata: unknown): NormalizedPaystackRegistrationMetadata {

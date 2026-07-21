@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 
 import { PrimaryButton } from "@/components/ui/Button";
 import {
@@ -30,6 +30,7 @@ type RegistrationFormProps = {
 };
 
 export function RegistrationForm({ initialSkillPathway, advancedEntryRequested = false }: RegistrationFormProps) {
+  const submissionId = useRef("");
   const [applicantType, setApplicantType] = useState<ApplicantType | "">("");
   const [country, setCountry] = useState("");
   const [learningMode, setLearningMode] = useState("");
@@ -54,6 +55,8 @@ export function RegistrationForm({ initialSkillPathway, advancedEntryRequested =
     setLoading(true);
     const form = new FormData(event.currentTarget);
     const payload: Record<string, unknown> = Object.fromEntries(form.entries());
+    if (!submissionId.current) submissionId.current = crypto.randomUUID();
+    payload.submissionId = submissionId.current;
     payload.consent = form.get("consent") === "on";
     payload.feePolicyConsent = fundingRoute === "self_pay" && form.get("feePolicyConsent") === "on";
     payload.computerAccessConfirmed = form.get("computerAccessConfirmed") === "on";

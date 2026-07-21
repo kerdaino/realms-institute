@@ -1,6 +1,5 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
 import type { GenerateLinkType, SupabaseClient, User } from "@supabase/supabase-js";
 
 import { sendEmail } from "@/lib/email";
@@ -9,13 +8,11 @@ import { recordLmsAudit } from "@/lib/lms/adminAudit";
 import { currentStudentEnrollmentStatuses, selectCurrentStudentEnrollment } from "@/lib/lms/currentEnrollment";
 import { ensurePortalProfile, ensurePortalRole, findOrCreatePortalAuthUser, findPortalAuthUserByEmail, hasConfiguredPortalPassword, normalizePortalEmail, PortalIdentityError } from "@/lib/lms/portalIdentity";
 import type { PortalLinkIntent, PortalSetupContext } from "@/lib/lms/portalAuthPolicy";
+import { consumePublicRateLimits } from "@/lib/publicRateLimit.server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 const activeCohortStatuses = new Set(["planned", "admissions_open", "admissions_closed", "active"]);
 const activeOfferingStatuses = new Set(["planned", "published", "active"]);
-const requestWindowMs = 15 * 60 * 1000;
-const requestLimit = 3;
-const emailRequests = new Map<string, { count: number; resetsAt: number }>();
 
 export type PortalAccountStatus = "not_provisioned" | "invitation_sent" | "account_active" | "recovery_required";
 export type PortalDeliveryOutcome = "activation_email_sent" | "setup_email_sent" | "access_reminder_sent" | "recovery_email_sent";
@@ -43,22 +40,6 @@ function siteUrl() {
 
 function title(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function publicRequestAllowed(kind: string, email: string) {
-  const now = Date.now();
-  const key = createHash("sha256").update(`${kind}:${normalizePortalEmail(email)}`).digest("hex");
-  const existing = emailRequests.get(key);
-  if (!existing || existing.resetsAt <= now) {
-    if (emailRequests.size >= 10_000) {
-      for (const [candidate, value] of emailRequests) if (value.resetsAt <= now) emailRequests.delete(candidate);
-    }
-    emailRequests.set(key, { count: 1, resetsAt: now + requestWindowMs });
-    return true;
-  }
-  if (existing.count >= requestLimit) return false;
-  existing.count += 1;
-  return true;
 }
 
 function confirmUrl(properties: { hashed_token: string; verification_type: GenerateLinkType }, intent: PortalLinkIntent, context: PortalSetupContext) {
@@ -191,8 +172,14 @@ export async function provisionFacilitatorPortalAccess(facilitatorId: string, op
   return { sent: true, outcome, message: portalOutcomeMessage(outcome), userId: user.id };
 }
 
-export async function requestPortalRecovery(email: string) {
-  if (!publicRequestAllowed("recovery", email)) return;
+export async function requestPortalRecovery(email: string, source: string) {
+  const limit = await consumePublicRateLimits([
+    { policy: "forgot_password_source", identifier: source },
+    { policy: "forgot_password_email", identifier: normalizePortalEmail(email) },
+  ]);
+  // Public auth-email actions fail closed but remain deliberately silent so
+  // callers cannot distinguish a missing account from a throttled request.
+  if (limit.status !== "allowed") return;
   const supabase = getSupabaseAdmin();
   if (!supabase) return;
   try {
@@ -207,8 +194,12 @@ export async function requestPortalRecovery(email: string) {
   }
 }
 
-export async function requestPortalSignInLink(email: string) {
-  if (!publicRequestAllowed("signin", email)) return;
+export async function requestPortalSignInLink(email: string, source: string) {
+  const limit = await consumePublicRateLimits([
+    { policy: "magic_link_source", identifier: source },
+    { policy: "magic_link_email", identifier: normalizePortalEmail(email) },
+  ]);
+  if (limit.status !== "allowed") return;
   const supabase = getSupabaseAdmin();
   if (!supabase) return;
   try {

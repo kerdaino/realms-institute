@@ -1,10 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 
 import { getCurrentUserRoles, resolvePortalRouteForCurrentUser } from "@/lib/lms/auth";
 import { markPortalPasswordConfigured } from "@/lib/lms/portalIdentity";
 import { requestPortalRecovery, requestPortalSignInLink } from "@/lib/lms/portalInvite";
+import { publicRequestSource } from "@/lib/publicRateLimit.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseAuthConfigured } from "@/lib/supabase/config";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
@@ -23,7 +25,7 @@ export async function requestPortalMagicLink(_state: PortalLoginState, formData:
   if (!isEmail(email)) return { status: "error", message: "Enter a valid email address." };
   if (!isSupabaseAuthConfigured()) return { status: "error", message: "Portal authentication is not configured yet. Please contact REALMS Institute." };
 
-  await requestPortalSignInLink(email);
+  await requestPortalSignInLink(email, publicRequestSource(await headers()));
 
   // Keep this response deliberately generic so the login form cannot be used
   // to discover which email addresses have institutional accounts.
@@ -52,6 +54,6 @@ export async function signInWithPortalPassword(_state: PortalLoginState, formDat
 export async function requestPortalPasswordRecovery(_state: PortalLoginState, formData: FormData): Promise<PortalLoginState> {
   const email = String(formData.get("email") || "").trim().toLowerCase().slice(0, 320);
   if (!isEmail(email)) return { status: "error", message: "Enter a valid email address." };
-  await requestPortalRecovery(email);
+  await requestPortalRecovery(email, publicRequestSource(await headers()));
   return { status: "success", message: "If an account exists for this email, recovery instructions have been sent." };
 }
