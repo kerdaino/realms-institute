@@ -4,6 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Cohort, Course, Facilitator, Student } from "@/lib/lms/types";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { resolveRequiredStudentHandbook } from "@/lib/lms/handbookConfig";
+import { currentStudentEnrollmentStatuses } from "@/lib/lms/currentEnrollment";
 
 export class LmsAdminDataError extends Error {
   constructor(message: string, public readonly status = 500) {
@@ -75,7 +77,7 @@ export async function fetchAdminStudent(supabase: SupabaseClient, id: string) {
   throwQueryError("Student", studentResult.error);
   if (!studentResult.data) throw new LmsAdminDataError("Student not found.", 404);
 
-  const [enrollments, courseEnrollments, notes, audits, registration] = await Promise.all([
+  const [enrollments, courseEnrollments, notes, audits, registration, handbookAcknowledgements] = await Promise.all([
     supabase.from("student_enrollments").select("*, cohorts(*)").eq("student_id", id).order("enrolled_at", { ascending: false }),
     supabase.from("course_enrollments").select("*, student_enrollments!inner(student_id), cohort_courses(*, courses(*), cohorts(id, code, name))").eq("student_enrollments.student_id", id).order("enrolled_at", { ascending: true }),
     supabase.from("student_notes").select("*").eq("student_id", id).order("created_at", { ascending: false }),
@@ -83,9 +85,25 @@ export async function fetchAdminStudent(supabase: SupabaseClient, id: string) {
     studentResult.data.registration_id
       ? supabase.from("registrations").select("id, full_name, email, applicant_type, application_status, payment_status, funding_route, assigned_discipleship_route, skill_pathway, learning_mode, created_at").eq("id", studentResult.data.registration_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
+    supabase.from("student_document_acknowledgements").select("id, student_id, document_type, document_version, document_title, effective_cohort_id, acknowledgement_text_snapshot, acknowledged_at, created_at").eq("student_id", id).order("acknowledged_at", { ascending: false }),
   ]);
   for (const [label, result] of [["Student enrolments", enrollments], ["Course enrolments", courseEnrollments], ["Student notes", notes], ["Student audit history", audits], ["Registration source", registration]] as const) throwQueryError(label, result.error);
-  return { student: studentResult.data, enrollments: enrollments.data ?? [], courseEnrollments: courseEnrollments.data ?? [], notes: notes.data ?? [], audits: audits.data ?? [], registration: registration.data };
+  const handbookStorageAvailable = !handbookAcknowledgements.error;
+  if (handbookAcknowledgements.error && !["PGRST205", "42P01"].includes(handbookAcknowledgements.error.code ?? "")) throwQueryError("Student handbook acknowledgements", handbookAcknowledgements.error);
+  const enrollmentRows = (enrollments.data ?? []) as Array<{ enrolment_status?: string; cohort_id?: string; cohorts?: { code?: string } | Array<{ code?: string }> }>;
+  const currentEnrollment = enrollmentRows.find((item) => currentStudentEnrollmentStatuses.includes(item.enrolment_status as (typeof currentStudentEnrollmentStatuses)[number])) ?? enrollmentRows[0];
+  const cohort = Array.isArray(currentEnrollment?.cohorts) ? currentEnrollment.cohorts[0] : currentEnrollment?.cohorts;
+  const requiredHandbook = resolveRequiredStudentHandbook(cohort?.code);
+  const acknowledgement = requiredHandbook ? (handbookAcknowledgements.data ?? []).find((item) => item.document_type === requiredHandbook.documentType && item.document_version === requiredHandbook.version) ?? null : null;
+  return {
+    student: studentResult.data,
+    enrollments: enrollments.data ?? [],
+    courseEnrollments: courseEnrollments.data ?? [],
+    notes: notes.data ?? [],
+    audits: audits.data ?? [],
+    registration: registration.data,
+    handbook: { storageAvailable: handbookStorageAvailable, requiredDocument: requiredHandbook, acknowledgement },
+  };
 }
 
 export type AdminCohortListItem = Cohort & { student_count: number; course_count: number };

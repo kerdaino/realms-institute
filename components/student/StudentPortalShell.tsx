@@ -5,7 +5,7 @@ import { StudentDesktopNav, StudentMobileNav } from "@/components/student/Studen
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import type { StudentDashboardData } from "@/lib/lms/studentDashboard";
 
-export function StudentPortalShell({ data, children }: { data: StudentDashboardData; children: ReactNode }) {
+export function StudentPortalShell({ data, children, handbookAcknowledged = true }: { data: StudentDashboardData; children: ReactNode; handbookAcknowledged?: boolean }) {
   return (
     <div className="min-h-dvh bg-[#f5f2ea] text-slate-950">
       <a href="#student-content" className="sr-only z-50 rounded bg-white px-4 py-2 text-[#071327] focus:not-sr-only focus:fixed focus:left-4 focus:top-4">Skip to student content</a>
@@ -21,10 +21,10 @@ export function StudentPortalShell({ data, children }: { data: StudentDashboardD
           </div>
         </div>
       </header>
-      <StudentMobileNav />
+      <StudentMobileNav handbookAcknowledged={handbookAcknowledged} />
       <div className="mx-auto grid max-w-[1480px] lg:min-h-[calc(100dvh-77px)] lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="hidden border-r border-white/10 bg-[#0b2547] p-6 text-white lg:block">
-          <nav aria-label="Student portal"><StudentDesktopNav /></nav>
+          <nav aria-label="Student portal"><StudentDesktopNav handbookAcknowledged={handbookAcknowledged} /></nav>
           <div className="mt-8 border-t border-white/10 pt-6">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--realm-gold-soft)]">Programme Status</p>
             <ul className="mt-3 space-y-2 text-sm text-white/65"><li>Results appear only after publication</li><li>Completion eligibility is not graduation</li><li>Awards require separate graduation, template, review and issuance approval</li></ul>

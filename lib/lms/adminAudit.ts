@@ -9,6 +9,7 @@ export type LmsAuditAction =
   | "student_matriculated"
   | "student_note_added"
   | "student_portal_access_sent"
+  | "student_handbook_acknowledged"
   | "cohort_updated"
   | "course_updated"
   | "facilitator_updated"
@@ -153,7 +154,7 @@ export type LmsAuditAction =
 
 export async function recordLmsAudit(supabase: SupabaseClient, input: {
   action: LmsAuditAction;
-  entityType: "student" | "student_enrollment" | "cohort" | "course" | "facilitator" | "class_session" | "class_summary" | "session_resource" | "class_recording" | "session_attendance" | "course_enrollment" | "recording_learning_assignment" | "session_learning_completion" | "assignment" | "assignment_submission" | "quiz" | "quiz_attempt" | "absence_request" | "makeup_requirement" | "student_engagement_alert" | "student_warning_notice" | "mentor_assignment" | "mentor_followup" | "student_recovery_plan" | "recovery_plan_action" | "student_status_review_case" | "student_support_referral" | "programme_scoring_policy" | "assessment_weighting" | "engagement_component_evaluation" | "capstone_defence" | "student_graduation_requirement" | "student_programme_result" | "academic_result_batch" | "graduation_confirmation" | "alumni" | "alumni_programme_record" | "alumni_course_archive" | "alumni_summary_archive_item" | "alumni_recording_access_grant" | "certificate_template" | "institutional_award" | "alumni_announcement" | "alumni_outcome_update";
+  entityType: "student" | "student_enrollment" | "student_document_acknowledgement" | "cohort" | "course" | "facilitator" | "class_session" | "class_summary" | "session_resource" | "class_recording" | "session_attendance" | "course_enrollment" | "recording_learning_assignment" | "session_learning_completion" | "assignment" | "assignment_submission" | "quiz" | "quiz_attempt" | "absence_request" | "makeup_requirement" | "student_engagement_alert" | "student_warning_notice" | "mentor_assignment" | "mentor_followup" | "student_recovery_plan" | "recovery_plan_action" | "student_status_review_case" | "student_support_referral" | "programme_scoring_policy" | "assessment_weighting" | "engagement_component_evaluation" | "capstone_defence" | "student_graduation_requirement" | "student_programme_result" | "academic_result_batch" | "graduation_confirmation" | "alumni" | "alumni_programme_record" | "alumni_course_archive" | "alumni_summary_archive_item" | "alumni_recording_access_grant" | "certificate_template" | "institutional_award" | "alumni_announcement" | "alumni_outcome_update";
   entityId: string;
   metadata?: Record<string, unknown>;
   actorUserId?: string | null;

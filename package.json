@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:build13": "node scripts/test-build-13-audit.mjs"
+    "test:build13": "node scripts/test-build-13-audit.mjs",
+    "test:handbook": "node --experimental-strip-types scripts/test-student-handbook.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

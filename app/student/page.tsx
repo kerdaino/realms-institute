@@ -14,6 +14,7 @@ import { requireLmsAdminClient } from "@/lib/lms/adminData";
 import { getStudentAbsenceRequests, getStudentStandaloneMakeups } from "@/lib/lms/absenceData";
 import { fetchStudentGraduationTracker, fetchStudentResultData } from "@/lib/lms/resultData";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireStudentHandbookAcknowledgement } from "@/lib/lms/studentHandbookGate";
 
 export const metadata: Metadata = { title: "Student Dashboard | REALMS Institute" };
 
@@ -28,6 +29,7 @@ function SessionCard({ session }: { session: StudentSession }) {
 
 export default async function StudentDashboardPage() {
   const { user } = await requireRole("student");
+  const handbookState = await requireStudentHandbookAcknowledgement(user.id);
   const assessmentClient = requireLmsAdminClient();
   const studentClient = await createSupabaseServerClient();
   const [data, attendance, recordedLearning, assignments, quizzes, absenceRequests, standaloneMakeups, publishedResult, completionTracker] = await Promise.all([getStudentDashboardData(user.id), getStudentAttendanceData(user.id), getStudentRecordingAssignments(user.id), fetchStudentAssignments(assessmentClient, user.id), fetchStudentQuizzes(assessmentClient, user.id), getStudentAbsenceRequests(user.id), getStudentStandaloneMakeups(user.id), fetchStudentResultData(studentClient, user.id), fetchStudentGraduationTracker(studentClient, user.id)]);
@@ -83,6 +85,8 @@ export default async function StudentDashboardPage() {
           <div><dt className="text-xs font-semibold uppercase tracking-[0.14em] text-white/60">Academic Status</dt><dd className="mt-1 font-semibold">{data.academicStatus}</dd></div>
         </dl>
       </header>
+
+      {handbookState.requiredDocument && handbookState.acknowledgement ? <StudentPanel title="Student Handbook" description={`${handbookState.requiredDocument.cohortLabel} — Version ${handbookState.requiredDocument.version}`} action={<div className="flex flex-wrap gap-3"><a href={handbookState.requiredDocument.fileHref} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-amber-800 underline underline-offset-4">View Handbook</a><a href={handbookState.requiredDocument.fileHref} download className="text-sm font-semibold text-amber-800 underline underline-offset-4">Download PDF</a></div>}><DataCard label="Acknowledged" value={formatStudentDate(handbookState.acknowledgement.acknowledged_at)} detail={`Version ${handbookState.acknowledgement.document_version} acknowledgement is permanently preserved.`} /></StudentPanel> : null}
 
       <StudentPanel title="Academic Standing & Support" description="Formal notices, response rights, mentor support, and recovery actions are kept separate from operational engagement alerts." action={<Link href="/student/standing" className="rounded-lg text-sm font-semibold text-amber-800 underline-offset-4 hover:underline">Open Standing &amp; Support</Link>}>
         <DataCard label="Current Academic Standing" value={humanizeStudentValue(data.enrollment.academic_standing)} detail="Standing changes require an authorised decision and recorded reason." />

@@ -4,25 +4,29 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const links = [
-  { href: "/student", label: "Dashboard" },
-  { href: "/student/courses", label: "My Courses" },
-  { href: "/student/calendar", label: "Schedule" },
-  { href: "/student/resources", label: "Resources" },
-  { href: "/student/recordings", label: "Recordings" },
-  { href: "/student/assignments", label: "Assignments" },
-  { href: "/student/quizzes", label: "Quizzes" },
-  { href: "/student/attendance", label: "Attendance" },
-  { href: "/student/absences", label: "Absence & Make-Up" },
-  { href: "/student/results", label: "Results" },
-  { href: "/student/graduation", label: "Completion Tracker" },
-  { href: "/student/profile", label: "My Profile" },
+  { href: "/student", label: "Dashboard", onboardingAllowed: false },
+  { href: "/student/courses", label: "My Courses", onboardingAllowed: false },
+  { href: "/student/calendar", label: "Schedule", onboardingAllowed: false },
+  { href: "/student/resources", label: "Resources", onboardingAllowed: false },
+  { href: "/student/recordings", label: "Recordings", onboardingAllowed: false },
+  { href: "/student/assignments", label: "Assignments", onboardingAllowed: false },
+  { href: "/student/quizzes", label: "Quizzes", onboardingAllowed: false },
+  { href: "/student/attendance", label: "Attendance", onboardingAllowed: false },
+  { href: "/student/absences", label: "Absence & Make-Up", onboardingAllowed: false },
+  { href: "/student/results", label: "Results", onboardingAllowed: false },
+  { href: "/student/graduation", label: "Completion Tracker", onboardingAllowed: false },
+  { href: "/student/onboarding/handbook", label: "Student Handbook", onboardingAllowed: true },
+  { href: "/student/standing", label: "Standing & Support", onboardingAllowed: true },
+  { href: "/student/profile", label: "My Profile", onboardingAllowed: true },
+  { href: "/contact", label: "Contact Support", onboardingAllowed: true },
 ] as const;
 
-function NavLinks({ onDark = false }: { onDark?: boolean }) {
+function NavLinks({ onDark = false, handbookAcknowledged }: { onDark?: boolean; handbookAcknowledged: boolean }) {
   const pathname = usePathname();
+  const visibleLinks = handbookAcknowledged ? links : links.filter((item) => item.onboardingAllowed);
   return (
     <ul className="space-y-1.5">
-      {links.map((item) => {
+      {visibleLinks.map((item) => {
         const active = item.href === "/student" ? pathname === item.href : pathname.startsWith(item.href);
         return (
           <li key={item.href}>
@@ -36,11 +40,11 @@ function NavLinks({ onDark = false }: { onDark?: boolean }) {
   );
 }
 
-export function StudentDesktopNav() {
-  return <NavLinks onDark />;
+export function StudentDesktopNav({ handbookAcknowledged }: { handbookAcknowledged: boolean }) {
+  return <NavLinks onDark handbookAcknowledged={handbookAcknowledged} />;
 }
 
-export function StudentMobileNav() {
+export function StudentMobileNav({ handbookAcknowledged }: { handbookAcknowledged: boolean }) {
   return (
     <details className="group border-b border-slate-200 bg-white lg:hidden">
       <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between px-5 py-3 font-semibold text-[#071327] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--realm-gold)]">
@@ -48,7 +52,7 @@ export function StudentMobileNav() {
         <span aria-hidden="true" className="text-xl transition group-open:rotate-45">+</span>
       </summary>
       <nav aria-label="Student portal" className="border-t border-slate-100 px-4 py-4">
-        <NavLinks />
+        <NavLinks handbookAcknowledged={handbookAcknowledged} />
       </nav>
     </details>
   );
