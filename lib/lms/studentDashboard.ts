@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Cohort, Profile, Student, StudentEnrollment } from "@/lib/lms/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { selectCurrentStudentEnrollment } from "@/lib/lms/currentEnrollment";
 
 const dashboardErrorMessage = "We could not load part of your learning dashboard right now. Please refresh the page or contact REALMS Institute if the issue continues.";
 
@@ -225,7 +226,7 @@ async function loadStudentDashboardData(profileId: string, options: LoadOptions 
   };
   if (!student) return base;
 
-  const enrollmentResult = await supabase.from("student_enrollments").select("id, cohort_id, discipleship_route, skill_pathway, skill_learning_mode, enrolment_status, enrolled_at, academic_standing").eq("student_id", student.id).order("enrolled_at", { ascending: false }).limit(1).maybeSingle();
+  const enrollmentResult = await selectCurrentStudentEnrollment<DashboardEnrollment>(supabase, student.id, "id, cohort_id, discipleship_route, skill_pathway, skill_learning_mode, enrolment_status, enrolled_at, academic_standing");
   reportFailure("enrollment lookup", enrollmentResult.error);
   const enrollment = enrollmentResult.data as DashboardEnrollment | null;
   base.enrollment = enrollment;

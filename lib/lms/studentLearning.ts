@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isUuid } from "@/lib/lms/adminConstants";
 import { requireRole } from "@/lib/lms/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { selectCurrentStudentEnrollment } from "@/lib/lms/currentEnrollment";
 
 const activeEnrollmentStatuses = ["active", "enrolled"];
 
@@ -256,7 +257,7 @@ const resolveStudentLearningContext = cache(async (): Promise<StudentLearningCon
   const studentResult = await supabase.from("students").select("id").eq("profile_id", user.id).maybeSingle();
   fail("student access lookup", studentResult.error);
   if (!studentResult.data) throw new StudentLearningDataError("Your student account has not yet been fully activated. Please contact REALMS Institute.");
-  const enrollmentResult = await supabase.from("student_enrollments").select("id, discipleship_route, skill_pathway").eq("student_id", studentResult.data.id).order("enrolled_at", { ascending: false }).limit(1).maybeSingle();
+  const enrollmentResult = await selectCurrentStudentEnrollment<{ id: string; discipleship_route: string; skill_pathway: string }>(supabase, studentResult.data.id, "id, discipleship_route, skill_pathway");
   fail("current enrollment lookup", enrollmentResult.error);
   if (!enrollmentResult.data) throw new StudentLearningDataError("Your course enrolment is still being prepared. Please contact REALMS Institute if this persists.");
   return { supabase, studentId: studentResult.data.id, studentEnrollmentId: enrollmentResult.data.id, discipleshipRoute: enrollmentResult.data.discipleship_route, skillPathway: enrollmentResult.data.skill_pathway };

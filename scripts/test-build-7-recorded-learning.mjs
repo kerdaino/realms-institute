@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { creditedPlaybackSegment, evaluateRecordedRequirements, mergeWatchedSegments, providerTrackingMode, resolveRecordingProgressProvider, uniqueWatchedSeconds, watchPercentage } from "../lib/lms/recording.ts";
+import { creditedPlaybackSegment, evaluateRecordedRequirements, mergeWatchedSegments, providerTrackingMode, resolveRecordingProgressProvider, resolveRecordingRequirementSnapshot, uniqueWatchedSeconds, watchPercentage } from "../lib/lms/recording.ts";
 
 const merged = mergeWatchedSegments([{ start: 0, end: 40 }, { start: 20, end: 60 }, { start: 75, end: 90 }, { start: 90, end: 100 }]);
 assert.deepEqual(merged, [{ start: 0, end: 60 }, { start: 75, end: 100 }]);
@@ -33,4 +33,13 @@ assert.equal(evaluateRecordedRequirements({ purpose: "MU-E", progressIntegritySt
 assert.equal(evaluateRecordedRequirements({ purpose: "MU-U", progressIntegrityStatus: "clear", watchRequirementMet: true, checkpointRequirementMet: true, configuredRequiredCheckpoints: 2, requiredCheckpointCount: 2, requirements: evidence({ quiz: { required: true, status: "satisfied" }, practical: { required: true, status: "satisfied" } }), dueAt: null, allowLateCompletion: true }).learningStatus, "late_complete");
 assert.match(evaluateRecordedRequirements({ purpose: "RP", progressIntegrityStatus: "clear", watchRequirementMet: true, checkpointRequirementMet: false, configuredRequiredCheckpoints: 1, requiredCheckpointCount: 2, requirements: evidence(), dueAt: null, allowLateCompletion: true }).warning ?? "", /required checkpoints/i);
 
-console.log(JSON.stringify({ segmentMerge: "passed", elapsedTimeCap: "passed", providerModes: "passed", evaluatorCases: 10, passed: 24 }, null, 2));
+const frozenRequirements = { minWatchPercentage: 85, deadlineHours: 72, requiredCheckpointCount: 2, requiresCheckpoints: true, requiresQuiz: true, requiresPractical: false, requiresReflection: true, requiresOralVerification: false, allowLateCompletion: true };
+const frozen = resolveRecordingRequirementSnapshot(frozenRequirements);
+assert.equal(frozen.status, "snapshot");
+assert.deepEqual(frozen.requirements, frozenRequirements);
+assert.equal(frozen.requirements?.minWatchPercentage, 85, "A later policy change must not alter an assignment-time snapshot.");
+assert.deepEqual(resolveRecordingRequirementSnapshot(null), { status: "legacy", requirements: null });
+assert.deepEqual(resolveRecordingRequirementSnapshot({}), { status: "legacy", requirements: null });
+assert.deepEqual(resolveRecordingRequirementSnapshot({ minWatchPercentage: 85, deadlineHours: 72 }), { status: "legacy", requirements: null });
+
+console.log(JSON.stringify({ segmentMerge: "passed", elapsedTimeCap: "passed", providerModes: "passed", evaluatorCases: 10, requirementSnapshotCases: 4, passed: 28 }, null, 2));

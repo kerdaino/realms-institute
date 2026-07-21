@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { recordLmsAudit } from "@/lib/lms/adminAudit";
+import { currentStudentEnrollmentStatuses } from "@/lib/lms/currentEnrollment";
 import { LmsAdminDataError } from "@/lib/lms/adminData";
 import {
   engagementDeduplicationKey,
@@ -205,7 +206,7 @@ export async function evaluateStudentEngagement(supabase: SupabaseClient, studen
 }
 
 export async function evaluateCohortEngagement(supabase: SupabaseClient, cohortId: string, actor: Actor = { actorLabel: "System evaluation" }) {
-  const result = await supabase.from("student_enrollments").select("id").eq("cohort_id", cohortId).in("enrolment_status", ["pending_onboarding", "active", "enrolled"]);
+  const result = await supabase.from("student_enrollments").select("id").eq("cohort_id", cohortId).in("enrolment_status", [...currentStudentEnrollmentStatuses]);
   fail("Cohort enrolments could not be loaded.", result.error);
   const totals = { students: 0, created: 0, updated: 0, resolved: 0 };
   for (const row of result.data ?? []) {
@@ -238,7 +239,7 @@ export async function recordStudentEnrollmentMeaningfulActivity(supabase: Supaba
 export async function recordStudentMeaningfulActivity(supabase: SupabaseClient, profileId: string, occurredAt = new Date().toISOString()) {
   const student = await supabase.from("students").select("id").eq("profile_id", profileId).maybeSingle();
   if (student.error || !student.data) return false;
-  const enrollment = await supabase.from("student_enrollments").select("id").eq("student_id", student.data.id).in("enrolment_status", ["pending_onboarding", "active", "enrolled"]).order("enrolled_at", { ascending: false }).limit(1).maybeSingle();
+  const enrollment = await supabase.from("student_enrollments").select("id").eq("student_id", student.data.id).in("enrolment_status", [...currentStudentEnrollmentStatuses]).order("enrolled_at", { ascending: false }).limit(1).maybeSingle();
   if (enrollment.error || !enrollment.data) return false;
   return recordStudentEnrollmentMeaningfulActivity(supabase, enrollment.data.id, occurredAt);
 }

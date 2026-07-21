@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Cohort, Facilitator, Student, StudentEnrollment } from "@/lib/lms/types";
+import { selectCurrentStudentEnrollment } from "@/lib/lms/currentEnrollment";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type StudentPortalRecord = {
@@ -22,13 +23,11 @@ export async function getOwnStudentPortalRecord(profileId: string): Promise<Stud
   }
   if (!student) return null;
 
-  const { data: enrollment, error: enrollmentError } = await supabase
-    .from("student_enrollments")
-    .select("cohort_id, discipleship_route, skill_pathway, skill_learning_mode, enrolment_status")
-    .eq("student_id", student.id)
-    .order("enrolled_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data: enrollment, error: enrollmentError } = await selectCurrentStudentEnrollment<{ cohort_id: string; discipleship_route: string; skill_pathway: string; skill_learning_mode: string; enrolment_status: string }>(
+    supabase,
+    student.id,
+    "cohort_id, discipleship_route, skill_pathway, skill_learning_mode, enrolment_status",
+  );
   if (enrollmentError) console.error("Student enrollment lookup failed", { code: enrollmentError.code });
 
   let cohort: Pick<Cohort, "code" | "name"> | null = null;

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 
 import { type AppRole, appRoles, type Profile } from "@/lib/lms/types";
+import { currentStudentEnrollmentStatuses } from "@/lib/lms/currentEnrollment";
 import { isSupabaseAuthConfigured } from "@/lib/supabase/config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -95,7 +96,7 @@ export async function resolvePortalRouteForCurrentUser(roles?: readonly AppRole[
       const supabase = await createSupabaseServerClient();
       const student = await supabase.from("students").select("id").eq("profile_id", user.id).maybeSingle();
       if (student.data) {
-        const active = await supabase.from("student_enrollments").select("id", { count: "exact", head: true }).eq("student_id", student.data.id).in("enrolment_status", ["pending_onboarding", "active", "enrolled", "matriculated"]);
+        const active = await supabase.from("student_enrollments").select("id", { count: "exact", head: true }).eq("student_id", student.data.id).in("enrolment_status", [...currentStudentEnrollmentStatuses]);
         if ((active.count ?? 0) > 0) return "/student";
       }
     }

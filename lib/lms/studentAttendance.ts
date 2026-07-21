@@ -2,6 +2,7 @@ import "server-only";
 
 import { attendanceReviewRequired, type AttendanceStatus, type DeliveryRoute } from "@/lib/lms/attendance";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { selectCurrentStudentEnrollment } from "@/lib/lms/currentEnrollment";
 
 export type StudentAttendanceHistoryItem = {
   id: string;
@@ -43,7 +44,7 @@ export async function getStudentAttendanceData(profileId: string): Promise<Stude
   const supabase = await createSupabaseServerClient();
   const student = await supabase.from("students").select("id").eq("profile_id", profileId).maybeSingle();
   if (student.error || !student.data) return empty();
-  const enrollment = await supabase.from("student_enrollments").select("id, cohort_id").eq("student_id", student.data.id).order("enrolled_at", { ascending: false }).limit(1).maybeSingle();
+  const enrollment = await selectCurrentStudentEnrollment<{ id: string; cohort_id: string }>(supabase, student.data.id, "id, cohort_id");
   if (enrollment.error || !enrollment.data) return empty();
   const result = await supabase.from("session_attendance").select("id, course_enrollment_id, class_session_id, absence_request_id, assigned_delivery_route, attendance_status, absence_weight, finalized_at, class_sessions(id, title, scheduled_start_at, cohort_courses(courses(code, title))), course_enrollments!inner(student_enrollment_id)").eq("course_enrollments.student_enrollment_id", enrollment.data.id).order("created_at", { ascending: false });
   if (result.error) {

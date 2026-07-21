@@ -15,7 +15,7 @@ function isScreeningAnswers(value: unknown): value is FoundationalScreeningAnswe
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await isAdminAuthenticated())) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
   const supabase = getSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ message: "Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to view registrations." }, { status: 503 });
+  if (!supabase) return NextResponse.json({ message: "The registration service is temporarily unavailable." }, { status: 503 });
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ message: "Registration not found." }, { status: 404 });
   const fullResult = await supabase.from("registrations").select(adminRegistrationFields).eq("id", id).maybeSingle();

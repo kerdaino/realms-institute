@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 
+import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { sendEmail } from "@/lib/email";
 
 export async function POST(request: Request) {
   if (process.env.NODE_ENV === "production") {
     return NextResponse.json({ message: "Not found." }, { status: 404 });
+  }
+  if (!(await isAdminAuthenticated())) {
+    return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
   }
 
   let body: unknown;

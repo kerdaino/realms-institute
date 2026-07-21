@@ -14,6 +14,7 @@ import {
   mergeWatchedSegments,
   providerTrackingMode,
   recordingRequirementTypes,
+  resolveRecordingRequirementSnapshot,
   resolveEffectiveRecordingRequirements,
   type EffectiveRecordingRequirements,
   type RecordingPurposeCode,
@@ -31,9 +32,8 @@ function requiredText(value: unknown, message: string, maximum = 4000) { if (typ
 function boolean(value: unknown) { return value === true; }
 function optionalNumber(value: unknown, minimum: number, maximum?: number) { if (value === null || value === undefined || value === "") return null; const number = Number(value); if (!Number.isFinite(number) || number < minimum || (maximum !== undefined && number > maximum)) invalid("A valid numeric requirement is required."); return number; }
 
-function assignmentRequirements(assignment: Record<string, unknown>, current: EffectiveRecordingRequirements): EffectiveRecordingRequirements {
-  const snapshot = object(assignment.requirement_snapshot);
-  return typeof snapshot.minWatchPercentage === "number" && typeof snapshot.deadlineHours === "number" ? { ...current, ...snapshot } as EffectiveRecordingRequirements : current;
+function assignmentRequirements(assignment: Record<string, unknown>) {
+  return resolveRecordingRequirementSnapshot(assignment.requirement_snapshot);
 }
 
 function purposeMethod(purpose: RecordingPurposeCode) {
@@ -237,12 +237,13 @@ export async function recordPlaybackHeartbeat(supabase: SupabaseClient, profileI
   const unique = uniqueWatchedSeconds(merged); const percentage = watchPercentage(unique, Number(recording.duration_seconds));
   const progress = await supabase.from("recording_progress").select("*").eq("recording_assignment_id", assignmentId).single();
   if (progress.error) throw new LmsAdminDataError("Recording progress could not be loaded.");
-  const session = relation(assignment.class_sessions); const offering = relation(session.cohort_courses); const course = relation(offering.courses);
-  const requirements = assignmentRequirements(assignment, await effectiveRequirements(supabase, { sessionId: String(assignment.class_session_id), cohortId: String(offering.cohort_id), courseCategory: String(course.course_category), purpose: assignment.purpose_code as RecordingPurposeCode }));
-  const watchMet = percentage >= requirements.minWatchPercentage;
+  const requirementResolution = assignmentRequirements(assignment);
+  const requirements = requirementResolution.requirements;
+  const legacyRequirements = requirementResolution.status === "legacy";
+  const watchMet = requirements ? percentage >= requirements.minWatchPercentage : Boolean(progress.data.watch_requirement_met);
   const suspicionCount = parseSuspicionCount(progress.data.integrity_note) + (evidence.suspicious ? 1 : 0);
   const flagged = suspicionCount >= 2;
-  const update = await supabase.from("recording_progress").update({ unique_watched_seconds: unique, watch_percentage: percentage, watch_requirement_met: watchMet, completed_watch_at: watchMet ? progress.data.completed_watch_at ?? now.toISOString() : null, last_access_at: now.toISOString(), progress_status: flagged ? "integrity_review" : watchMet ? "watch_complete" : "in_progress", integrity_status: flagged ? "review_required" : progress.data.integrity_status, integrity_note: suspicionCount ? `suspicious_heartbeat_count:${suspicionCount}` : progress.data.integrity_note, updated_at: now.toISOString() }).eq("id", progress.data.id);
+  const update = await supabase.from("recording_progress").update({ unique_watched_seconds: unique, watch_percentage: percentage, watch_requirement_met: watchMet, completed_watch_at: watchMet ? progress.data.completed_watch_at ?? now.toISOString() : null, last_access_at: now.toISOString(), progress_status: legacyRequirements ? "under_review" : flagged ? "integrity_review" : watchMet ? "watch_complete" : "in_progress", integrity_status: flagged ? "review_required" : progress.data.integrity_status, integrity_note: suspicionCount ? `suspicious_heartbeat_count:${suspicionCount}` : progress.data.integrity_note, updated_at: now.toISOString() }).eq("id", progress.data.id);
   if (update.error) throw new LmsAdminDataError("Recording progress could not be updated.");
   if (!progress.data.watch_requirement_met && watchMet) await recordLmsAudit(supabase, { action: "recording_watch_requirement_met", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: profileId, metadata: { watch_percentage: percentage, unique_watched_seconds: unique } });
   if (progress.data.integrity_status !== "review_required" && flagged) await recordLmsAudit(supabase, { action: "recording_integrity_flagged", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: profileId, metadata: { public_reason: "Playback evidence requires review." } });
@@ -278,14 +279,32 @@ async function checkpointEvidence(supabase: SupabaseClient, assignmentId: string
 export async function evaluateRecordedLearningAssignment(supabase: SupabaseClient, assignmentId: string, actor: Actor) {
   const assignmentResult = await supabase.from("recording_learning_assignments").select("*, class_recordings(id, provider, embed_url, duration_seconds), class_sessions(id, cohort_course_id, cohort_courses(cohort_id, courses(course_category))), course_enrollments(id, delivery_route)").eq("id", assignmentId).maybeSingle();
   if (assignmentResult.error || !assignmentResult.data) throw new LmsAdminDataError("Recorded-learning assignment not found.", 404);
-  const assignment = assignmentResult.data; const purpose = assignment.purpose_code as RecordingPurposeCode; const session = relation(assignment.class_sessions); const offering = relation(session.cohort_courses); const course = relation(offering.courses); const recording = relation(assignment.class_recordings);
+  const assignment = assignmentResult.data; const purpose = assignment.purpose_code as RecordingPurposeCode; const recording = relation(assignment.class_recordings);
   const [progress, statusRows, completion] = await Promise.all([
     supabase.from("recording_progress").select("*").eq("recording_assignment_id", assignmentId).single(),
     supabase.from("recording_requirement_statuses").select("*").eq("recording_assignment_id", assignmentId),
     supabase.from("session_learning_completion").select("*").eq("course_enrollment_id", assignment.course_enrollment_id).eq("class_session_id", assignment.class_session_id).single(),
   ]);
   if (progress.error || statusRows.error || completion.error) throw new LmsAdminDataError("Recorded-learning evidence could not be evaluated.");
-  const requirements = assignmentRequirements(assignment, await effectiveRequirements(supabase, { sessionId: assignment.class_session_id, cohortId: String(offering.cohort_id), courseCategory: String(course.course_category), purpose }));
+  const requirementResolution = assignmentRequirements(assignment);
+  const requirements = requirementResolution.requirements;
+  if (!requirements) {
+    const alreadyComplete = assignment.assignment_status === "completed" && ["verified_complete", "late_complete"].includes(String(completion.data.completion_status));
+    if (!alreadyComplete && progress.data.progress_status !== "under_review") {
+      const review = await supabase.from("recording_progress").update({ progress_status: "under_review", updated_at: new Date().toISOString() }).eq("id", progress.data.id);
+      if (review.error) throw new LmsAdminDataError("Historical recorded-learning progress could not be marked for review.");
+    }
+    return {
+      learningStatus: alreadyComplete ? completion.data.completion_status : "under_review",
+      progressStatus: alreadyComplete ? progress.data.progress_status : "under_review",
+      complete: alreadyComplete,
+      requirements: null,
+      checkpoints: null,
+      watchPercentage: Number(progress.data.watch_percentage),
+      legacyRequirementSnapshot: true,
+      warning: "This historical assignment has no trustworthy requirement snapshot and requires manual review.",
+    };
+  }
   const checkpoints = await checkpointEvidence(supabase, assignmentId, String(recording.id), requirements.requiredCheckpointCount);
   const rows = (statusRows.data ?? []).map(object); const evidence = defaultRequirementEvidence(rows);
   const watchRow = rows.find((row) => row.requirement_type === "watch");
@@ -392,7 +411,7 @@ export async function submitRecordingCheckpointAnswer(supabase: SupabaseClient, 
     await recordLmsAudit(supabase, { action: "recording_integrity_flagged", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: profileId, metadata: { public_reason: "Checkpoint activity requires review." } });
   }
   const evaluation = await evaluateRecordedLearningAssignment(supabase, assignmentId, { actorLabel: "System", actorUserId: profileId });
-  if (evaluation.checkpoints.met) await recordLmsAudit(supabase, { action: "recording_checkpoint_completed", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: profileId, metadata: { checkpoint_id: checkpointId } });
+  if (evaluation.checkpoints?.met) await recordLmsAudit(supabase, { action: "recording_checkpoint_completed", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: profileId, metadata: { checkpoint_id: checkpointId } });
   return { attempt: inserted.data, status: isCorrect === null ? "under_review" : isCorrect ? "accepted" : "not_completed", evaluation };
 }
 

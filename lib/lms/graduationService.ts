@@ -6,12 +6,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { recordLmsAudit } from "@/lib/lms/adminAudit";
 import { LmsAdminDataError } from "@/lib/lms/adminData";
 import { assessmentMatchesStudentProgramme } from "@/lib/lms/results";
+import { currentStudentEnrollmentStatuses } from "@/lib/lms/currentEnrollment";
 import { graduationEligibilityBlockingReasons } from "@/lib/lms/graduation";
 
 type Row = Record<string, unknown>;
 export type GraduationActor = { actorUserId?: string | null; actorLabel: string };
 
-const activeStudentStatuses = ["pending_onboarding", "active", "enrolled", "matriculated"];
 const finalRequirementStatuses = ["met", "waived", "not_applicable"];
 
 function object(value: unknown): Row { return value && typeof value === "object" && !Array.isArray(value) ? value as Row : {}; }
@@ -206,7 +206,7 @@ export async function convertConfirmedGraduateToAlumni(supabase: SupabaseClient,
   fail(roleSaved.error, "Alumni portal access could not be activated.");
   const enrollmentSaved = await supabase.from("student_enrollments").update({ enrolment_status: "completed", completed_at: confirmation.completion_date ? `${confirmation.completion_date}T00:00:00.000Z` : now(), updated_at: now() }).eq("id", String(enrollment.id));
   fail(enrollmentSaved.error, "The completed student enrolment could not be recorded.");
-  const otherActive = await supabase.from("student_enrollments").select("id", { count: "exact", head: true }).eq("student_id", String(student.id)).neq("id", String(enrollment.id)).in("enrolment_status", activeStudentStatuses);
+  const otherActive = await supabase.from("student_enrollments").select("id", { count: "exact", head: true }).eq("student_id", String(student.id)).neq("id", String(enrollment.id)).in("enrolment_status", [...currentStudentEnrollmentStatuses]);
   fail(otherActive.error, "Other active programmes could not be checked.");
   if ((otherActive.count ?? 0) === 0) {
     const studentSaved = await supabase.from("students").update({ student_status: "completed", updated_at: now() }).eq("id", String(student.id));

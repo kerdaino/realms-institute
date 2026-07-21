@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { LmsAdminDataError } from "@/lib/lms/adminData";
 import { calculateStudentEngagementMetrics } from "@/lib/lms/engagementService";
+import { currentStudentEnrollmentStatuses, selectCurrentStudentEnrollment } from "@/lib/lms/currentEnrollment";
 
 type Row = Record<string, unknown>;
 function object(value: unknown): Row { return value && typeof value === "object" && !Array.isArray(value) ? value as Row : {}; }
@@ -28,7 +29,7 @@ export async function fetchMentorOptions(supabase: SupabaseClient) {
 
 export async function fetchAtRiskDashboard(supabase: SupabaseClient, filters: AtRiskFilters = {}) {
   const [enrollmentsResult, alertsResult, mentorsResult, plansResult, casesResult, cohortsResult, mentorOptions] = await Promise.all([
-    supabase.from("student_enrollments").select("*, students(id, student_number, legal_name, preferred_name, email), cohorts(id, code, name, status)").in("enrolment_status", ["pending_onboarding", "active", "enrolled"]).order("updated_at", { ascending: false }),
+    supabase.from("student_enrollments").select("*, students(id, student_number, legal_name, preferred_name, email), cohorts(id, code, name, status)").in("enrolment_status", [...currentStudentEnrollmentStatuses]).order("updated_at", { ascending: false }),
     supabase.from("student_engagement_alerts").select("*").neq("alert_status", "resolved").order("last_detected_at", { ascending: false }),
     supabase.from("mentor_assignments").select("*, profiles(id, full_name, preferred_name, email)").eq("assignment_status", "active"),
     supabase.from("student_recovery_plans").select("id, student_enrollment_id, plan_status, plan_title").eq("plan_status", "active"),
@@ -102,7 +103,7 @@ export async function fetchAtRiskStudentDetail(supabase: SupabaseClient, student
 async function enrollmentForStudentProfile(supabase: SupabaseClient, profileId: string) {
   const student = await supabase.from("students").select("id").eq("profile_id", profileId).maybeSingle();
   fail("Student identity could not be loaded.", student.error); if (!student.data) throw new LmsAdminDataError("Student access required.", 403);
-  const enrollment = await supabase.from("student_enrollments").select("*, cohorts(id, code, name), students(id, student_number, legal_name, preferred_name, email)").eq("student_id", student.data.id).order("enrolled_at", { ascending: false }).limit(1).maybeSingle();
+  const enrollment = await selectCurrentStudentEnrollment<Row>(supabase, student.data.id, "*, cohorts(id, code, name), students(id, student_number, legal_name, preferred_name, email)");
   fail("Student standing could not be loaded.", enrollment.error); if (!enrollment.data) throw new LmsAdminDataError("No student enrolment is available.", 404);
   return object(enrollment.data);
 }

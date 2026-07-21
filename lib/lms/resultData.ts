@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { LmsAdminDataError } from "@/lib/lms/adminData";
+import { selectCurrentStudentEnrollment } from "@/lib/lms/currentEnrollment";
 
 type Row = Record<string, unknown>;
 function object(value: unknown): Row { return value && typeof value === "object" && !Array.isArray(value) ? value as Row : {}; }
@@ -133,7 +134,7 @@ export async function fetchResultBatchDetail(supabase: SupabaseClient, id: strin
 export async function fetchStudentResultData(supabase: SupabaseClient, profileId: string) {
   const student = await supabase.from("students").select("id").eq("profile_id", profileId).maybeSingle(); failed(student.error, "Student result account could not be loaded.");
   if (!student.data) throw new LmsAdminDataError("Student record not found.", 404);
-  const enrollment = await supabase.from("student_enrollments").select("id, cohort_id, discipleship_route, skill_pathway").eq("student_id", student.data.id).order("enrolled_at", { ascending: false }).limit(1).maybeSingle(); failed(enrollment.error, "Student enrolment could not be loaded.");
+  const enrollment = await selectCurrentStudentEnrollment<{ id: string; cohort_id: string; discipleship_route: string; skill_pathway: string }>(supabase, student.data.id, "id, cohort_id, discipleship_route, skill_pathway"); failed(enrollment.error, "Student enrolment could not be loaded.");
   if (!enrollment.data) throw new LmsAdminDataError("Student enrolment not found.", 404);
   const result = await supabase.from("student_programme_results").select("id, student_enrollment_id, scoring_policy_id, discipleship_points, skill_points, engagement_points, total_points, result_outcome, result_status, published_at").eq("student_enrollment_id", enrollment.data.id).eq("result_status", "published").maybeSingle();
   failed(result.error, "Published programme result could not be loaded.");
@@ -145,7 +146,7 @@ export async function fetchStudentResultData(supabase: SupabaseClient, profileId
 export async function fetchStudentGraduationTracker(supabase: SupabaseClient, profileId: string) {
   const student = await supabase.from("students").select("id").eq("profile_id", profileId).maybeSingle(); failed(student.error, "Student account could not be loaded.");
   if (!student.data) throw new LmsAdminDataError("Student record not found.", 404);
-  const enrollment = await supabase.from("student_enrollments").select("id, cohort_id").eq("student_id", student.data.id).order("enrolled_at", { ascending: false }).limit(1).maybeSingle(); failed(enrollment.error, "Student enrolment could not be loaded.");
+  const enrollment = await selectCurrentStudentEnrollment<{ id: string; cohort_id: string }>(supabase, student.data.id, "id, cohort_id"); failed(enrollment.error, "Student enrolment could not be loaded.");
   if (!enrollment.data) throw new LmsAdminDataError("Student enrolment not found.", 404);
   const policy = await supabase.from("programme_scoring_policies").select("id").eq("cohort_id", enrollment.data.cohort_id).eq("policy_status", "active").maybeSingle(); failed(policy.error, "Programme completion policy could not be loaded.");
   if (!policy.data) return { enrollment: enrollment.data, rows: [] };

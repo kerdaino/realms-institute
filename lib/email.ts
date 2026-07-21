@@ -35,11 +35,9 @@ export async function sendEmail({ to, subject, html, text, replyTo, idempotencyK
   const config = emailConfig();
   const finalReplyTo = replyTo || realmsEmailReplyTo;
   console.log("Resend direct fetch email attempt:", {
-    to,
     subject,
     hasApiKey: Boolean(process.env.RESEND_API_KEY),
     from: realmsEmailFrom,
-    replyTo: finalReplyTo,
   });
   if (!config) return { sent: false, reason: "Email is not configured." };
 
@@ -66,18 +64,16 @@ export async function sendEmail({ to, subject, html, text, replyTo, idempotencyK
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      console.error("Resend API error:", JSON.stringify({
-        status: response.status,
-        body: data,
-      }));
+      const providerCode = typeof data === "object" && data && "name" in data && typeof data.name === "string" ? data.name : undefined;
+      console.error("Resend API error:", { status: response.status, providerCode });
       const message = typeof data === "object" && data && "message" in data && typeof data.message === "string"
         ? data.message
         : "Email failed to send.";
       return { sent: false, reason: message };
     }
 
-    console.log("Resend direct fetch email result:", data);
     const id = typeof data === "object" && data && "id" in data && typeof data.id === "string" ? data.id : undefined;
+    console.log("Resend direct fetch email result:", { sent: true, id });
     return { sent: true, id };
   } catch (error) {
     console.error("Resend fetch failed:", JSON.stringify(fetchErrorDetails(error)));

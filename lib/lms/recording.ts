@@ -92,6 +92,25 @@ export type EffectiveRecordingRequirements = {
   allowLateCompletion: boolean;
 };
 
+export type RecordingRequirementSnapshotResolution =
+  | { status: "snapshot"; requirements: EffectiveRecordingRequirements }
+  | { status: "legacy"; requirements: null };
+
+/**
+ * Accept only a complete assignment-time snapshot. Missing or partial
+ * historical values must remain visibly legacy; substituting today's policy
+ * would silently change the requirements under which the assignment began.
+ */
+export function resolveRecordingRequirementSnapshot(value: unknown): RecordingRequirementSnapshotResolution {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { status: "legacy", requirements: null };
+  const snapshot = value as Record<string, unknown>;
+  const numberKeys = ["minWatchPercentage", "deadlineHours", "requiredCheckpointCount"] as const;
+  const booleanKeys = ["requiresCheckpoints", "requiresQuiz", "requiresPractical", "requiresReflection", "requiresOralVerification", "allowLateCompletion"] as const;
+  if (!numberKeys.every((key) => typeof snapshot[key] === "number" && Number.isFinite(snapshot[key]))) return { status: "legacy", requirements: null };
+  if (!booleanKeys.every((key) => typeof snapshot[key] === "boolean")) return { status: "legacy", requirements: null };
+  return { status: "snapshot", requirements: snapshot as EffectiveRecordingRequirements };
+}
+
 type RecordingPolicyRow = {
   min_watch_percentage?: number | string | null;
   default_deadline_hours?: number | string | null;

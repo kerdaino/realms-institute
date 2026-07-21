@@ -2,6 +2,7 @@ import "server-only";
 
 import { sendEmail, type EmailSendResult } from "@/lib/email";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { selectCurrentStudentEnrollment } from "@/lib/lms/currentEnrollment";
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", "\"": "&quot;" })[character] || character);
@@ -17,7 +18,7 @@ export async function sendStudentPortalInvite(studentId: string): Promise<EmailS
 
   const { data: student, error: studentError } = await supabase.from("students").select("id, student_number, legal_name, email").eq("id", studentId).maybeSingle();
   if (studentError || !student) return { sent: false, reason: "The student account could not be loaded." };
-  const { data: enrollment, error: enrollmentError } = await supabase.from("student_enrollments").select("cohort_id, discipleship_route, skill_pathway").eq("student_id", studentId).order("enrolled_at", { ascending: false }).limit(1).maybeSingle();
+  const { data: enrollment, error: enrollmentError } = await selectCurrentStudentEnrollment<{ cohort_id: string; discipleship_route: string; skill_pathway: string }>(supabase, studentId, "cohort_id, discipleship_route, skill_pathway");
   if (enrollmentError || !enrollment) return { sent: false, reason: "The student enrolment could not be loaded." };
   const { data: cohort, error: cohortError } = await supabase.from("cohorts").select("name").eq("id", enrollment.cohort_id).maybeSingle();
   if (cohortError || !cohort) return { sent: false, reason: "The student cohort could not be loaded." };

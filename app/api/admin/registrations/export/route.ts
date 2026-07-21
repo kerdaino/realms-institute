@@ -10,7 +10,7 @@ function row(registration: AdminRegistration) {
 export async function GET(request: Request) {
   if (!(await isAdminAuthenticated())) return Response.json({ message: "Unauthorized." }, { status: 401 });
   const supabase = getSupabaseAdmin();
-  if (!supabase) return Response.json({ message: "Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to view registrations." }, { status: 503 });
+  if (!supabase) return Response.json({ message: "The registration service is temporarily unavailable." }, { status: 503 });
   try {
     const registrations = await fetchAdminRegistrations(supabase, readRegistrationFilters(new URL(request.url).searchParams));
     const headings = ["Full Name", "Email", "WhatsApp", "Country", "City", "Gender", "Age Range", "Church", "Applicant Type", "Requested Discipleship Route", "Assigned Discipleship Route", "Advanced Entry Status", "Alumni Verification Status", "Alumni Previous Cohort", "Alumni Previous Email", "Alumni Previous Phone", "Alumni Student ID", "Screening Status", "Learning Mode", "Skill Pathway", "Reason", "Referral Source", "Fee Policy Consent", "Computer Access Confirmed", "Funding Route", "Scholarship Status", "Public Fee", "Fee Amount Display", "Amount Paid", "Application Fee Amount", "Currency", "Payment Reference", "Payment Status", "Application Status", "Admin Note", "Reviewed At", "Reviewed By", "Paid At", "Created At"].map(csv).join(",");
