@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -10,9 +10,10 @@ import { LmsAdminDataError } from "@/lib/lms/adminData";
 import { renderInstitutionalCertificatePdf, type CertificateSignature } from "@/lib/lms/awardPdf";
 import { awardDisclaimer, awardingInstitution, institutionalAwardTitle, institutionalAwardType, templateIssuanceBlockingReasons } from "@/lib/lms/graduation";
 import type { GraduationActor } from "@/lib/lms/graduationService";
+import { privateFileContentMatches, privateFileLimits, privateFileSignedUrlSeconds, privateStorageBuckets } from "@/lib/lms/privateFilePolicy";
 
 type Row = Record<string, unknown>;
-const awardBucket = "institutional-awards";
+const awardBucket = privateStorageBuckets.award;
 
 function object(value: unknown): Row { return value && typeof value === "object" && !Array.isArray(value) ? value as Row : {}; }
 function relation(value: unknown): Row { return Array.isArray(value) ? object(value[0]) : object(value); }
@@ -103,15 +104,24 @@ export async function generateAwardDocument(supabase: SupabaseClient, awardId: s
     if (!siteUrl) throw new LmsAdminDataError("The public site URL is required for certificate verification.", 503);
     const verificationUrl = `${siteUrl}/verify-certificate/${encodeURIComponent(String(award.verification_code))}`;
     const bytes = await renderInstitutionalCertificatePdf({ awardTitle: String(award.award_title), recipientLegalName: String(award.recipient_legal_name), claimText: claimFromTemplate(template, award), programmeName: String(award.programme_name), cohortName: String(award.cohort_name_snapshot), discipleshipRoute: String(award.discipleship_route), skillPathway: String(award.skill_pathway), issueDate: String(programme.graduation_date ?? programme.completion_date), awardNumber: String(award.award_number), verificationUrl, verificationFooter: String(template.verification_footer_text || awardDisclaimer), logoBytes, backgroundBytes, signatures });
+    if (bytes.byteLength > privateFileLimits.certificatePdf || !privateFileContentMatches("pdf", bytes)) throw new LmsAdminDataError("The generated certificate did not pass the private-file safety checks.", 409);
     const fileName = `${String(award.award_number).replace(/[^A-Za-z0-9-]/g, "-")}.pdf`;
-    const storagePath = `${programme.alumni_id}/${award.id}/${fileName}`;
-    const uploaded = await supabase.storage.from(awardBucket).upload(storagePath, bytes, { contentType: "application/pdf", upsert: true, cacheControl: "0" });
+    const storagePath = `${programme.alumni_id}/${award.id}/${randomUUID()}.pdf`;
+    const uploaded = await supabase.storage.from(awardBucket).upload(storagePath, bytes, { contentType: "application/pdf", upsert: false, cacheControl: "0" });
     if (uploaded.error) throw new LmsAdminDataError("The certificate document could not be stored privately.");
     const sha256 = createHash("sha256").update(bytes).digest("hex");
-    const saved = await supabase.from("institutional_awards").update({ document_status: "generated", document_storage_path: storagePath, document_file_name: fileName, document_sha256: sha256, template_version_snapshot: template.template_version, qr_verification_url: verificationUrl, updated_at: now() }).eq("id", awardId).select("*").single();
-    fail(saved.error, "Certificate document record could not be finalised.");
+    const saved = await supabase.from("institutional_awards").update({ document_status: "generated", document_storage_bucket: awardBucket, document_storage_path: storagePath, document_file_name: fileName, document_mime_type: "application/pdf", document_size_bytes: bytes.byteLength, document_uploaded_at: now(), document_sha256: sha256, template_version_snapshot: template.template_version, qr_verification_url: verificationUrl, updated_at: now() }).eq("id", awardId).select("*").single();
+    if (saved.error || !saved.data) {
+      await supabase.storage.from(awardBucket).remove([storagePath]);
+      throw new LmsAdminDataError("Certificate document record could not be finalised.");
+    }
+    const previousPath = typeof award.document_storage_path === "string" ? award.document_storage_path : null;
     await issuanceEvent(supabase, awardId, "document_generated", award, object(saved.data), "Generated from the approved template and reconciled award snapshot.", actor);
     await recordLmsAudit(supabase, { action: "certificate_document_generated", entityType: "institutional_award", entityId: awardId, actorUserId: actor.actorUserId, metadata: { template_version: template.template_version, sha256_recorded: true } });
+    if (previousPath && previousPath !== storagePath) {
+      const removed = await supabase.storage.from(awardBucket).remove([previousPath]);
+      if (removed.error) console.error("Superseded draft award object requires cleanup", { awardId, code: removed.error.message });
+    }
     return saved.data;
   } catch (error) {
     await supabase.from("institutional_awards").update({ document_status: "generation_failed", updated_at: now() }).eq("id", awardId);
@@ -190,8 +200,17 @@ export async function createOwnAwardDownloadUrl(supabase: SupabaseClient, awardI
   if (!award.data || award.data.award_status !== "issued" || award.data.document_status !== "generated" || !award.data.document_storage_path) throw new LmsAdminDataError("This certificate is not available for download.", 404);
   const programme = relation(award.data.alumni_programme_records); const alumni = relation(programme.alumni); const student = relation(alumni.students);
   if (student.profile_id !== profileId) throw new LmsAdminDataError("This certificate does not belong to your alumni account.", 403);
-  const signed = await supabase.storage.from(awardBucket).createSignedUrl(award.data.document_storage_path, 300, { download: true });
+  const signed = await supabase.storage.from(awardBucket).createSignedUrl(award.data.document_storage_path, privateFileSignedUrlSeconds, { download: true });
   if (signed.error || !signed.data?.signedUrl) throw new LmsAdminDataError("A secure certificate download could not be prepared.");
+  return signed.data.signedUrl;
+}
+
+export async function createAdminAwardDownloadUrl(supabase: SupabaseClient, awardId: string) {
+  const award = await supabase.from("institutional_awards").select("id, document_status, document_storage_bucket, document_storage_path, document_file_name").eq("id", awardId).maybeSingle();
+  fail(award.error, "Award could not be loaded.");
+  if (!award.data || award.data.document_status !== "generated" || !award.data.document_storage_path) throw new LmsAdminDataError("This file is no longer available.", 404);
+  const signed = await supabase.storage.from(awardBucket).createSignedUrl(award.data.document_storage_path, privateFileSignedUrlSeconds, { download: award.data.document_file_name || "REALMS-certificate.pdf" });
+  if (signed.error || !signed.data?.signedUrl) throw new LmsAdminDataError("This file is no longer available.", 404);
   return signed.data.signedUrl;
 }
 

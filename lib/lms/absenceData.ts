@@ -39,7 +39,7 @@ export async function getStudentAbsenceRequest(profileId: string, requestId: str
   const result = await supabase.from("absence_requests").select(requestSelect).eq("id", requestId).in("course_enrollment_id", context.courseEnrollmentIds).maybeSingle();
   if (result.error || !result.data) return null;
   const [evidence, events, completion, attendance, makeupEvents] = await Promise.all([
-    supabase.from("absence_request_evidence").select("id, title, description, evidence_type, file_name, mime_type, size_bytes, created_at").eq("absence_request_id", requestId).order("created_at"),
+    supabase.from("absence_request_evidence").select("id, title, description, evidence_type, storage_path, file_name, mime_type, size_bytes, evidence_status, created_at").eq("absence_request_id", requestId).order("created_at"),
     supabase.from("absence_request_events").select("id, event_type, note, created_at").eq("absence_request_id", requestId).order("created_at", { ascending: false }),
     supabase.from("session_learning_completion").select("completion_status, completion_method, required_action, due_at, completed_at, verified_at").eq("course_enrollment_id", result.data.course_enrollment_id).eq("class_session_id", result.data.class_session_id).maybeSingle(),
     supabase.from("session_attendance").select("attendance_status, absence_weight, finalized_at").eq("course_enrollment_id", result.data.course_enrollment_id).eq("class_session_id", result.data.class_session_id).maybeSingle(),
@@ -47,7 +47,8 @@ export async function getStudentAbsenceRequest(profileId: string, requestId: str
   ]);
   if (evidence.error || events.error || completion.error || attendance.error || makeupEvents.error) throw new LmsAdminDataError("Absence request details could not be loaded.");
   const publicEvents = (events.data ?? []).map((event) => ({ ...event, note: ["absence_information_requested", "absence_request_approved", "absence_request_declined"].includes(event.event_type) ? event.note : null }));
-  return { ...safeStudentRequest(result.data as unknown as Record<string, unknown>), evidence: evidence.data ?? [], events: publicEvents, makeupEvents: makeupEvents.data ?? [], learning: completion.data, attendance: attendance.data };
+  const safeEvidence = (evidence.data ?? []).map(({ storage_path, ...item }) => ({ ...item, downloadUrl: storage_path && item.evidence_status === "active" ? `/api/student/absence-evidence/${item.id}/download` : null }));
+  return { ...safeStudentRequest(result.data as unknown as Record<string, unknown>), evidence: safeEvidence, events: publicEvents, makeupEvents: makeupEvents.data ?? [], learning: completion.data, attendance: attendance.data };
 }
 
 export async function getStudentAbsenceSessionOptions(profileId: string) {
@@ -82,7 +83,8 @@ export async function fetchAdminAbsenceRequest(supabase: SupabaseClient, request
     supabase.from("session_learning_completion").select("*").eq("course_enrollment_id", request.data.course_enrollment_id).eq("class_session_id", request.data.class_session_id).maybeSingle(),
     supabase.from("makeup_requirement_events").select("*").in("makeup_requirement_id", makeupIds.length ? makeupIds : ["00000000-0000-0000-0000-000000000000"]).order("created_at", { ascending: false }),
   ]); if (evidence.error || events.error || attendance.error || learning.error || makeupEvents.error) throw new LmsAdminDataError("Absence review details could not be loaded.");
-  return { request: request.data, evidence: evidence.data ?? [], events: events.data ?? [], attendance: attendance.data, learning: learning.data, makeupEvents: makeupEvents.data ?? [] };
+  const protectedEvidence = (evidence.data ?? []).map(({ storage_path, ...item }) => ({ ...item, external_url: storage_path && item.evidence_status === "active" ? `/api/admin/absence-evidence/${item.id}/download` : item.external_url }));
+  return { request: request.data, evidence: protectedEvidence, events: events.data ?? [], attendance: attendance.data, learning: learning.data, makeupEvents: makeupEvents.data ?? [] };
 }
 
 export async function fetchFacilitatorMakeup(supabase: SupabaseClient, offeringIds: readonly string[]) {

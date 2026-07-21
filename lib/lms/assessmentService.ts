@@ -50,7 +50,7 @@ function submissionRequirements(value: unknown): SubmissionRequirements {
     repository_url_required: booleanValue(raw.repository_url_required),
     deployment_url_required: booleanValue(raw.deployment_url_required),
     external_url_allowed: booleanValue(raw.external_url_allowed, true),
-    file_upload_allowed: false,
+    file_upload_allowed: booleanValue(raw.file_upload_allowed),
   };
 }
 
@@ -161,7 +161,7 @@ export async function setAssignmentStatus(supabase: SupabaseClient, assignmentId
   return { assignment: saved.data, rubricTotal, rubricMismatch: mismatch };
 }
 
-export async function submitAssignment(supabase: SupabaseClient, profileId: string, assignmentId: string, body: Row, actor: AssessmentActor) {
+export async function submitAssignment(supabase: SupabaseClient, profileId: string, assignmentId: string, body: Row, actor: AssessmentActor, options: { hasValidatedFile?: boolean } = {}) {
   for (const forbidden of ["score_points", "score_percentage", "review_outcome", "graded_at", "graded_by", "is_late", "attempt_number"]) if (body[forbidden] !== undefined) invalid("Assessment results are determined by REALMS on the server.");
   const assignment = await supabase.from("assignments").select("*").eq("id", assignmentId).eq("assignment_status", "published").maybeSingle();
   if (assignment.error || !assignment.data) invalid("This assignment is not currently available.", 404);
@@ -178,9 +178,10 @@ export async function submitAssignment(supabase: SupabaseClient, profileId: stri
   const repositoryUrl = safeUrl(body.repository_url, "Repository URL", requirements.repository_url_required);
   const deploymentUrl = safeUrl(body.deployment_url, "Deployment URL", requirements.deployment_url_required);
   const externalUrl = requirements.external_url_allowed ? safeUrl(body.external_url, "External URL") : null;
+  if (options.hasValidatedFile && !requirements.file_upload_allowed) invalid("This assignment does not accept file attachments.", 409);
   if (requirements.text_response_required && !responseText) invalid("A written response is required.");
-  if (!responseText && !repositoryUrl && !deploymentUrl && !externalUrl) invalid("Provide at least one required response or evidence link.");
-  if (body.file_artifact || body.storage_path) invalid("Private file submissions are not enabled yet. Do not submit a public file URL as private evidence.", 409);
+  if (!responseText && !repositoryUrl && !deploymentUrl && !externalUrl && !options.hasValidatedFile) invalid("Provide at least one required response or evidence file.");
+  if (body.file_artifact || body.storage_path) invalid("Submit private files through the protected attachment field. Public storage paths are not accepted.", 409);
   const saved = await supabase.from("assignment_submissions").insert({ assignment_id: assignmentId, course_enrollment_id: enrollment.id, attempt_number: nextAttempt, response_text: responseText, repository_url: repositoryUrl, deployment_url: deploymentUrl, external_url: externalUrl, submission_status: "submitted", submitted_at: now.toISOString(), is_late: isLate }).select("*").single();
   if (saved.error) throw new LmsAdminDataError("Assignment submission could not be saved.");
   await recordLmsAudit(supabase, { action: nextAttempt === 1 ? "assignment_submitted" : "assignment_resubmitted", entityType: "assignment_submission", entityId: saved.data.id, actorUserId: actor.actorUserId, metadata: { assignment_id: assignmentId, attempt_number: nextAttempt, is_late: isLate } });

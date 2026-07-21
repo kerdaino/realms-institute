@@ -47,7 +47,7 @@ export async function fetchAssignmentDetail(supabase: SupabaseClient, assignment
   const [assignment, rubric, submissions, changes] = await Promise.all([
     supabase.from("assignments").select("*, cohort_courses(id, cohort_id, course_id, cohorts(id, code, name), courses(id, code, title, course_category)), class_sessions(id, title)").eq("id", assignmentId).maybeSingle(),
     supabase.from("assignment_rubric_criteria").select("*").eq("assignment_id", assignmentId).order("sort_order"),
-    supabase.from("assignment_submissions").select("*, course_enrollments(id, student_enrollments(id, students(id, student_number, legal_name, preferred_name))), assignment_rubric_scores(*)").eq("assignment_id", assignmentId).order("submitted_at", { ascending: false, nullsFirst: false }),
+    supabase.from("assignment_submissions").select("*, course_enrollments(id, student_enrollments(id, students(id, student_number, legal_name, preferred_name))), assignment_rubric_scores(*), assignment_submission_artifacts(id, title, artifact_type, file_name, mime_type, size_bytes, artifact_status, created_at)").eq("assignment_id", assignmentId).order("submitted_at", { ascending: false, nullsFirst: false }),
     supabase.from("assessment_grade_change_events").select("*").eq("assessment_type", "assignment").eq("assessment_id", assignmentId).order("created_at", { ascending: false }),
   ]);
   fail("Assignment could not be loaded.", assignment.error); fail("Assignment rubric could not be loaded.", rubric.error); fail("Assignment submissions could not be loaded.", submissions.error); fail("Assignment grade history could not be loaded.", changes.error);
@@ -108,7 +108,7 @@ export async function fetchStudentAssignment(supabase: SupabaseClient, profileId
   const enrollment = await resolveStudentCourseEnrollment(supabase, profileId, assignment.data.cohort_course_id);
   const [rubric, submissions] = await Promise.all([
     supabase.from("assignment_rubric_criteria").select("id, criterion, description, max_points, sort_order").eq("assignment_id", assignmentId).order("sort_order"),
-    supabase.from("assignment_submissions").select("id, attempt_number, response_text, repository_url, deployment_url, external_url, submission_status, submitted_at, is_late, score_points, score_percentage, review_outcome, feedback, graded_at").eq("assignment_id", assignmentId).eq("course_enrollment_id", enrollment.id).order("attempt_number", { ascending: false }),
+    supabase.from("assignment_submissions").select("id, attempt_number, response_text, repository_url, deployment_url, external_url, submission_status, submitted_at, is_late, score_points, score_percentage, review_outcome, feedback, graded_at, assignment_submission_artifacts(id, title, artifact_type, file_name, mime_type, size_bytes, artifact_status, created_at)").eq("assignment_id", assignmentId).eq("course_enrollment_id", enrollment.id).order("attempt_number", { ascending: false }),
   ]);
   fail("Published rubric could not be loaded.", rubric.error); fail("Your submissions could not be loaded.", submissions.error);
   return { assignment: assignment.data, rubric: rubric.data ?? [], submissions: submissions.data ?? [], enrollment };
