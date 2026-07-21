@@ -17,10 +17,12 @@ type PaystackEnvelope<T> = {
 };
 
 export type PaystackVerificationData = {
+  id?: number | string;
   status: string;
   reference: string;
   amount: number;
   currency: string;
+  fees?: number | null;
   paid_at?: string | null;
   paidAt?: string | null;
   customer?: unknown;

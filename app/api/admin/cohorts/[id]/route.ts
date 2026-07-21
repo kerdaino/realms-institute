@@ -1,0 +1,15 @@
+import { NextResponse } from "next/server";
+import { isAdminAuthenticated } from "@/lib/adminAuth";
+import { cohortStatuses, isOneOf, isUuid, readNullableDate, readText } from "@/lib/lms/adminConstants";
+import { recordLmsAudit } from "@/lib/lms/adminAudit";
+import { fetchAdminCohort, requireLmsAdminClient } from "@/lib/lms/adminData";
+
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) { if (!(await isAdminAuthenticated())) return NextResponse.json({ message: "Unauthorized." }, { status: 401 }); const { id } = await params; if (!isUuid(id)) return NextResponse.json({ message: "Cohort not found." }, { status: 404 }); try { return NextResponse.json(await fetchAdminCohort(requireLmsAdminClient(), id)); } catch { return NextResponse.json({ message: "Cohort could not be loaded." }, { status: 500 }); } }
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!(await isAdminAuthenticated())) return NextResponse.json({ message: "Unauthorized." }, { status: 401 }); const { id } = await params; if (!isUuid(id)) return NextResponse.json({ message: "Cohort not found." }, { status: 404 });
+  const body = await request.json().catch(() => null) as Record<string, unknown> | null; if (!body || !isOneOf(cohortStatuses, body.status)) return NextResponse.json({ message: "A valid cohort status is required." }, { status: 400 });
+  const name = readText(body.name, 180); const academicYear = readText(body.academic_year, 20); const capacity = body.maximum_capacity === "" || body.maximum_capacity == null ? null : Number(body.maximum_capacity); if (!name || (capacity !== null && (!Number.isInteger(capacity) || capacity < 1 || capacity > 100000))) return NextResponse.json({ message: "A valid cohort name and capacity are required." }, { status: 400 });
+  const dateFields = ["start_date", "end_date", "application_open_date", "application_close_date", "orientation_date", "matriculation_date", "graduation_date"] as const; const updates: Record<string, unknown> = { name, status: body.status, academic_year: academicYear, maximum_capacity: capacity, description: readText(body.description), internal_notes: readText(body.internal_notes), updated_at: new Date().toISOString() };
+  for (const field of dateFields) { const date = readNullableDate(body[field]); if (date === undefined) return NextResponse.json({ message: `A valid ${field.replaceAll("_", " ")} is required.` }, { status: 400 }); updates[field] = date; }
+  const supabase = requireLmsAdminClient(); const current = await supabase.from("cohorts").select("*").eq("id", id).maybeSingle(); if (current.error || !current.data) return NextResponse.json({ message: "Cohort not found." }, { status: 404 }); const result = await supabase.from("cohorts").update(updates).eq("id", id).select("*").single(); if (result.error) return NextResponse.json({ message: "Cohort could not be updated." }, { status: 500 }); await recordLmsAudit(supabase, { action: "cohort_updated", entityType: "cohort", entityId: id, metadata: { previous: current.data, next: result.data } }); return NextResponse.json({ cohort: result.data });
+}

@@ -8,6 +8,7 @@ type SendEmailParams = {
   html: string;
   text: string;
   replyTo?: string;
+  idempotencyKey?: string;
 };
 
 const resendEndpoint = "https://api.resend.com/emails";
@@ -30,7 +31,7 @@ function fetchErrorDetails(error: unknown) {
   };
 }
 
-export async function sendEmail({ to, subject, html, text, replyTo }: SendEmailParams): Promise<EmailSendResult> {
+export async function sendEmail({ to, subject, html, text, replyTo, idempotencyKey }: SendEmailParams): Promise<EmailSendResult> {
   const config = emailConfig();
   const finalReplyTo = replyTo || realmsEmailReplyTo;
   console.log("Resend direct fetch email attempt:", {
@@ -50,6 +51,7 @@ export async function sendEmail({ to, subject, html, text, replyTo }: SendEmailP
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
         "Content-Type": "application/json",
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey.slice(0, 256) } : {}),
       },
       body: JSON.stringify({
         from: config.from,

@@ -40,6 +40,23 @@
   --foreground: var(--realm-white);
 }
 
+.field {
+  display: block;
+  width: 100%;
+  margin-top: 0.375rem;
+  border: 1px solid rgb(203 213 225);
+  border-radius: 0.75rem;
+  background: white;
+  padding: 0.625rem 0.75rem;
+  font-weight: 400;
+  color: rgb(15 23 42);
+}
+
+.field:focus-visible {
+  outline: 2px solid #b7791f;
+  outline-offset: 2px;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

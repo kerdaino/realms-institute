@@ -53,6 +53,8 @@ export const paymentStatusLabels: Record<string, string> = {
   success: "Paid",
   pending: "Payment Pending",
   not_paid: "Not Paid",
+  underpayment: "Underpayment — Reconciliation Required",
+  currency_mismatch: "Currency Mismatch — Reconciliation Required",
 };
 
 export function labelOrValue(labels: Record<string, string>, value: string | null | undefined, fallback = "Not recorded") {

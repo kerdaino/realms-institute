@@ -1,0 +1,37 @@
+import Link from "next/link";
+
+import { AdminShell } from "@/components/admin/AdminShell";
+import { EvaluateEngagementButton } from "@/components/admin/EngagementActions";
+import { StatusBadge } from "@/components/admin/LmsUi";
+import { requireAdmin } from "@/lib/adminAuth";
+import { requireLmsAdminClient } from "@/lib/lms/adminData";
+import { academicStandings, humanizeEngagement } from "@/lib/lms/engagement";
+import { fetchAtRiskDashboard } from "@/lib/lms/engagementData";
+
+export const dynamic = "force-dynamic";
+function value(search: Record<string, string | string[] | undefined>, key: string) { return typeof search[key] === "string" ? search[key] as string : undefined; }
+function name(row: Record<string, unknown>) { return String(row.preferred_name || row.legal_name || "Student"); }
+
+export default async function AtRiskPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  await requireAdmin(); const search = await searchParams;
+  const filters = { cohort: value(search, "cohort"), student: value(search, "student"), route: value(search, "route"), skill: value(search, "skill"), standing: value(search, "standing"), alertType: value(search, "alert_type"), severity: value(search, "severity"), mentor: value(search, "mentor"), recovery: value(search, "recovery") };
+  const data = await fetchAtRiskDashboard(requireLmsAdminClient(), filters);
+  const selectedCohort = filters.cohort ?? String(data.cohorts.find((cohort) => cohort.status === "active")?.id ?? "");
+  return <AdminShell title="Student Engagement" description="Verified academic engagement facts, humane follow-up, and protected review. Alerts recommend attention; they do not automatically issue warnings or change standing.">
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-4"><p className="max-w-3xl rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">No unified risk score is used. Pending attendance is not counted as absence, and academic-integrity alerts mean review required—not guilt.</p><EvaluateEngagementButton cohortId={selectedCohort} /></div>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{Object.entries(data.metrics).map(([label, count]) => <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{humanizeEngagement(label.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`))}</p><p className="mt-2 text-2xl font-semibold text-[#071327]">{count}</p></div>)}</div>
+    <form className="mt-6 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-3 xl:grid-cols-5">
+      <input name="student" defaultValue={filters.student} placeholder="Student name or number" className="min-h-11 rounded-xl border border-slate-300 px-3" />
+      <select name="cohort" defaultValue={filters.cohort ?? ""} className="min-h-11 rounded-xl border border-slate-300 px-3"><option value="">All cohorts</option>{data.cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.code} · {cohort.name}</option>)}</select>
+      <select name="standing" defaultValue={filters.standing ?? ""} className="min-h-11 rounded-xl border border-slate-300 px-3"><option value="">All standings</option>{academicStandings.map((standing) => <option key={standing}>{humanizeEngagement(standing)}</option>)}</select>
+      <select name="severity" defaultValue={filters.severity ?? ""} className="min-h-11 rounded-xl border border-slate-300 px-3"><option value="">All severities</option>{["low", "medium", "high"].map((severity) => <option key={severity}>{severity}</option>)}</select>
+      <select name="alert_type" defaultValue={filters.alertType ?? ""} className="min-h-11 rounded-xl border border-slate-300 px-3"><option value="">All alert types</option>{["unapproved_absence_units", "overdue_recorded_modules", "overdue_makeups", "missing_assignments", "quizzes_with_attempts_exhausted", "open_integrity_reviews", "inactivity_days"].map((type) => <option key={type}>{type}</option>)}</select>
+      <select name="route" defaultValue={filters.route ?? ""} className="min-h-11 rounded-xl border border-slate-300 px-3"><option value="">All routes</option><option value="foundational">Foundational</option><option value="advanced">Advanced</option></select>
+      <select name="skill" defaultValue={filters.skill ?? ""} className="min-h-11 rounded-xl border border-slate-300 px-3"><option value="">All skill pathways</option><option value="web_development">Web Development</option><option value="cybersecurity">Cybersecurity</option></select>
+      <select name="mentor" defaultValue={filters.mentor ?? ""} className="min-h-11 rounded-xl border border-slate-300 px-3"><option value="">All mentors</option>{data.mentorOptions.map((mentor) => <option key={mentor.id} value={mentor.id}>{mentor.preferred_name || mentor.full_name}</option>)}</select>
+      <select name="recovery" defaultValue={filters.recovery ?? ""} className="min-h-11 rounded-xl border border-slate-300 px-3"><option value="">All recovery-plan statuses</option><option value="active">Active</option></select>
+      <button className="rounded-xl bg-[#071327] px-4 font-semibold text-white">Apply Filters</button>
+    </form>
+    <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200 bg-white"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50"><tr>{["Student", "Cohort / Route", "Standing", "Open Alerts", "Mentor", "Recovery / Review", "Action"].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}</tr></thead><tbody className="divide-y divide-slate-200">{data.rows.map((row) => { const mentorProfile = row.mentor ? (Array.isArray(row.mentor.profiles) ? row.mentor.profiles[0] : row.mentor.profiles) as Record<string, unknown> | undefined : undefined; return <tr key={String(row.enrollment.id)}><td className="px-4 py-3"><strong>{name(row.student)}</strong><span className="block text-xs text-slate-500">{String(row.student.student_number ?? "")}</span></td><td className="px-4 py-3">{String(row.cohort.code ?? "—")}<span className="block text-xs text-slate-500">{humanizeEngagement(String(row.enrollment.discipleship_route))} · {humanizeEngagement(String(row.enrollment.skill_pathway))}</span></td><td className="px-4 py-3"><StatusBadge value={String(row.enrollment.academic_standing)} />{row.enrollment.standing_review_required ? <span className="mt-1 block text-xs font-semibold text-red-700">Review required</span> : null}</td><td className="px-4 py-3">{row.alerts.length}<span className="block text-xs text-slate-500">{row.alerts.filter((alert) => alert.severity === "high").length} high</span></td><td className="px-4 py-3">{mentorProfile ? String(mentorProfile.preferred_name || mentorProfile.full_name) : "Not assigned"}</td><td className="px-4 py-3">{row.plans.length} active plan(s)<span className="block text-xs text-slate-500">{row.cases.length} open review(s)</span></td><td className="px-4 py-3"><Link href={`/admin/at-risk/${row.enrollment.id}`} className="font-semibold text-[#0b315c]">Review</Link></td></tr>; })}</tbody></table>{!data.rows.length ? <p className="p-8 text-center text-slate-600">No students match the current attention filters. Run an authorised cohort evaluation when academic records have materially changed.</p> : null}</div>
+  </AdminShell>;
+}

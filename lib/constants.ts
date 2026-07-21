@@ -6,12 +6,11 @@ export const siteConfig = {
     "Helping believers grow in God and serve faithfully in every sphere of influence.",
   vision:
     "REALMS Institute is a Christian formation and skill-equipping institute for believers who desire deeper formation in God and practical preparation for faithful service.",
-  poweredBy: "Powered by Gloryrealm Christian Centre",
+  independenceStatement: "REALMS Institute is an independent Christian formation and training institution.",
 } as const;
 
 export const contactEmail = "gloryrealm2025@gmail.com";
 export const physicalAddress = "No. 3 Shina Olaogun Street, Agbado";
-export const gloryrealmChristianCentreUrl = "https://www.grccglobal.org/";
 
 export const navLinks = [
   { label: "Home", href: "/" },

@@ -1,0 +1,6 @@
+import { isUuid } from "@/lib/lms/adminConstants";
+import { completeRecoveryAction } from "@/lib/lms/engagementActions";
+import { lmsApiError, readJsonObject } from "@/lib/lms/apiResponse";
+import { requireMentorContext } from "@/lib/lms/engagementAuth";
+
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) { const [{ id }, body] = await Promise.all([params, readJsonObject(request)]); const actionId = typeof body?.action_id === "string" ? body.action_id : ""; if (!isUuid(id) || !isUuid(actionId) || !body) return Response.json({ message: "A valid recovery action is required." }, { status: 400 }); try { const { user, supabase } = await requireMentorContext(id); const ownership = await supabase.from("recovery_plan_actions").select("id, student_recovery_plans!inner(student_enrollment_id)").eq("id", actionId).eq("student_recovery_plans.student_enrollment_id", id).maybeSingle(); if (!ownership.data) return Response.json({ message: "Recovery action not found." }, { status: 404 }); return Response.json({ action: await completeRecoveryAction(supabase, actionId, body, { actorLabel: "Assigned Mentor", actorUserId: user.id, actorType: "mentor" }) }); } catch (error) { return lmsApiError(error, "Recovery action could not be completed."); } }

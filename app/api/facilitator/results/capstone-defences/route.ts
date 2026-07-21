@@ -1,0 +1,5 @@
+import { lmsApiError, readJsonObject } from "@/lib/lms/apiResponse";
+import { LmsAdminDataError } from "@/lib/lms/adminData";
+import { resolveFacilitatorAssessmentContext } from "@/lib/lms/facilitatorAssessments";
+import { saveCapstoneDefence } from "@/lib/lms/resultService";
+export async function POST(request: Request) { const body = await readJsonObject(request); if (!body || typeof body.capstone_assignment_id !== "string") return Response.json({ message: "Valid capstone-defence evidence is required." }, { status: 400 }); try { const context = await resolveFacilitatorAssessmentContext(); const assignment = await context.supabase.from("assignments").select("cohort_course_id").eq("id", body.capstone_assignment_id).maybeSingle(); if (assignment.error || !assignment.data || !context.offeringIds.includes(assignment.data.cohort_course_id)) throw new LmsAdminDataError("You are not assigned to this capstone.", 403); return Response.json({ defence: await saveCapstoneDefence(context.supabase, body, { actorUserId: context.userId, actorLabel: "Facilitator" }) }); } catch (error) { return lmsApiError(error, "Capstone-defence involvement could not be recorded."); } }

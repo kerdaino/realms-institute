@@ -1,0 +1,6 @@
+import { NextResponse } from "next/server";
+import { isUuid } from "@/lib/lms/adminConstants";
+import { lmsApiError, readJsonObject } from "@/lib/lms/apiResponse";
+import { flagAssessmentIntegrity } from "@/lib/lms/assessmentService";
+import { resolveFacilitatorAssessmentContext } from "@/lib/lms/facilitatorAssessments";
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) { const [{ id }, body] = await Promise.all([params, readJsonObject(request)]); if (!isUuid(id) || !body) return NextResponse.json({ message: "A valid review request is required." }, { status: 400 }); try { const context = await resolveFacilitatorAssessmentContext(); const attempt = await context.supabase.from("quiz_attempts").select("quizzes(cohort_course_id)").eq("id", id).maybeSingle(); const quiz = Array.isArray(attempt.data?.quizzes) ? attempt.data.quizzes[0] : attempt.data?.quizzes; if (!quiz || !context.offeringIds.includes(quiz.cohort_course_id)) return NextResponse.json({ message: "You are not assigned to this quiz." }, { status: 403 }); return NextResponse.json({ attempt: await flagAssessmentIntegrity(context.supabase, "quiz", id, body, { actorLabel: "Facilitator", actorUserId: context.userId }) }); } catch (error) { return lmsApiError(error, "Academic review could not be opened."); } }

@@ -1,8 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { verifyPaystackTransaction } from "@/lib/paystack";
+import { hasExpectedPaystackRegistrationSource, reconcileRegistrationPayment } from "@/lib/paymentReconciliation";
 import { sendRegistrationEmailsIfNeeded, type RegistrationEmailStatus } from "@/lib/registrationEmails";
-import { resolvePaystackRegistration, saveVerifiedRegistrationFromPaystack, type RegistrationSaveResult } from "@/lib/saveRegistration";
+import { PaymentRegistrationConflictError, recordUnconfirmedRegistrationPayment, resolvePaystackRegistration, saveVerifiedRegistrationFromPaystack, type RegistrationSaveResult } from "@/lib/saveRegistration";
+
+const unmatchedPaymentMessage = "We could not match this payment to your registration. Please contact REALMS Institute with your payment reference.";
+const underpaymentMessage = "The amount received was below the required registration fee. Please contact REALMS Institute with your payment reference.";
+const currencyMismatchMessage = "We could not verify this payment in the required currency. Please contact REALMS Institute with your payment reference.";
 
 function formatPaymentAmount(amount: number, currency: string) {
   try {
@@ -14,65 +19,88 @@ function formatPaymentAmount(amount: number, currency: string) {
 
 export async function GET(request: NextRequest) {
   const reference = request.nextUrl.searchParams.get("reference")?.trim() ?? "";
-  console.log("Verifying Paystack reference:", reference);
+  console.info("Paystack verification reference received", { reference: reference || null });
   if (!reference || reference.length > 160 || !/^[A-Za-z0-9._-]+$/.test(reference)) return NextResponse.json({ success: false, message: "A valid payment reference is required." }, { status: 400 });
   if (!process.env.PAYSTACK_SECRET_KEY) return NextResponse.json({ success: false, message: "Payment configuration is missing." }, { status: 500 });
 
   try {
     const transaction = await verifyPaystackTransaction(reference);
-    console.log("Paystack verify result:", { status: transaction.status, reference: transaction.reference, metadataSource: transaction.metadata?.source });
+    console.info("Paystack verification result", { status: transaction.status, reference: transaction.reference });
     if (transaction.status !== "success") return NextResponse.json({ success: false, status: transaction.status, reference, message: "Payment was not successful or is still pending." });
-    if (transaction.reference !== reference) return NextResponse.json({ success: false, message: "The verified payment reference did not match the requested reference." }, { status: 409 });
+    if (transaction.reference !== reference) {
+      console.error("Paystack transaction reference mismatch", { reference, verifiedReference: transaction.reference });
+      return NextResponse.json({ success: false, message: unmatchedPaymentMessage }, { status: 409 });
+    }
 
     const metadata = transaction.metadata ?? {};
+    if (!hasExpectedPaystackRegistrationSource(metadata)) {
+      console.error("Paystack registration metadata source mismatch", { reference });
+      return NextResponse.json({ success: false, message: unmatchedPaymentMessage }, { status: 409 });
+    }
+
     const normalized = await resolvePaystackRegistration(metadata, reference);
-    const registrationMatched = normalized.isValid;
-    if (normalized.isValid && normalized.calculatedFee) {
-      const expectedKobo = Math.round(normalized.calculatedFee.amount * 100);
-      if (transaction.amount !== expectedKobo || transaction.currency.toUpperCase() !== normalized.calculatedFee.currency.toUpperCase()) {
-        console.error("Paystack amount or currency mismatch", { reference, expectedKobo, receivedKobo: transaction.amount, expectedCurrency: normalized.calculatedFee.currency, receivedCurrency: transaction.currency });
-        return NextResponse.json({ success: false, message: "The payment amount could not be matched to this application. Please contact REALMS Institute with your payment reference." }, { status: 409 });
-      }
+    if (!normalized.isValid || !normalized.applicationId || !normalized.calculatedFee) {
+      console.error("Paystack registration application unmatched", { reference });
+      return NextResponse.json({ success: false, message: unmatchedPaymentMessage }, { status: 409 });
     }
 
-    const paidAmount = transaction.amount / 100;
-    const paidCurrency = transaction.currency;
-    const paidDisplay = formatPaymentAmount(paidAmount, paidCurrency);
-    const publicFeeDisplay = normalized.calculatedFee?.publicDisplay ?? paidDisplay;
-    let registrationSave: RegistrationSaveResult = { saved: false, reason: "Payment confirmed, but registration metadata was not found." };
-    if (registrationMatched) {
-      try {
-        registrationSave = await saveVerifiedRegistrationFromPaystack(transaction, normalized);
-      } catch (saveError) {
-        console.error("Supabase registration save failed:", saveError);
-        registrationSave = { saved: false, reason: "Your payment was confirmed. If your application record does not appear automatically, REALMS Institute can still trace your registration using your payment reference." };
+    const reconciliation = reconcileRegistrationPayment({
+      expectedKobo: normalized.calculatedFee.amount * 100,
+      receivedKobo: transaction.amount,
+      expectedCurrency: normalized.calculatedFee.currency,
+      receivedCurrency: transaction.currency,
+    });
+    if (reconciliation.varianceType === "currency_mismatch") {
+      console.error("Paystack currency mismatch", { reference, expectedCurrency: reconciliation.expectedCurrency, receivedCurrency: reconciliation.receivedCurrency });
+      try { await recordUnconfirmedRegistrationPayment(transaction, normalized, reconciliation); } catch { console.error("Paystack currency mismatch could not be recorded", { reference }); }
+      return NextResponse.json({ success: false, message: currencyMismatchMessage }, { status: 409 });
+    }
+    if (reconciliation.varianceType === "underpayment") {
+      console.error("Paystack payment underpaid", { reference, expectedKobo: reconciliation.expectedKobo, receivedKobo: reconciliation.receivedKobo, shortfallKobo: reconciliation.shortfallKobo, currency: reconciliation.receivedCurrency });
+      try { await recordUnconfirmedRegistrationPayment(transaction, normalized, reconciliation); } catch { console.error("Paystack underpayment could not be recorded", { reference }); }
+      return NextResponse.json({ success: false, message: underpaymentMessage }, { status: 409 });
+    }
+    if (reconciliation.varianceType === "overpayment") console.info("Paystack payment verified with excess amount", { reference, expectedKobo: reconciliation.expectedKobo, receivedKobo: reconciliation.receivedKobo, excessKobo: reconciliation.excessKobo, currency: reconciliation.receivedCurrency });
+    else console.info("Paystack payment verified exact", { reference, expectedKobo: reconciliation.expectedKobo, receivedKobo: reconciliation.receivedKobo, currency: reconciliation.receivedCurrency });
+
+    let registrationSave: RegistrationSaveResult;
+    try {
+      registrationSave = await saveVerifiedRegistrationFromPaystack(transaction, normalized, reconciliation);
+    } catch (saveError) {
+      if (saveError instanceof PaymentRegistrationConflictError) {
+        console.error("Paystack transaction already assigned inconsistently", { reference });
+        return NextResponse.json({ success: false, message: unmatchedPaymentMessage }, { status: 409 });
       }
-    } else if (metadata && Object.keys(metadata).length > 0) {
-      registrationSave = { saved: false, reason: "Payment confirmed, but the saved application details could not be matched." };
+      throw saveError;
+    }
+    if (!registrationSave.saved) {
+      console.error("Paystack registration payment could not be finalized", { reference });
+      return NextResponse.json({ success: false, message: unmatchedPaymentMessage }, { status: 409 });
     }
 
-    let emailStatus: RegistrationEmailStatus = {
-      applicant: { sent: false, reason: "Supabase is required to prevent duplicate emails." },
-      admin: { sent: false, reason: "Supabase is required to prevent duplicate emails." },
-    };
-    if (registrationSave.saved) emailStatus = await sendRegistrationEmailsIfNeeded(registrationSave.registration);
-    const publicRegistrationSave = registrationSave.saved ? { saved: true as const, id: registrationSave.id } : registrationSave;
-
+    const emailStatus: RegistrationEmailStatus = await sendRegistrationEmailsIfNeeded(registrationSave.registration);
+    const paidAmount = reconciliation.receivedKobo / 100;
+    const requiredAmount = reconciliation.expectedKobo / 100;
+    const paidCurrency = reconciliation.receivedCurrency;
     return NextResponse.json({
       success: true,
       status: "success",
       paymentConfirmed: true,
-      reference: transaction.reference || reference,
+      paymentStatus: "confirmed",
+      reference,
       amount: paidAmount,
       currency: paidCurrency,
-      display: paidDisplay,
-      publicFeeDisplay,
+      display: formatPaymentAmount(paidAmount, paidCurrency),
+      requiredAmount,
+      requiredDisplay: formatPaymentAmount(requiredAmount, paidCurrency),
+      publicFeeDisplay: normalized.calculatedFee.publicDisplay ?? formatPaymentAmount(requiredAmount, paidCurrency),
+      variance: {
+        type: reconciliation.varianceType,
+        amount: reconciliation.varianceKobo / 100,
+        display: formatPaymentAmount(reconciliation.varianceKobo / 100, paidCurrency),
+      },
       paidAt: transaction.paid_at ?? transaction.paidAt ?? null,
-      customer: transaction.customer ?? null,
-      metadata: normalized.isValid ? {
-        source: metadata.source,
-        registrationId: normalized.applicationId,
-        applicationReference: normalized.applicationReference,
+      metadata: {
         registration: {
           fullName: normalized.registration.fullName,
           email: normalized.registration.email,
@@ -82,9 +110,9 @@ export async function GET(request: NextRequest) {
           requestedDiscipleshipRoute: normalized.registration.requestedDiscipleshipRoute,
           screeningStatus: normalized.registration.screeningStatus,
         },
-      } : { source: metadata.source },
-      registrationMatched,
-      registrationSave: publicRegistrationSave,
+      },
+      registrationMatched: true,
+      registrationSave: { saved: true as const, id: registrationSave.id },
       emailStatus,
     });
   } catch (error) {

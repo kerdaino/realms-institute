@@ -31,6 +31,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ message: "Registration could not be loaded." }, { status: 500 });
   }
   if (!data) return NextResponse.json({ message: "Registration not found." }, { status: 404 });
+  const studentResult = await supabase.from("students").select("id, student_number, profile_id, student_status, onboarding_status").eq("registration_id", id).maybeSingle();
+  if (studentResult.error && studentResult.error.code !== "42P01" && studentResult.error.code !== "42703") console.error("Linked student query failed", { code: studentResult.error.code });
   const { data: reviewEvents, error: reviewEventsError } = await supabase
     .from("registration_review_events")
     .select("id, registration_id, event_type, previous_state, new_state, note, actor, created_at")
@@ -38,5 +40,5 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     .order("created_at", { ascending: false });
   if (reviewEventsError && reviewEventsError.code !== "42P01" && reviewEventsError.code !== "42703") console.error("Admin registration review history query failed", reviewEventsError);
   const screeningReview = isScreeningAnswers(data.screening_answers) ? buildFoundationalScreeningReview(data.screening_answers) : null;
-  return NextResponse.json({ registration: data, screeningReview, reviewEvents: reviewEvents ?? [] });
+  return NextResponse.json({ registration: data, screeningReview, reviewEvents: reviewEvents ?? [], studentProvisioning: studentResult.data ?? null });
 }

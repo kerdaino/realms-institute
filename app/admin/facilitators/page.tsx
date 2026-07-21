@@ -1,0 +1,7 @@
+import Link from "next/link";
+import { AdminShell } from "@/components/admin/AdminShell";
+import { EmptyState, StatusBadge } from "@/components/admin/LmsUi";
+import { requireAdmin } from "@/lib/adminAuth";
+import { fetchAdminFacilitators, requireLmsAdminClient } from "@/lib/lms/adminData";
+
+export default async function AdminFacilitatorsPage() { await requireAdmin(); const facilitators = await fetchAdminFacilitators(requireLmsAdminClient()); return <AdminShell title="Facilitators" description="Manage the approved facilitator register and explicit cohort-course assignments. Facilitators receive no broad student-directory access.">{facilitators.length === 0 ? <EmptyState title="No facilitators configured" detail="Add approved facilitator records before assigning cohort courses." /> : <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{facilitators.map((item) => <Link key={item.id} href={`/admin/facilitators/${item.id}`} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:border-amber-300"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-amber-800">{item.title ?? "Facilitator"}</p><h2 className="mt-2 text-lg font-semibold text-[#071327]">{item.display_name}</h2></div><StatusBadge value={item.facilitator_status} /></div><p className="mt-5 text-sm text-slate-600">{item.assignment_count} course assignment{item.assignment_count === 1 ? "" : "s"}</p></Link>)}</div>}</AdminShell>; }

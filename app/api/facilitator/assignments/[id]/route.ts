@@ -1,0 +1,8 @@
+import { NextResponse } from "next/server";
+import { fetchAssignmentDetail } from "@/lib/lms/assessmentData";
+import { saveAssignment } from "@/lib/lms/assessmentService";
+import { isUuid } from "@/lib/lms/adminConstants";
+import { lmsApiError, readJsonObject } from "@/lib/lms/apiResponse";
+import { requireFacilitatorAssessmentRecord, resolveFacilitatorAssessmentContext } from "@/lib/lms/facilitatorAssessments";
+export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) { const { id } = await params; if (!isUuid(id)) return NextResponse.json({ message: "Assignment not found." }, { status: 404 }); try { const context = await resolveFacilitatorAssessmentContext(); await requireFacilitatorAssessmentRecord(context, "assignment", id); return NextResponse.json(await fetchAssignmentDetail(context.supabase, id)); } catch (error) { return lmsApiError(error, "Assignment could not be loaded."); } }
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) { const [{ id }, body] = await Promise.all([params, readJsonObject(request)]); if (!isUuid(id) || !body) return NextResponse.json({ message: "A valid assignment request is required." }, { status: 400 }); try { const context = await resolveFacilitatorAssessmentContext(); await requireFacilitatorAssessmentRecord(context, "assignment", id); if (!context.offeringIds.includes(String(body.cohort_course_id))) return NextResponse.json({ message: "You are not assigned to this cohort course." }, { status: 403 }); return NextResponse.json({ assignment: await saveAssignment(context.supabase, body, { actorLabel: "Facilitator", actorUserId: context.userId }, id) }); } catch (error) { return lmsApiError(error, "Assignment could not be updated."); } }

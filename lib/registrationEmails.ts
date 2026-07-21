@@ -76,8 +76,8 @@ async function fetchScholarshipRegistration(id: string) {
   return { registration: data as EmailRegistration, reason: null };
 }
 
-async function deliver(to: string, template: EmailTemplate) {
-  return sendEmail({ to, subject: template.subject, html: template.html, text: template.text });
+async function deliver(to: string, template: EmailTemplate, idempotencyKey?: string) {
+  return sendEmail({ to, subject: template.subject, html: template.html, text: template.text, idempotencyKey });
 }
 
 async function sendPaidOnce(registration: EmailRegistration, kind: PaidEmailKind, options: RegistrationEmailOptions = {}): Promise<EmailSendResult> {
@@ -87,7 +87,8 @@ async function sendPaidOnce(registration: EmailRegistration, kind: PaidEmailKind
   const currentRegistration = await fetchPaidRegistration(registration.id, registration);
   if (!options.force && Boolean((currentRegistration as unknown as Record<string, unknown>)[sentColumn])) return { sent: false, reason: "Already sent." };
   const { to, template } = paidMessage(currentRegistration, kind);
-  const result = await deliver(to, template);
+  const idempotencyKey = options.force ? undefined : `realms-registration-${registration.id}-${kind}`;
+  const result = await deliver(to, template, idempotencyKey);
   if (result.sent) {
     const { error } = await supabase.from("registrations").update({ [sentColumn]: true, [sentAtColumn]: new Date().toISOString() }).eq("id", registration.id);
     if (error) console.error(`Could not finalize ${kind} registration email status`, error);

@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { BookOpen, Church, Compass, Flame } from "lucide-react";
 
 import { PageHero } from "@/components/layout/PageHero";
@@ -8,7 +7,7 @@ import { Callout } from "@/components/ui/Callout";
 import { InfoPanel } from "@/components/ui/InfoPanel";
 import { SectionContainer } from "@/components/ui/SectionContainer";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { formationPillars, gloryrealmChristianCentreUrl, spheresOfInfluence } from "@/lib/constants";
+import { formationPillars, spheresOfInfluence } from "@/lib/constants";
 import { realmClasses } from "@/lib/theme";
 
 export const metadata: Metadata = {
@@ -33,8 +32,8 @@ const storySections = [
     icon: <BookOpen aria-hidden="true" className="size-5" />,
   },
   {
-    title: "Powered by Gloryrealm Christian Centre",
-    description: "REALMS Institute grows from a local-church burden for discipleship, spiritual maturity, mission, leadership, and faithful influence.",
+    title: "Independent Institution",
+    description: "REALMS Institute is an independent Christian formation and training institution committed to discipleship, spiritual maturity, mission, leadership, and faithful influence.",
     icon: <Church aria-hidden="true" className="size-5" />,
   },
 ] as const;
@@ -57,13 +56,7 @@ export default function AboutPage() {
           />
           <div className="mt-10 grid gap-4 md:grid-cols-2">
             {storySections.map((section) => (
-              <InfoPanel
-                key={section.title}
-                {...section}
-                title={section.title === "Powered by Gloryrealm Christian Centre"
-                  ? <Link href={gloryrealmChristianCentreUrl} target="_blank" rel="noopener noreferrer" className="hover:text-[var(--realm-gold-soft)]">Powered by Gloryrealm Christian Centre</Link>
-                  : section.title}
-              />
+              <InfoPanel key={section.title} {...section} />
             ))}
           </div>
         </div>

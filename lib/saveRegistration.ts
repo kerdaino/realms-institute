@@ -1,6 +1,7 @@
 import "server-only";
 
 import { scoreFoundationalScreening, screeningObjectiveMax } from "@/lib/foundationalScreeningAnswers.server";
+import { paymentReferenceMatchesApplication, type PaymentReconciliation } from "@/lib/paymentReconciliation";
 import type { PaystackVerificationData } from "@/lib/paystack";
 import { calculateCohortFee, hasFoundationalScreeningAnswers, normalizeScreeningAnswers, type CohortFee, type RegistrationPayload, validateRegistrationPayload } from "@/lib/registration";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
@@ -8,6 +9,13 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 export type RegistrationSaveResult =
   | { saved: true; id: string; registration: SavedRegistration }
   | { saved: false; reason: string };
+
+export class PaymentRegistrationConflictError extends Error {
+  constructor() {
+    super("PAYMENT_REGISTRATION_CONFLICT");
+    this.name = "PaymentRegistrationConflictError";
+  }
+}
 
 export type SavedRegistration = {
   id: string;
@@ -233,14 +241,31 @@ export function buildRegistrationColumns(registration: RegistrationPayload, fee:
   };
 }
 
-export function buildVerifiedPaymentColumns(paystackData: PaystackVerificationData) {
+function paystackRawWithReconciliation(paystackData: PaystackVerificationData, reconciliation: PaymentReconciliation, reconciledAt: string) {
+  return {
+    ...paystackData,
+    realms_payment_reconciliation: {
+      expected_amount_kobo: reconciliation.expectedKobo,
+      amount_paid_kobo: reconciliation.receivedKobo,
+      payment_variance_type: reconciliation.varianceType,
+      payment_variance_kobo: reconciliation.varianceKobo,
+      paystack_fees_kobo: paystackData.fees ?? null,
+      currency: reconciliation.receivedCurrency,
+      payment_verified_at: reconciliation.accepted ? reconciledAt : null,
+      reconciled_at: reconciledAt,
+    },
+  };
+}
+
+export function buildVerifiedPaymentColumns(paystackData: PaystackVerificationData, reconciliation: PaymentReconciliation) {
+  const verifiedAt = paystackData.paid_at ?? paystackData.paidAt ?? new Date().toISOString();
   return {
     amount_paid: paystackData.amount / 100,
     payment_status: "success",
     payment_reference: paystackData.reference,
-    paid_at: paystackData.paid_at ?? paystackData.paidAt ?? null,
+    paid_at: verifiedAt,
     paystack_customer_email: readCustomerEmail(paystackData.customer),
-    paystack_raw: paystackData,
+    paystack_raw: paystackRawWithReconciliation(paystackData, reconciliation, verifiedAt),
     metadata: paystackData.metadata ?? {},
   };
 }
@@ -381,6 +406,14 @@ export async function resolvePaystackRegistration(metadata: unknown, reference: 
     if (error) console.error("Could not resolve Paystack application:", error);
     return { isValid: false, registration: null, calculatedFee: null, missingFields: ["applicationRecord"], applicationId, applicationReference: normalized.applicationReference };
   }
+  if (!paymentReferenceMatchesApplication(data.payment_reference, reference)) {
+    console.error("Paystack application reference mismatch", { reference, applicationId });
+    return { isValid: false, registration: null, calculatedFee: null, missingFields: ["paymentReference"], applicationId, applicationReference: normalized.applicationReference };
+  }
+  if (normalized.applicationReference && normalized.applicationReference !== applicationId) {
+    console.error("Paystack application identity mismatch", { reference, applicationId });
+    return { isValid: false, registration: null, calculatedFee: null, missingFields: ["applicationReference"], applicationId, applicationReference: normalized.applicationReference };
+  }
   const validation = registrationFromRow(data as Record<string, unknown>);
   if (!validation.success) return { isValid: false, registration: null, calculatedFee: null, missingFields: Object.keys(validation.errors), applicationId, applicationReference: normalized.applicationReference };
   return {
@@ -399,7 +432,83 @@ export async function resolvePaystackRegistration(metadata: unknown, reference: 
   };
 }
 
-async function updateExistingApplication(paystackData: PaystackVerificationData, applicationId: string): Promise<RegistrationSaveResult> {
+async function recordPaymentVerificationEvent(supabase: NonNullable<ReturnType<typeof getSupabaseAdmin>>, input: { registrationId: string; reference: string; previousStatus: string; reconciliation: PaymentReconciliation }) {
+  const prior = await supabase.from("registration_review_events").select("id").eq("registration_id", input.registrationId).eq("event_type", "payment_verified").limit(1).maybeSingle();
+  if (prior.error) {
+    console.error("Payment verification audit lookup failed", { registrationId: input.registrationId, reference: input.reference });
+    throw new Error("PAYMENT_VERIFICATION_AUDIT_LOOKUP_FAILED");
+  }
+  if (prior.data) return;
+  const event = await supabase.from("registration_review_events").insert({
+    registration_id: input.registrationId,
+    event_type: "payment_verified",
+    previous_state: { payment_status: input.previousStatus },
+    new_state: {
+      payment_status: "success",
+      payment_reference: input.reference,
+      expected_amount_kobo: input.reconciliation.expectedKobo,
+      amount_paid_kobo: input.reconciliation.receivedKobo,
+      payment_variance_type: input.reconciliation.varianceType,
+      payment_variance_kobo: input.reconciliation.varianceKobo,
+      currency: input.reconciliation.receivedCurrency,
+    },
+    note: input.reconciliation.varianceType === "overpayment" ? "Excess payment recorded for reconciliation." : null,
+    actor: "Paystack verification",
+  });
+  if (event.error) {
+    console.error("Payment verification audit insert failed", { registrationId: input.registrationId, reference: input.reference });
+    throw new Error("PAYMENT_VERIFICATION_AUDIT_INSERT_FAILED");
+  }
+}
+
+async function assertPaystackTransactionOwnership(supabase: NonNullable<ReturnType<typeof getSupabaseAdmin>>, paystackData: PaystackVerificationData, applicationId: string) {
+  if (paystackData.id === undefined || paystackData.id === null) return;
+  const assigned = await supabase.from("registrations").select("id").eq("paystack_raw->>id", String(paystackData.id)).neq("id", applicationId).limit(1).maybeSingle();
+  if (assigned.error) throw new Error("PAYSTACK_TRANSACTION_OWNERSHIP_CHECK_FAILED");
+  if (assigned.data) throw new PaymentRegistrationConflictError();
+}
+
+export async function recordUnconfirmedRegistrationPayment(paystackData: PaystackVerificationData, resolved: NormalizedPaystackRegistrationMetadata, reconciliation: PaymentReconciliation) {
+  if (!resolved.isValid || !resolved.applicationId || reconciliation.accepted) throw new PaymentRegistrationConflictError();
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return;
+  const current = await supabase.from("registrations").select("id, payment_reference, payment_status").eq("id", resolved.applicationId).eq("funding_route", "self_pay").maybeSingle();
+  if (current.error || !current.data || !paymentReferenceMatchesApplication(current.data.payment_reference, paystackData.reference)) throw new PaymentRegistrationConflictError();
+  if (current.data.payment_status === "success") throw new PaymentRegistrationConflictError();
+  await assertPaystackTransactionOwnership(supabase, paystackData, resolved.applicationId);
+  const reconciledAt = new Date().toISOString();
+  const saved = await supabase.from("registrations").update({
+    amount_paid: paystackData.amount / 100,
+    payment_status: reconciliation.varianceType,
+    paystack_customer_email: readCustomerEmail(paystackData.customer),
+    paystack_raw: paystackRawWithReconciliation(paystackData, reconciliation, reconciledAt),
+    metadata: paystackData.metadata ?? {},
+  }).eq("id", resolved.applicationId).eq("payment_reference", paystackData.reference).neq("payment_status", "success");
+  if (saved.error) throw new Error("UNCONFIRMED_PAYMENT_RECONCILIATION_FAILED");
+  const eventType = reconciliation.varianceType === "underpayment" ? "payment_underpaid" : "payment_currency_mismatch";
+  const prior = await supabase.from("registration_review_events").select("id").eq("registration_id", resolved.applicationId).eq("event_type", eventType).limit(1).maybeSingle();
+  if (!prior.error && !prior.data) {
+    const event = await supabase.from("registration_review_events").insert({
+      registration_id: resolved.applicationId,
+      event_type: eventType,
+      previous_state: { payment_status: current.data.payment_status },
+      new_state: {
+        payment_status: reconciliation.varianceType,
+        payment_reference: paystackData.reference,
+        expected_amount_kobo: reconciliation.expectedKobo,
+        amount_paid_kobo: reconciliation.receivedKobo,
+        payment_variance_kobo: reconciliation.varianceKobo,
+        expected_currency: reconciliation.expectedCurrency,
+        received_currency: reconciliation.receivedCurrency,
+      },
+      note: "Registration payment remains unconfirmed pending reconciliation.",
+      actor: "Paystack verification",
+    });
+    if (event.error) console.error("Unconfirmed payment audit insert failed", { registrationId: resolved.applicationId, reference: paystackData.reference });
+  }
+}
+
+async function updateExistingApplication(paystackData: PaystackVerificationData, applicationId: string, reconciliation: PaymentReconciliation): Promise<RegistrationSaveResult> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { saved: false, reason: "Supabase is not configured." };
   const { data: existing, error: existingError } = await supabase.from("registrations").select(savedRegistrationSelect).eq("id", applicationId).eq("funding_route", "self_pay").maybeSingle();
@@ -407,28 +516,42 @@ async function updateExistingApplication(paystackData: PaystackVerificationData,
     if (existingError) console.error("Supabase payment application lookup failed:", existingError);
     return { saved: false, reason: "Payment confirmed, but the saved application record could not be found." };
   }
-  if (existing.payment_status === "success") return { saved: true, id: String(existing.id), registration: existing as SavedRegistration };
+  if (!paymentReferenceMatchesApplication(existing.payment_reference, paystackData.reference)) throw new PaymentRegistrationConflictError();
+  await assertPaystackTransactionOwnership(supabase, paystackData, applicationId);
+  if (existing.payment_status === "success") {
+    if (Number(existing.amount_paid) !== paystackData.amount / 100 || String(existing.currency).toUpperCase() !== paystackData.currency.toUpperCase()) throw new PaymentRegistrationConflictError();
+    await recordPaymentVerificationEvent(supabase, { registrationId: String(existing.id), reference: paystackData.reference, previousStatus: "success", reconciliation });
+    return { saved: true, id: String(existing.id), registration: existing as SavedRegistration };
+  }
   const { data, error } = await supabase
     .from("registrations")
-    .update(buildVerifiedPaymentColumns(paystackData))
+    .update(buildVerifiedPaymentColumns(paystackData, reconciliation))
     .eq("id", applicationId)
     .eq("funding_route", "self_pay")
+    .neq("payment_status", "success")
     .select(savedRegistrationSelect)
-    .single();
-  if (error || !data?.id) {
+    .maybeSingle();
+  if (error) {
     console.error("Supabase verified application update failed:", error);
     throw new Error(`Supabase registration update failed: ${error?.message || "No saved record was returned."}`);
   }
+  if (!data?.id) {
+    const concurrent = await supabase.from("registrations").select(savedRegistrationSelect).eq("id", applicationId).eq("payment_reference", paystackData.reference).eq("payment_status", "success").maybeSingle();
+    if (concurrent.error || !concurrent.data?.id || Number(concurrent.data.amount_paid) !== paystackData.amount / 100) throw new PaymentRegistrationConflictError();
+    await recordPaymentVerificationEvent(supabase, { registrationId: String(concurrent.data.id), reference: paystackData.reference, previousStatus: "success", reconciliation });
+    return { saved: true, id: String(concurrent.data.id), registration: concurrent.data as SavedRegistration };
+  }
+  await recordPaymentVerificationEvent(supabase, { registrationId: String(data.id), reference: paystackData.reference, previousStatus: String(existing.payment_status), reconciliation });
   return { saved: true, id: String(data.id), registration: data as SavedRegistration };
 }
 
-export async function saveVerifiedRegistrationFromPaystack(paystackData: PaystackVerificationData, resolved?: NormalizedPaystackRegistrationMetadata): Promise<RegistrationSaveResult> {
+export async function saveVerifiedRegistrationFromPaystack(paystackData: PaystackVerificationData, resolved: NormalizedPaystackRegistrationMetadata | undefined, reconciliation: PaymentReconciliation): Promise<RegistrationSaveResult> {
   const metadata = paystackData.metadata ?? {};
   if (!metadata || Object.keys(metadata).length === 0) return { saved: false, reason: "Payment confirmed, but registration metadata was not found." };
   const normalized = resolved ?? await resolvePaystackRegistration(metadata, paystackData.reference);
   if (!normalized.isValid) return { saved: false, reason: "Payment confirmed, but registration metadata was invalid." };
   if (!paystackData.reference) return { saved: false, reason: "Payment confirmed, but Paystack did not return a payment reference." };
-  if (normalized.applicationId) return updateExistingApplication(paystackData, normalized.applicationId);
+  if (normalized.applicationId) return updateExistingApplication(paystackData, normalized.applicationId, reconciliation);
 
   const supabase = getSupabaseAdmin();
   if (!supabase) return { saved: false, reason: "Supabase is not configured." };
@@ -439,7 +562,7 @@ export async function saveVerifiedRegistrationFromPaystack(paystackData: Paystac
     .from("registrations")
     .insert({
       ...buildRegistrationColumns(registration, calculatedFee as CohortFee),
-      ...buildVerifiedPaymentColumns(paystackData),
+      ...buildVerifiedPaymentColumns(paystackData, reconciliation),
       metadata,
     })
     .select(savedRegistrationSelect)
@@ -447,11 +570,12 @@ export async function saveVerifiedRegistrationFromPaystack(paystackData: Paystac
   if (error?.code === "23505") {
     const { data: existing, error: existingError } = await supabase.from("registrations").select(savedRegistrationSelect).eq("payment_reference", paystackData.reference).maybeSingle();
     if (existingError || !existing?.id) throw new Error(`Supabase registration lookup failed: ${existingError?.message || "No saved record was returned."}`);
-    return { saved: true, id: String(existing.id), registration: existing as SavedRegistration };
+    return updateExistingApplication(paystackData, String(existing.id), reconciliation);
   }
   if (error || !data?.id) {
     console.error("Supabase registration save failed:", error);
     throw new Error(`Supabase registration save failed: ${error?.message || "No saved record was returned."}`);
   }
+  await recordPaymentVerificationEvent(supabase, { registrationId: String(data.id), reference: paystackData.reference, previousStatus: "not_created", reconciliation });
   return { saved: true, id: String(data.id), registration: data as SavedRegistration };
 }

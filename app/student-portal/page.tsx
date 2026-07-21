@@ -11,19 +11,19 @@ import { realmClasses } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: "REALMS Institute | Student Portal",
-  description: "Preview the future REALMS Institute learning environment for enrolled students.",
+  description: "Access the secure REALMS Institute portal foundation for activated institutional accounts.",
 };
 
 export default function StudentPortalPage() {
   return (
     <PageShell>
-      <PageHero eyebrow="Coming Soon" title="Student Portal" subtitle="A planned learning area for enrolled students. Portal access and features are not yet available." breadcrumbs={[{ label: "Home", href: "/" }, { label: "Student Portal" }]} />
+      <PageHero eyebrow="Secure Access" title="Student Portal" subtitle="Portal authentication is available for activated institutional accounts. The full learning dashboard is still being prepared." breadcrumbs={[{ label: "Home", href: "/" }, { label: "Student Portal" }]} />
       <SectionContainer labelledBy="portal-status-title" withGrid>
         <div className={realmClasses.container}>
-          <StatusPanel title="Student learning environment" description="The portal is planned for a later phase. There is no student login, dashboard, or connected learning system on this website yet.">
-            <h3 id="portal-status-title" className="text-lg font-semibold text-[var(--realm-white)]">Future features</h3>
+          <StatusPanel title="Student learning environment" description="Build 1 establishes secure authentication and a protected student verification shell. Attendance, assignments, quizzes, recordings and the full learning dashboard are not available yet.">
+            <h3 id="portal-status-title" className="text-lg font-semibold text-[var(--realm-white)]">Planned learning features</h3>
             <FeatureList items={portalFeatures} className="mt-5 sm:grid-cols-2 lg:grid-cols-4" />
-            <div className="mt-9"><PrimaryButton href="/register" showIcon>Apply for August 2026</PrimaryButton></div>
+            <div className="mt-9"><PrimaryButton href="/portal/login" showIcon>Access REALMS Portal</PrimaryButton></div>
           </StatusPanel>
         </div>
       </SectionContainer>

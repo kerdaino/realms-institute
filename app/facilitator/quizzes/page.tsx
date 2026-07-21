@@ -1,0 +1,6 @@
+import Link from "next/link";
+import { PortalShell } from "@/components/portal/PortalShell";
+import { fetchAdminQuizzes } from "@/lib/lms/assessmentData";
+import { humanizeAssessment } from "@/lib/lms/assessment";
+import { resolveFacilitatorAssessmentContext } from "@/lib/lms/facilitatorAssessments";
+export default async function FacilitatorQuizzesPage() { const context = await resolveFacilitatorAssessmentContext(); const all = await fetchAdminQuizzes(context.supabase); const quizzes = all.filter((item) => context.offeringIds.includes(String(item.cohort_course_id))); return <PortalShell eyebrow="Faculty Portal" title="Quiz Review" description="Manual short-answer grading for quizzes in your assigned cohort courses."><div className="mb-5 flex gap-3"><Link href="/facilitator" className="text-sm font-semibold text-amber-800">Faculty home</Link><Link href="/facilitator/assignments" className="text-sm font-semibold text-amber-800">Assignments</Link></div><div className="grid gap-4">{quizzes.map((quiz) => <Link key={String(quiz.id)} href={`/facilitator/quizzes/${String(quiz.id)}`} className="rounded-xl border border-slate-200 bg-white p-4"><strong>{String(quiz.title)}</strong><p className="mt-1 text-sm text-slate-600">{humanizeAssessment(String(quiz.quiz_status))} · {String(quiz.awaiting_review_count)} awaiting manual review</p></Link>)}</div></PortalShell>; }

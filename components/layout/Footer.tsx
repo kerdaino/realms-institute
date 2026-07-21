@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { contactEmail, footerLinks, gloryrealmChristianCentreUrl, physicalAddress, siteConfig } from "@/lib/constants";
+import { contactEmail, footerLinks, physicalAddress, siteConfig } from "@/lib/constants";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { realmClasses } from "@/lib/theme";
 
@@ -13,11 +13,7 @@ export function Footer() {
           <div>
             <p className="text-lg font-semibold tracking-[0.14em] text-[var(--realm-white)] uppercase">{siteConfig.instituteName}</p>
             <p className="mt-3 leading-7">{siteConfig.motto}</p>
-            <p className="mt-2 text-[var(--realm-gold-soft)]">
-              <a href={gloryrealmChristianCentreUrl} target="_blank" rel="noopener noreferrer" className="hover:text-[var(--realm-white)]">
-                {siteConfig.poweredBy}
-              </a>
-            </p>
+            <p className="mt-2 text-[var(--realm-gold-soft)]">{siteConfig.independenceStatement}</p>
           </div>
         </div>
         <nav aria-label="Institutional links">
