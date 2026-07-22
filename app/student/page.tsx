@@ -24,7 +24,9 @@ function CoursePreview({ courses }: { courses: StudentCourse[] }) {
 }
 
 function SessionCard({ session }: { session: StudentSession }) {
-  return <li><Link href={`/student/sessions/${session.id}`} className="block rounded-xl border border-slate-200 p-4 transition hover:border-amber-300 hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold tracking-[0.12em] text-amber-700">{session.courseCode}</p><h3 className="mt-1 font-semibold text-[#071327]">{session.title}</h3><p className="mt-1 text-sm text-slate-600">{session.courseTitle}</p></div><span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">{humanizeStudentValue(session.deliveryMode)}</span></div><p className="mt-3 text-sm text-slate-700">{formatStudentDate(session.scheduledStartAt)} · {formatStudentTime(session.scheduledStartAt)}</p></Link></li>;
+  const content = <><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold tracking-[0.12em] text-amber-700">{session.courseCode}</p><h3 className="mt-1 font-semibold text-[#071327]">{session.title}</h3><p className="mt-1 text-sm text-slate-600">{session.courseTitle}</p></div><span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">{humanizeStudentValue(session.deliveryMode)}</span></div><p className="mt-3 text-sm text-slate-700">{formatStudentDate(session.scheduledStartAt)} · {formatStudentTime(session.scheduledStartAt)}</p></>;
+  const style = "block rounded-xl border border-slate-200 p-4";
+  return <li>{session.href ? <Link href={session.href} className={`${style} transition hover:border-amber-300 hover:bg-amber-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700`}>{content}</Link> : <article className={style}>{content}</article>}</li>;
 }
 
 export default async function StudentDashboardPage() {
@@ -58,13 +60,14 @@ export default async function StudentDashboardPage() {
     return [];
   });
   const standaloneMakeupActions = standaloneMakeups.filter((item) => !["completed", "late_complete", "waived", "cancelled"].includes(item.status)).map((item) => ({ label: item.status === "overdue" ? "Make-Up Overdue" : "Make-Up Required", href: item.recordingAssignmentId ? `/student/recordings/${item.recordingAssignmentId}` : "/student/absences" }));
+  const upcomingClass = data.upcomingSessions.find((item) => item.kind === "class_session");
   const nextActions = [
     !data.student.orientation_completed_at ? { label: "Complete Orientation", href: "/student/profile" } : null,
     ...absenceActions,
     ...standaloneMakeupActions,
-    data.upcomingSessions[0] ? { label: "Report Upcoming Absence", href: "/student/absences/new" } : null,
+    upcomingClass ? { label: "Report Upcoming Absence", href: "/student/absences/new" } : null,
     ...assessmentActions.map(({ label, href }) => ({ label, href })),
-    data.upcomingSessions[0] ? { label: "Attend Upcoming Class", href: `/student/sessions/${data.upcomingSessions[0].id}` } : null,
+    upcomingClass?.href ? { label: "Attend Upcoming Class", href: upcomingClass.href } : null,
     data.recentSummaries[0] ? { label: "Review Latest Class Summary", href: `/student/sessions/${data.recentSummaries[0].sessionId}#summary` } : null,
     overdueRecording ? { label: "Recorded Module Overdue", href: `/student/recordings/${overdueRecording.id}` } : null,
     checkpointRecording ? { label: "Complete Recording Checkpoint", href: `/student/recordings/${checkpointRecording.id}` } : null,
@@ -117,14 +120,14 @@ export default async function StudentDashboardPage() {
         </StudentPanel>
       </div>
 
-      {data.todaysSession ? <StudentPanel title="Today&apos;s Class" className="border-amber-300 bg-amber-50"><div className="grid gap-4 sm:grid-cols-2"><DataCard label="Class" value={data.todaysSession.title} detail={`${data.todaysSession.courseCode} · ${data.todaysSession.courseTitle}`} /><DataCard label="Start" value={formatStudentTime(data.todaysSession.scheduledStartAt)} detail={humanizeStudentValue(data.todaysSession.deliveryMode)} />{data.todaysSession.deliveryMode === "physical" && data.todaysSession.physicalLocation ? <DataCard label="Location" value={data.todaysSession.physicalLocation} /> : null}</div></StudentPanel> : null}
+      {data.todaysSession ? <StudentPanel title="Today&apos;s Activity" className="border-amber-300 bg-amber-50"><div className="grid gap-4 sm:grid-cols-2"><DataCard label="Activity" value={data.todaysSession.title} detail={`${data.todaysSession.courseCode} · ${data.todaysSession.courseTitle}`} /><DataCard label="Start" value={formatStudentTime(data.todaysSession.scheduledStartAt)} detail={humanizeStudentValue(data.todaysSession.deliveryMode)} />{data.todaysSession.deliveryMode === "physical" && data.todaysSession.physicalLocation ? <DataCard label="Location" value={data.todaysSession.physicalLocation} /> : null}</div></StudentPanel> : null}
 
       <StudentPanel title="My Courses" action={<Link href="/student/courses" className="rounded-lg text-sm font-semibold text-amber-800 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700">View All Courses</Link>}>
         <div className="grid gap-6 lg:grid-cols-2"><div><h3 className="mb-3 font-semibold text-[#071327]">My Discipleship Route</h3><CoursePreview courses={data.discipleshipCourses} /></div><div><h3 className="mb-3 font-semibold text-[#071327]">My Skill Pathway</h3><CoursePreview courses={data.skillCourses} /></div></div>
       </StudentPanel>
 
-      <StudentPanel title="Upcoming Classes">
-        {data.upcomingSessions.length ? <ul className="grid gap-3 lg:grid-cols-2">{data.upcomingSessions.map((session) => <SessionCard key={session.id} session={session} />)}</ul> : <EmptyState>No upcoming class sessions have been published yet.</EmptyState>}
+      <StudentPanel title="Upcoming Activities">
+        {data.upcomingSessions.length ? <ul className="grid gap-3 lg:grid-cols-2">{data.upcomingSessions.map((session) => <SessionCard key={`${session.kind}-${session.id}`} session={session} />)}</ul> : <EmptyState>No upcoming activities have been published yet.</EmptyState>}
       </StudentPanel>
 
       <div className="grid gap-6 xl:grid-cols-2">

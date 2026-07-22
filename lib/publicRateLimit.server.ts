@@ -6,6 +6,12 @@ import { publicRateLimitPolicies, type PublicRateLimitPolicy, type PublicRateLim
 
 type RateLimitEntry = { policy: PublicRateLimitPolicy; identifier: string };
 
+function errorField(error: unknown, field: "code" | "message" | "details" | "hint") {
+  if (!error || typeof error !== "object" || !(field in error)) return undefined;
+  const value = (error as Record<string, unknown>)[field];
+  return typeof value === "string" || value === null ? value : undefined;
+}
+
 function limiterSecret() {
   // A dedicated secret permits independent rotation. The existing service-role
   // key is a safe server-only fallback during deployment.
@@ -51,7 +57,8 @@ export async function consumePublicRateLimits(entries: RateLimitEntry[]): Promis
           p_limit: limit,
           p_window_seconds: windowSeconds,
         });
-        if (error || !data || typeof data !== "object") throw Object.assign(new Error("RATE_LIMIT_RPC_FAILED"), { code: error?.code ?? "INVALID_RESULT" });
+        if (error) throw error;
+        if (!data || typeof data !== "object") throw Object.assign(new Error("RATE_LIMIT_RPC_INVALID_RESULT"), { code: "INVALID_RESULT" });
         const result = data as { allowed?: unknown; retry_after_seconds?: unknown };
         return { allowed: result.allowed === true, retryAfterSeconds: Number(result.retry_after_seconds) || 0 };
       },
@@ -60,7 +67,18 @@ export async function consumePublicRateLimits(entries: RateLimitEntry[]): Promis
       ? { status: "allowed", retryAfterSeconds: 0 }
       : { status: "blocked", retryAfterSeconds: Math.ceil(decision.retryAfterSeconds) };
   } catch (error) {
-    console.error("Public rate-limit store unavailable", { name: error instanceof Error ? error.name : "UnknownError", code: error && typeof error === "object" && "code" in error ? String(error.code) : undefined });
+    const summary = {
+      name: error instanceof Error ? error.name : "UnknownError",
+      code: errorField(error, "code"),
+    };
+    console.error("Public rate-limit store unavailable", process.env.NODE_ENV === "production"
+      ? summary
+      : {
+          ...summary,
+          message: errorField(error, "message") ?? (error instanceof Error ? error.message : undefined),
+          details: errorField(error, "details"),
+          hint: errorField(error, "hint"),
+        });
     return { status: "unavailable", retryAfterSeconds: 0 };
   }
 }

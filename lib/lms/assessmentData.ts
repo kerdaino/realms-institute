@@ -11,6 +11,11 @@ export function assessmentClock() { return Date.now(); }
 function object(value: unknown): Row { return value && typeof value === "object" && !Array.isArray(value) ? value as Row : {}; }
 function relation(value: unknown) { return Array.isArray(value) ? object(value[0]) : object(value); }
 function fail(message: string, error: { code?: string; message?: string } | null) { if (error) { console.error(message, { code: error.code }); throw new LmsAdminDataError(message); } }
+function contentReadiness(status: unknown, content: unknown, supportingCount = 0) {
+  if (status === "published") return "published";
+  if (`${content ?? ""}`.includes("CONTENT PENDING FACILITATOR TEACHING / ACADEMIC REVIEW") || supportingCount === 0) return "content_pending";
+  return "ready_for_review";
+}
 
 export type AssessmentFilters = { cohort?: string; course?: string; type?: string; domain?: string; category?: string; status?: string; due?: string };
 
@@ -28,7 +33,7 @@ export async function fetchAdminAssignments(supabase: SupabaseClient, filters: A
   fail("Assignments could not be loaded.", result.error);
   return (result.data ?? []).map((raw) => {
     const row = raw as unknown as Row; const offering = relation(row.cohort_courses); const submissions = (row.assignment_submissions ?? []) as Row[];
-    return { ...row, submission_count: submissions.length, awaiting_review_count: submissions.filter((item) => item.submission_status === "submitted" || item.submission_status === "awaiting_review").length, late_submission_count: submissions.filter((item) => item.is_late).length, cohort: relation(offering.cohorts), course: relation(offering.courses) } as Row & { submission_count: number; awaiting_review_count: number; late_submission_count: number; cohort: Row; course: Row };
+    return { ...row, content_readiness: contentReadiness(row.assignment_status, `${row.description ?? ""} ${row.instructions ?? ""}`, 1), submission_count: submissions.length, awaiting_review_count: submissions.filter((item) => item.submission_status === "submitted" || item.submission_status === "awaiting_review").length, late_submission_count: submissions.filter((item) => item.is_late).length, cohort: relation(offering.cohorts), course: relation(offering.courses) } as Row & { submission_count: number; awaiting_review_count: number; late_submission_count: number; cohort: Row; course: Row };
   }).filter((item) => {
     const offering = relation(item.cohort_courses); const due = typeof item.due_at === "string" ? Date.parse(item.due_at) : null;
     if (filters.cohort && offering.cohort_id !== filters.cohort) return false;
@@ -56,9 +61,9 @@ export async function fetchAssignmentDetail(supabase: SupabaseClient, assignment
 }
 
 export async function fetchAdminQuizzes(supabase: SupabaseClient, filters: AssessmentFilters = {}) {
-  const result = await supabase.from("quizzes").select("*, cohort_courses(id, cohort_id, course_id, cohorts(id, code, name), courses(id, code, title, course_category)), quiz_attempts(id, attempt_status)").order("opens_at", { ascending: true, nullsFirst: false }).limit(5000);
+  const result = await supabase.from("quizzes").select("*, cohort_courses(id, cohort_id, course_id, cohorts(id, code, name), courses(id, code, title, course_category)), quiz_questions(id), quiz_attempts(id, attempt_status)").order("opens_at", { ascending: true, nullsFirst: false }).limit(5000);
   fail("Quizzes could not be loaded.", result.error);
-  return (result.data ?? []).map((raw) => { const row = raw as unknown as Row; const offering = relation(row.cohort_courses); const attempts = (row.quiz_attempts ?? []) as Row[]; return { ...row, attempt_count: attempts.length, awaiting_review_count: attempts.filter((item) => item.attempt_status === "awaiting_review").length, cohort: relation(offering.cohorts), course: relation(offering.courses) } as Row & { attempt_count: number; awaiting_review_count: number; cohort: Row; course: Row }; }).filter((item) => {
+  return (result.data ?? []).map((raw) => { const row = raw as unknown as Row; const offering = relation(row.cohort_courses); const attempts = (row.quiz_attempts ?? []) as Row[]; const questions = (row.quiz_questions ?? []) as Row[]; return { ...row, content_readiness: contentReadiness(row.quiz_status, `${row.description ?? ""} ${row.instructions ?? ""}`, questions.length), question_count: questions.length, attempt_count: attempts.length, awaiting_review_count: attempts.filter((item) => item.attempt_status === "awaiting_review").length, cohort: relation(offering.cohorts), course: relation(offering.courses) } as Row & { question_count: number; attempt_count: number; awaiting_review_count: number; cohort: Row; course: Row }; }).filter((item) => {
     const offering = relation(item.cohort_courses);
     if (filters.cohort && offering.cohort_id !== filters.cohort) return false;
     if (filters.course && offering.course_id !== filters.course) return false;

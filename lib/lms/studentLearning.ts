@@ -42,6 +42,7 @@ export type LearningCourse = {
   learningOutcomes: string[];
   deliveryWeek: string | null;
   deliveryMode: string | null;
+  deliveryRoute: string | null;
   schedule: string | null;
   cohortCode: string;
   cohortName: string;
@@ -295,6 +296,7 @@ function mapCourseEnrollment(raw: Record<string, unknown>, facilitatorRows: read
     learningOutcomes: list(course.learning_outcomes),
     deliveryWeek: text(course.delivery_week),
     deliveryMode: text(offering.delivery_mode),
+    deliveryRoute: text(raw.delivery_route),
     schedule: text(offering.schedule_text) ?? text(course.default_schedule_text),
     cohortCode,
     cohortName,
@@ -306,7 +308,15 @@ function mapCourseEnrollment(raw: Record<string, unknown>, facilitatorRows: read
   };
 }
 
-function mapSession(raw: Record<string, unknown>, content: { summarySessionIds: Set<string>; resourceSessionIds: Set<string>; recordingSessionIds: Set<string> }, fallbackFacilitator: string | null, now: Date): LearningSession | null {
+function approvedSessionDelivery(configured: string | null, route: string | null) {
+  if (route === "RP" || route === "DR-E") return "recorded_primary";
+  if (configured !== "hybrid") return configured ?? "not_available";
+  if (route === "PL") return "physical";
+  if (route === "OL") return "online";
+  return configured;
+}
+
+function mapSession(raw: Record<string, unknown>, content: { summarySessionIds: Set<string>; resourceSessionIds: Set<string>; recordingSessionIds: Set<string> }, fallbackFacilitator: string | null, now: Date, deliveryRoute: string | null = null): LearningSession | null {
   const id = text(raw.id);
   const title = text(raw.title);
   if (!id || !title) return null;
@@ -318,7 +328,7 @@ function mapSession(raw: Record<string, unknown>, content: { summarySessionIds: 
     description: text(raw.description),
     sessionNumber: numeric(raw.session_number),
     sessionType: text(raw.session_type) ?? "teaching",
-    deliveryMode: text(raw.delivery_mode) ?? "not_available",
+    deliveryMode: approvedSessionDelivery(text(raw.delivery_mode), deliveryRoute),
     scheduledStartAt,
     scheduledEndAt: text(raw.scheduled_end_at),
     timezone: text(raw.timezone) ?? "Africa/Lagos",
@@ -350,7 +360,7 @@ async function loadOfferingContent(supabase: SupabaseClient, offeringIds: string
 
 export const getStudentCourses = cache(async (): Promise<LearningCourse[]> => {
   const context = await resolveStudentLearningContext();
-  const result = await context.supabase.from("course_enrollments").select("id, cohort_course_id, enrollment_status, cohort_courses(id, delivery_mode, schedule_text, courses(id, code, title, course_category, discipleship_route, skill_pathway, sequence_number, description, course_purpose, delivery_week, default_schedule_text, learning_outcomes), cohorts(id, code, name))").eq("student_enrollment_id", context.studentEnrollmentId).in("enrollment_status", activeEnrollmentStatuses);
+  const result = await context.supabase.from("course_enrollments").select("id, cohort_course_id, enrollment_status, delivery_route, cohort_courses(id, delivery_mode, schedule_text, courses(id, code, title, course_category, discipleship_route, skill_pathway, sequence_number, description, course_purpose, delivery_week, default_schedule_text, learning_outcomes), cohorts(id, code, name))").eq("student_enrollment_id", context.studentEnrollmentId).in("enrollment_status", activeEnrollmentStatuses);
   fail("enrolled course lookup", result.error);
   const preliminary = (result.data ?? []).map((row) => mapCourseEnrollment(object(row))).filter((course): course is LearningCourse => Boolean(course));
   const content = await loadOfferingContent(context.supabase, preliminary.map((course) => course.offeringId));
@@ -371,7 +381,7 @@ export const getStudentCourses = cache(async (): Promise<LearningCourse[]> => {
 async function loadStudentCourseDetail(courseEnrollmentId: string): Promise<StudentCourseDetail | null> {
   if (!isUuid(courseEnrollmentId)) return null;
   const context = await resolveStudentLearningContext();
-  const result = await context.supabase.from("course_enrollments").select("id, cohort_course_id, enrollment_status, cohort_courses(id, delivery_mode, schedule_text, courses(id, code, title, course_category, discipleship_route, skill_pathway, sequence_number, description, course_purpose, delivery_week, default_schedule_text, learning_outcomes), cohorts(id, code, name))").eq("id", courseEnrollmentId).eq("student_enrollment_id", context.studentEnrollmentId).in("enrollment_status", activeEnrollmentStatuses).maybeSingle();
+  const result = await context.supabase.from("course_enrollments").select("id, cohort_course_id, enrollment_status, delivery_route, cohort_courses(id, delivery_mode, schedule_text, courses(id, code, title, course_category, discipleship_route, skill_pathway, sequence_number, description, course_purpose, delivery_week, default_schedule_text, learning_outcomes), cohorts(id, code, name))").eq("id", courseEnrollmentId).eq("student_enrollment_id", context.studentEnrollmentId).in("enrollment_status", activeEnrollmentStatuses).maybeSingle();
   fail("course access lookup", result.error);
   if (!result.data) return null;
   const initial = mapCourseEnrollment(object(result.data));
@@ -385,7 +395,7 @@ async function loadStudentCourseDetail(courseEnrollmentId: string): Promise<Stud
   const currentRecordings = content.recordings.filter((row) => recordingAvailability(row, now) === "available");
   const recordingSessionIds = new Set(currentRecordings.map((row) => text(row.class_session_id)).filter(Boolean) as string[]);
   const fallbackFacilitator = course.facilitators[0] ?? null;
-  const sessions = content.sessions.map((row) => mapSession(row, { summarySessionIds, resourceSessionIds, recordingSessionIds }, fallbackFacilitator, now)).filter((session): session is LearningSession => Boolean(session)).sort(sessionSort);
+  const sessions = content.sessions.map((row) => mapSession(row, { summarySessionIds, resourceSessionIds, recordingSessionIds }, fallbackFacilitator, now, course.deliveryRoute)).filter((session): session is LearningSession => Boolean(session)).sort(sessionSort);
   const sessionById = new Map(sessions.map((session) => [session.id, session]));
   course.sessionCount = sessions.length;
   course.summaryCount = content.summaries.length;
@@ -439,7 +449,7 @@ async function loadStudentSessionDetail(sessionId: string): Promise<StudentSessi
   fail("session access lookup", sessionResult.error);
   if (!sessionResult.data) return null;
   const offeringId = sessionResult.data.cohort_course_id;
-  const courseEnrollmentResult = await context.supabase.from("course_enrollments").select("id, cohort_course_id, enrollment_status, cohort_courses(id, delivery_mode, schedule_text, courses(id, code, title, course_category, discipleship_route, skill_pathway, sequence_number, description, course_purpose, delivery_week, default_schedule_text, learning_outcomes), cohorts(id, code, name))").eq("student_enrollment_id", context.studentEnrollmentId).eq("cohort_course_id", offeringId).in("enrollment_status", activeEnrollmentStatuses).maybeSingle();
+  const courseEnrollmentResult = await context.supabase.from("course_enrollments").select("id, cohort_course_id, enrollment_status, delivery_route, cohort_courses(id, delivery_mode, schedule_text, courses(id, code, title, course_category, discipleship_route, skill_pathway, sequence_number, description, course_purpose, delivery_week, default_schedule_text, learning_outcomes), cohorts(id, code, name))").eq("student_enrollment_id", context.studentEnrollmentId).eq("cohort_course_id", offeringId).in("enrollment_status", activeEnrollmentStatuses).maybeSingle();
   fail("session course enrollment lookup", courseEnrollmentResult.error);
   if (!courseEnrollmentResult.data) return null;
   const [summaryResult, resourceResult, recordingResult, siblingResult, assignments] = await Promise.all([
@@ -457,9 +467,9 @@ async function loadStudentSessionDetail(sessionId: string): Promise<StudentSessi
   if (!course || !validCourseForEnrollment(course, context)) return null;
   const now = new Date();
   const emptyContent = { summarySessionIds: new Set<string>(), resourceSessionIds: new Set<string>(), recordingSessionIds: new Set<string>() };
-  const siblings = (siblingResult.data ?? []).map((row) => mapSession(object(row), emptyContent, course.facilitators[0] ?? null, now)).filter((session): session is LearningSession => Boolean(session)).sort(sessionSort);
+  const siblings = (siblingResult.data ?? []).map((row) => mapSession(object(row), emptyContent, course.facilitators[0] ?? null, now, course.deliveryRoute)).filter((session): session is LearningSession => Boolean(session)).sort(sessionSort);
   const currentIndex = siblings.findIndex((session) => session.id === sessionId);
-  const baseSession = siblings[currentIndex] ?? mapSession(object(sessionResult.data), emptyContent, course.facilitators[0] ?? null, now);
+  const baseSession = siblings[currentIndex] ?? mapSession(object(sessionResult.data), emptyContent, course.facilitators[0] ?? null, now, course.deliveryRoute);
   if (!baseSession) return null;
   const sessionById = new Map([[baseSession.id, baseSession]]);
   const resources = (resourceResult.data ?? []).flatMap((raw) => {
@@ -468,7 +478,7 @@ async function loadStudentSessionDetail(sessionId: string): Promise<StudentSessi
     return [{ id, sessionId, sessionTitle: baseSession.title, title, description: text(row.description), resourceType: text(row.resource_type) ?? "other", externalUrl: safeHttpUrl(row.external_url), hasControlledFile: Boolean(text(row.storage_path)) } satisfies LearningResource];
   });
   const recordings = (recordingResult.data ?? []).flatMap((raw) => mapRecording(object(raw), sessionById, now, true));
-  const session = { ...baseSession, physicalLocation: text(sessionResult.data.physical_location) };
+  const session = { ...baseSession, physicalLocation: course.deliveryRoute === "PL" ? text(sessionResult.data.physical_location) : null };
   return {
     course,
     session,
@@ -477,7 +487,7 @@ async function loadStudentSessionDetail(sessionId: string): Promise<StudentSessi
     recordings,
     previousSession: currentIndex > 0 ? { id: siblings[currentIndex - 1].id, title: siblings[currentIndex - 1].title } : null,
     nextSession: currentIndex >= 0 && currentIndex < siblings.length - 1 ? { id: siblings[currentIndex + 1].id, title: siblings[currentIndex + 1].title } : null,
-    liveAccess: liveClassState(object(sessionResult.data), now, sessionId),
+    liveAccess: ["PL", "RP", "DR-E"].includes(course.deliveryRoute ?? "") ? { state: "not_applicable", message: null, href: null } : liveClassState(object(sessionResult.data), now, sessionId),
   };
 }
 

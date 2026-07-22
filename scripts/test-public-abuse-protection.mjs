@@ -6,10 +6,11 @@ import { consumeWithSharedRateLimitStore, hmacPublicIdentifier } from "../lib/pu
 
 const root = process.cwd();
 const read = (path) => readFile(resolve(root, path), "utf8");
-const [policySource, serverSource, sql, initialize, scholarship, verify, portalActions, portalInvite, certificateApi, certificatePage, form, saveRegistration] = await Promise.all([
+const [policySource, serverSource, sql, repairSql, initialize, scholarship, verify, portalActions, portalInvite, certificateApi, certificatePage, certificateCodePage, form, saveRegistration] = await Promise.all([
   read("lib/publicRateLimitPolicy.ts"),
   read("lib/publicRateLimit.server.ts"),
   read("supabase/lms_build_13_public_abuse_protection.sql"),
+  read("supabase/lms_build_13_public_rate_limit_repair.sql"),
   read("app/api/paystack/initialize/route.ts"),
   read("app/api/registrations/scholarship/route.ts"),
   read("app/api/paystack/verify/route.ts"),
@@ -17,6 +18,7 @@ const [policySource, serverSource, sql, initialize, scholarship, verify, portalA
   read("lib/lms/portalInvite.ts"),
   read("app/api/certificates/verify/route.ts"),
   read("app/verify-certificate/page.tsx"),
+  read("app/verify-certificate/[verificationCode]/page.tsx"),
   read("components/registration/RegistrationForm.tsx"),
   read("lib/saveRegistration.ts"),
 ]);
@@ -60,8 +62,11 @@ await check("Paystack retries reuse a stored authorization URL/reference", () =>
 await check("scholarship requests use tighter shared limits and no Paystack initialization", () => { assert.match(scholarship, /scholarship_source/); assert.match(scholarship, /scholarship_email/); assert.doesNotMatch(scholarship, /initializePaystackTransaction/); });
 await check("payment verification has generous source/reference limits and fail-open recovery", () => { assert.match(verify, /paystack_verify_source/); assert.match(verify, /paystack_verify_reference/); assert.match(verify, /fails open/); });
 await check("auth email requests use source and normalized-email limits with generic responses", () => { assert.match(portalActions, /If an account exists for this email/); assert.match(portalActions, /If an activated institutional account exists/); assert.match(portalInvite, /forgot_password_email/); assert.match(portalInvite, /magic_link_email/); assert.match(portalInvite, /normalizePortalEmail/); });
-await check("certificate verification uses the shared limiter everywhere", () => { assert.match(certificateApi, /consumePublicRateLimits/); assert.match(certificatePage, /consumePublicRateLimits/); assert.doesNotMatch(certificateApi + certificatePage, /new Map|permitCertificateVerification/); });
-await check("SQL is private, atomic, expiring, and cleans up", () => { assert.match(sql, /enable row level security/i); assert.match(sql, /revoke all[\s\S]+anon, authenticated/i); assert.match(sql, /on conflict \(key_hash\) do update/i); assert.match(sql, /expires_at <= current_time/i); assert.match(sql, /limit 200/i); });
+await check("certificate verification uses the shared limiter everywhere", () => { assert.match(certificateApi, /consumePublicRateLimits/); assert.match(certificatePage, /consumePublicRateLimits/); assert.match(certificateCodePage, /consumePublicRateLimits/); assert.doesNotMatch(certificateApi + certificatePage + certificateCodePage, /new Map|permitCertificateVerification/); });
+await check("SQL is private, atomic, expiring, and cleans up", () => { assert.match(sql, /enable row level security/i); assert.match(sql, /revoke all[\s\S]+anon, authenticated/i); assert.match(sql, /on conflict \(key_hash\) do update/i); assert.match(sql, /expires_at <= v_now/i); assert.match(sql, /limit 200/i); });
+await check("SQL avoids the PostgreSQL CURRENT_TIME keyword collision", () => { for (const source of [sql, repairSql]) { assert.match(source, /v_now timestamptz := clock_timestamp\(\)/i); assert.doesNotMatch(source, /\bcurrent_time\b/i); } });
+await check("the live repair preserves the canonical RPC contract", () => { assert.match(repairSql, /create or replace function public\.consume_public_rate_limit\(\s*p_key_hash text,\s*p_action text,\s*p_limit integer,\s*p_window_seconds integer\s*\)\s*returns jsonb/i); });
+await check("development RPC diagnostics are safe and production stays minimal", () => { for (const field of ["code", "message", "details", "hint"]) assert.match(serverSource, new RegExp(`errorField\\(error, \\"${field}\\"\\)`)); assert.match(serverSource, /process\.env\.NODE_ENV === "production"/); const diagnosticsSource = serverSource.slice(serverSource.indexOf("catch (error)")); assert.doesNotMatch(diagnosticsSource, /password|service.role|raw IP/i); });
 await check("production and admin-login limiters use the shared RPC with no local counter", () => { assert.match(serverSource, /consume_public_rate_limit/); assert.match(adminLogin, /admin_login_source/); assert.doesNotMatch(serverSource + adminAuth, /new Map/); });
 
 console.log(`Public abuse-protection checks passed (${checks.length}).`);

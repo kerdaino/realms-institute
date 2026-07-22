@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { fetchAdminQuizzes } from "@/lib/lms/assessmentData";
-import { lmsApiError } from "@/lib/lms/apiResponse";
+import { fetchAdminQuizzes, fetchAssessmentOptions } from "@/lib/lms/assessmentData";
+import { saveQuiz } from "@/lib/lms/assessmentService";
+import { lmsApiError, readJsonObject } from "@/lib/lms/apiResponse";
 import { resolveFacilitatorAssessmentContext } from "@/lib/lms/facilitatorAssessments";
-export async function GET() { try { const context = await resolveFacilitatorAssessmentContext(); const quizzes = await fetchAdminQuizzes(context.supabase); return NextResponse.json({ quizzes: quizzes.filter((quiz) => context.offeringIds.includes(String(quiz.cohort_course_id))) }); } catch (error) { return lmsApiError(error, "Assigned quizzes could not be loaded."); } }
+export async function GET() { try { const context = await resolveFacilitatorAssessmentContext(); const [quizzes, options] = await Promise.all([fetchAdminQuizzes(context.supabase), fetchAssessmentOptions(context.supabase)]); return NextResponse.json({ quizzes: quizzes.filter((quiz) => context.offeringIds.includes(String(quiz.cohort_course_id))), options: { offerings: options.offerings.filter((item) => context.offeringIds.includes(item.id)), sessions: options.sessions.filter((item) => context.offeringIds.includes(item.cohort_course_id)) } }); } catch (error) { return lmsApiError(error, "Assigned quizzes could not be loaded."); } }
+export async function POST(request: Request) { const body = await readJsonObject(request); if (!body) return NextResponse.json({ message: "A valid request body is required." }, { status: 400 }); try { const context = await resolveFacilitatorAssessmentContext(); if (!context.offeringIds.includes(String(body.cohort_course_id))) return NextResponse.json({ message: "You are not assigned to this cohort course." }, { status: 403 }); return NextResponse.json({ quiz: await saveQuiz(context.supabase, body, { actorLabel: "Facilitator", actorUserId: context.userId }) }, { status: 201 }); } catch (error) { return lmsApiError(error, "Quiz draft could not be created."); } }

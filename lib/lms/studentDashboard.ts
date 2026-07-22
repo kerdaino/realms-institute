@@ -27,10 +27,13 @@ export type StudentCourse = {
   deliveryMode: string | null;
   schedule: string | null;
   sequenceNumber: number | null;
+  deliveryRoute: string | null;
 };
 
 export type StudentSession = {
   id: string;
+  kind: "class_session" | "cohort_event";
+  href: string | null;
   offeringId: string;
   title: string;
   courseCode: string;
@@ -186,7 +189,20 @@ function mapCourse(row: Record<string, unknown>): StudentCourse | null {
     deliveryMode: text(offering.delivery_mode),
     schedule: text(offering.schedule_text),
     sequenceNumber: number(course.sequence_number),
+    deliveryRoute: text(row.delivery_route),
   };
+}
+
+function approvedSessionDelivery(configured: string | null, route: string | null) {
+  if (route === "RP" || route === "DR-E") return "recorded_primary";
+  if (configured !== "hybrid") return configured ?? "Not available";
+  if (route === "PL") return "physical";
+  if (route === "OL") return "online";
+  return configured;
+}
+
+function optionalCalendarTable(error: { code?: string; message?: string } | null) {
+  return Boolean(error && (["42P01", "PGRST205"].includes(error.code ?? "") || /cohort_events/i.test(error.message ?? "")));
 }
 
 function byCourseSequence(a: StudentCourse, b: StudentCourse) {
@@ -235,7 +251,7 @@ async function loadStudentDashboardData(profileId: string, options: LoadOptions 
 
   const [cohortResult, courseEnrollmentResult] = await Promise.all([
     supabase.from("cohorts").select("id, code, name, school, programme, orientation_date, matriculation_date").eq("id", enrollment.cohort_id).maybeSingle(),
-    supabase.from("course_enrollments").select("id, enrollment_status, cohort_courses(id, delivery_mode, schedule_text, courses(id, code, title, course_category, discipleship_route, skill_pathway, sequence_number))").eq("student_enrollment_id", enrollment.id).in("enrollment_status", ["active", "enrolled"]),
+    supabase.from("course_enrollments").select("id, enrollment_status, delivery_route, cohort_courses(id, delivery_mode, schedule_text, courses(id, code, title, course_category, discipleship_route, skill_pathway, sequence_number))").eq("student_enrollment_id", enrollment.id).in("enrollment_status", ["active", "enrolled"]),
   ]);
   reportFailure("cohort lookup", cohortResult.error);
   reportFailure("course enrollment lookup", courseEnrollmentResult.error);
@@ -247,11 +263,15 @@ async function loadStudentDashboardData(profileId: string, options: LoadOptions 
   const offeringIds = [...new Set(courses.map((course) => course.offeringId))];
   if (!offeringIds.length) return base;
 
-  const sessionResult = await supabase.from("class_sessions").select("id, cohort_course_id, title, scheduled_start_at, scheduled_end_at, timezone, delivery_mode, physical_location, session_status, visibility_status").in("cohort_course_id", offeringIds).eq("visibility_status", "enrolled_only").order("scheduled_start_at", { ascending: true, nullsFirst: false });
+  const [sessionResult, eventResult] = await Promise.all([
+    supabase.from("class_sessions").select("id, cohort_course_id, title, scheduled_start_at, scheduled_end_at, timezone, delivery_mode, physical_location, session_status, visibility_status").in("cohort_course_id", offeringIds).eq("visibility_status", "enrolled_only").order("scheduled_start_at", { ascending: true, nullsFirst: false }),
+    supabase.from("cohort_events").select("id, cohort_id, title, scheduled_start_at, scheduled_end_at, timezone, delivery_mode, physical_location, event_status, visibility_status").eq("cohort_id", enrollment.cohort_id).eq("visibility_status", "enrolled_only").order("scheduled_start_at", { ascending: true }),
+  ]);
   reportFailure("session lookup", sessionResult.error);
+  if (eventResult.error && !optionalCalendarTable(eventResult.error)) reportFailure("cohort event lookup", eventResult.error);
   const courseByOffering = new Map(courses.map((course) => [course.offeringId, course]));
   const today = localDateKey(now);
-  const sessions = (sessionResult.data ?? []).flatMap((raw) => {
+  const sessions: StudentSession[] = (sessionResult.data ?? []).flatMap((raw) => {
     const row = object(raw);
     const offeringId = text(row.cohort_course_id);
     const id = text(row.id);
@@ -261,6 +281,8 @@ async function loadStudentDashboardData(profileId: string, options: LoadOptions 
     const scheduledStartAt = text(row.scheduled_start_at);
     return [{
       id,
+      kind: "class_session",
+      href: `/student/sessions/${id}`,
       offeringId,
       title,
       courseCode: course.code,
@@ -268,13 +290,19 @@ async function loadStudentDashboardData(profileId: string, options: LoadOptions 
       scheduledStartAt,
       scheduledEndAt: text(row.scheduled_end_at),
       timezone: text(row.timezone) ?? "Africa/Lagos",
-      deliveryMode: text(row.delivery_mode) ?? course.deliveryMode ?? "Not available",
-      physicalLocation: text(row.physical_location),
+      deliveryMode: approvedSessionDelivery(text(row.delivery_mode) ?? course.deliveryMode, course.deliveryRoute),
+      physicalLocation: course.deliveryRoute === "PL" ? text(row.physical_location) : null,
       status: text(row.session_status) ?? "scheduled",
       isToday: Boolean(scheduledStartAt && localDateKey(scheduledStartAt) === today),
       isPast: Boolean(scheduledStartAt && Date.parse(scheduledStartAt) < now.valueOf()),
     } satisfies StudentSession];
   });
+  if (!eventResult.error) for (const raw of eventResult.data ?? []) {
+    const row = object(raw); const id = text(row.id); const title = text(row.title); const scheduledStartAt = text(row.scheduled_start_at);
+    if (!id || !title) continue;
+    sessions.push({ id, kind: "cohort_event", href: null, offeringId: "cohort", title, courseCode: "COHORT", courseTitle: base.cohort?.name ?? "Cohort activity", scheduledStartAt, scheduledEndAt: text(row.scheduled_end_at), timezone: text(row.timezone) ?? "Africa/Lagos", deliveryMode: text(row.delivery_mode) ?? "online", physicalLocation: text(row.physical_location), status: text(row.event_status) ?? "scheduled", isToday: Boolean(scheduledStartAt && localDateKey(scheduledStartAt) === today), isPast: Boolean(scheduledStartAt && Date.parse(scheduledStartAt) < now.valueOf()) });
+  }
+  sessions.sort((a, b) => Date.parse(a.scheduledStartAt ?? "9999-12-31") - Date.parse(b.scheduledStartAt ?? "9999-12-31"));
   base.sessions = sessions;
   base.upcomingSessions = sessions.filter((session) => session.status === "scheduled" && Boolean(session.scheduledStartAt && Date.parse(session.scheduledStartAt) >= now.valueOf())).slice(0, 5);
   base.pastSessions = sessions.filter((session) => Boolean(session.scheduledStartAt && Date.parse(session.scheduledStartAt) < now.valueOf())).sort((a, b) => Date.parse(b.scheduledStartAt ?? "") - Date.parse(a.scheduledStartAt ?? ""));

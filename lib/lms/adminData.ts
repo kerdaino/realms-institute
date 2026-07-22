@@ -25,6 +25,10 @@ function throwQueryError(label: string, error: { message: string } | null) {
   if (error) throw new LmsAdminDataError(`${label} could not be loaded.`);
 }
 
+function optionalCohortEventStorage(error: { code?: string; message?: string } | null) {
+  return Boolean(error && (["42P01", "PGRST205"].includes(error.code ?? "") || /cohort_events/i.test(error.message ?? "")));
+}
+
 type StudentEnrollmentView = {
   id: string;
   cohort_id: string;
@@ -121,18 +125,20 @@ export async function fetchAdminCohorts(supabase: SupabaseClient) {
 }
 
 export async function fetchAdminCohort(supabase: SupabaseClient, id: string) {
-  const [cohort, offerings, sessions] = await Promise.all([
+  const [cohort, offerings, sessions, events] = await Promise.all([
     supabase.from("cohorts").select("*").eq("id", id).maybeSingle(),
     supabase.from("cohort_courses").select("*, courses(*), facilitator_course_assignments(*, facilitators(id, display_name, title, facilitator_status))").eq("cohort_id", id).order("created_at"),
     supabase.from("class_sessions").select("id, title, session_number, session_type, delivery_mode, scheduled_start_at, session_status, facilitator_id, facilitators(id, display_name), cohort_courses!inner(cohort_id, courses(id, code, title))").eq("cohort_courses.cohort_id", id).order("scheduled_start_at", { ascending: true, nullsFirst: false }),
+    supabase.from("cohort_events").select("id, event_key, event_type, title, scheduled_start_at, scheduled_end_at, timezone, delivery_mode, event_status, visibility_status, is_required").eq("cohort_id", id).order("scheduled_start_at", { ascending: true }),
   ]);
   throwQueryError("Cohort", cohort.error);
   throwQueryError("Cohort courses", offerings.error);
   throwQueryError("Cohort sessions", sessions.error);
+  if (events.error && !optionalCohortEventStorage(events.error)) throwQueryError("Cohort events", events.error);
   if (!cohort.data) throw new LmsAdminDataError("Cohort not found.", 404);
   const count = await supabase.from("student_enrollments").select("id", { count: "exact", head: true }).eq("cohort_id", id);
   throwQueryError("Cohort student count", count.error);
-  return { cohort: cohort.data, offerings: offerings.data ?? [], studentCount: count.count ?? 0, sessions: sessions.data ?? [] };
+  return { cohort: cohort.data, offerings: offerings.data ?? [], studentCount: count.count ?? 0, sessions: sessions.data ?? [], events: events.error ? [] : events.data ?? [] };
 }
 
 export async function fetchAdminCourses(supabase: SupabaseClient) {

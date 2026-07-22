@@ -12,7 +12,11 @@
     "test:portal-auth": "node --experimental-strip-types scripts/test-portal-auth.mjs",
     "test:public-abuse": "node --experimental-strip-types scripts/test-public-abuse-protection.mjs",
     "test:private-storage": "node --experimental-strip-types scripts/test-private-storage.mjs",
-    "audit:private-storage": "node --env-file=.env.local scripts/audit-private-storage-orphans.mjs"
+    "audit:private-storage": "node --env-file=.env.local scripts/audit-private-storage-orphans.mjs",
+    "prepare:august-calendar": "node --env-file=.env.local --experimental-strip-types scripts/setup-august-2026-calendar.mjs",
+    "test:august-calendar": "node --experimental-strip-types scripts/test-next-5-august-calendar.mjs",
+    "prepare:august-assessments": "node --env-file=.env.local --experimental-strip-types scripts/setup-august-2026-assessments.mjs",
+    "test:august-assessments": "node --experimental-strip-types scripts/test-next-6-august-assessments.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

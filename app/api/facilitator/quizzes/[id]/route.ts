@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { fetchQuizDetail } from "@/lib/lms/assessmentData";
 import { isUuid } from "@/lib/lms/adminConstants";
-import { lmsApiError } from "@/lib/lms/apiResponse";
+import { lmsApiError, readJsonObject } from "@/lib/lms/apiResponse";
+import { saveQuiz } from "@/lib/lms/assessmentService";
 import { requireFacilitatorAssessmentRecord, resolveFacilitatorAssessmentContext } from "@/lib/lms/facilitatorAssessments";
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) { const { id } = await params; if (!isUuid(id)) return NextResponse.json({ message: "Quiz not found." }, { status: 404 }); try { const context = await resolveFacilitatorAssessmentContext(); await requireFacilitatorAssessmentRecord(context, "quiz", id); return NextResponse.json(await fetchQuizDetail(context.supabase, id, true)); } catch (error) { return lmsApiError(error, "Quiz could not be loaded."); } }
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) { const [{ id }, body] = await Promise.all([params, readJsonObject(request)]); if (!isUuid(id) || !body) return NextResponse.json({ message: "A valid quiz request is required." }, { status: 400 }); try { const context = await resolveFacilitatorAssessmentContext(); await requireFacilitatorAssessmentRecord(context, "quiz", id); if (!context.offeringIds.includes(String(body.cohort_course_id))) return NextResponse.json({ message: "You are not assigned to this cohort course." }, { status: 403 }); return NextResponse.json({ quiz: await saveQuiz(context.supabase, body, { actorLabel: "Facilitator", actorUserId: context.userId }, id) }); } catch (error) { return lmsApiError(error, "Quiz draft could not be updated."); } }
