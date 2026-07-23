@@ -14,7 +14,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ses
   const { sessionId } = await params;
   try {
     const admin = getSupabaseAdmin();
-    if (!admin) throw new LmsAdminDataError("Academic access is not configured.", 503);
+    if (!admin) throw new LmsAdminDataError("Academic access is temporarily unavailable.", 503);
     await assertStudentHandbookAcknowledged(user.id, admin);
     const target = await getStudentLiveClassTarget(sessionId);
     if (!target) return NextResponse.json({ message: "Live class access is not available for this session." }, { status: 403 });

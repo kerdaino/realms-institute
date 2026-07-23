@@ -66,6 +66,13 @@ create table if not exists public.registrations (
   screening_review_note text,
   screening_reviewed_at timestamptz,
   screening_reviewed_by text,
+  advanced_entry_applicant_message text,
+  advanced_entry_decision_email_sent boolean not null default false,
+  advanced_entry_decision_email_sent_at timestamptz,
+  advanced_entry_decision_email_type text,
+  advanced_entry_decision_email_error text,
+  advanced_entry_decision_email_last_attempted_at timestamptz,
+  advanced_entry_decision_email_last_attempt_type text,
   funding_route text not null default 'self_pay',
   scholarship_status text not null default 'not_requested',
   scholarship_reason text,
@@ -145,6 +152,13 @@ alter table public.registrations
   add column if not exists screening_review_note text,
   add column if not exists screening_reviewed_at timestamptz,
   add column if not exists screening_reviewed_by text,
+  add column if not exists advanced_entry_applicant_message text,
+  add column if not exists advanced_entry_decision_email_sent boolean not null default false,
+  add column if not exists advanced_entry_decision_email_sent_at timestamptz,
+  add column if not exists advanced_entry_decision_email_type text,
+  add column if not exists advanced_entry_decision_email_error text,
+  add column if not exists advanced_entry_decision_email_last_attempted_at timestamptz,
+  add column if not exists advanced_entry_decision_email_last_attempt_type text,
   add column if not exists funding_route text not null default 'self_pay',
   add column if not exists scholarship_status text not null default 'not_requested',
   add column if not exists scholarship_reason text,
@@ -251,6 +265,9 @@ create index if not exists registrations_email_idx on public.registrations (emai
 create index if not exists registrations_created_at_idx on public.registrations (created_at);
 create index if not exists registrations_skill_pathway_idx on public.registrations (skill_pathway);
 create index if not exists registrations_learning_mode_idx on public.registrations (learning_mode);
+create index if not exists registrations_advanced_entry_decision_email_idx
+  on public.registrations (advanced_entry_decision_email_sent, advanced_entry_decision_email_last_attempted_at)
+  where advanced_entry_status in ('advanced_approved', 'foundation_required', 'more_information_required');
 
 alter table public.registrations enable row level security;
 

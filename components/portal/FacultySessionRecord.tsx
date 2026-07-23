@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { fetchFacilitatorSession } from "@/lib/lms/facilitatorSessions";
+import { institutionalValueLabel } from "@/lib/lms/presentation";
 type RecordData = Awaited<ReturnType<typeof fetchFacilitatorSession>>;
 function object(value: unknown) { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function relation(value: unknown) { return Array.isArray(value) ? object(value[0]) : object(value); }
@@ -16,4 +17,4 @@ export function FacultySessionRecord({ initialRecord }: { initialRecord: RecordD
 function Item({ label, value, children }: { label: string; value?: string; children?: React.ReactNode }) { return <div><dt className="text-xs font-semibold uppercase tracking-wider text-[var(--realm-gold-soft)]">{label}</dt><dd className="mt-2">{children || value}</dd></div>; }
 function Input({ name, label, value }: { name: string; label: string; value: string | null }) { return <label className="text-sm font-semibold">{label}<input name={name} defaultValue={value || ""} className="mt-2 block w-full rounded-xl border border-white/15 bg-[#050d1c]/60 px-3 py-2" /></label>; }
 function List({ name, label, value }: { name: string; label: string; value: unknown }) { return <label className="text-sm font-semibold">{label} <span className="font-normal text-[var(--realm-slate)]">(one per line)</span><textarea name={name} defaultValue={lines(value)} rows={5} className="mt-2 block w-full rounded-xl border border-white/15 bg-[#050d1c]/60 p-3" /></label>; }
-function humanize(value: string | null) { return value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Not set"; }
+function humanize(value: string | null) { return institutionalValueLabel(value, "Not Set"); }

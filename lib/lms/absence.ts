@@ -41,8 +41,15 @@ export type MakeupStatus = (typeof makeupStatuses)[number];
 export const oralVerificationStatuses = ["scheduled", "completed", "satisfactory", "not_satisfactory", "reschedule_required"] as const;
 
 export function humanizeAbsenceValue(value: string | null | undefined) {
-  if (!value) return "Not set";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  if (!value) return "Not Set";
+  const labels: Record<string, string> = {
+    awaiting_review: "Awaiting Review",
+    under_review: "Under Review",
+    not_required: "Not Required",
+    more_information_required: "More Information Required",
+    reschedule_required: "Rescheduling Required",
+  };
+  return labels[value] ?? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export function makeupPurposeLabel(value: string | null | undefined) {

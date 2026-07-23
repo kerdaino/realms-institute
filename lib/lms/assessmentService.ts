@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomInt } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { recordLmsAudit } from "@/lib/lms/adminAudit";
@@ -23,6 +24,14 @@ import {
 } from "@/lib/lms/assessment";
 import { evaluateRecordedLearningAssignment } from "@/lib/lms/recordingService";
 import { triggerEngagementEvaluationForCourseEnrollment } from "@/lib/lms/engagementService";
+import {
+  createQuizAttemptOrderSnapshot,
+  defaultQuizTabPolicy,
+  normalQuizAttemptsUsed,
+  quizIntegrityDecisions,
+  tabPolicyOutcome,
+  type QuizIntegrityDecision,
+} from "@/lib/lms/quizIntegrity";
 
 export type AssessmentActor = { actorUserId?: string | null; actorLabel: "REALMS Admin" | "Facilitator" | "Student" | "System" };
 type Row = Record<string, unknown>;
@@ -36,6 +45,7 @@ function numberValue(value: unknown, message: string, minimum = 0, maximum?: num
 function optionalNumber(value: unknown, message: string, minimum = 0, maximum?: number) { if (value === null || value === undefined || value === "") return null; return numberValue(value, message, minimum, maximum); }
 function booleanValue(value: unknown, fallback = false) { return value === undefined ? fallback : value === true || value === "true" || value === "on"; }
 function actorReference(actor: AssessmentActor) { return actor.actorUserId ?? actor.actorLabel; }
+function randomUnit() { return randomInt(0, 1_000_000) / 1_000_000; }
 function safeUrl(value: unknown, label: string, required = false) {
   const candidate = optionalText(value, 2048);
   if (!candidate) { if (required) invalid(`${label} is required.`); return null; }
@@ -206,7 +216,7 @@ async function syncAssignmentRecordingEvidence(supabase: SupabaseClient, submiss
     const linked = await linkedRecordingAssignments(supabase, String(submission.course_enrollment_id), String(assignment.id), kind);
     for (const recording of linked) {
       const now = new Date().toISOString();
-      const status = await supabase.from("recording_requirement_statuses").update({ requirement_status: "satisfied", evidence_source: "assignment_submission", evidence_reference: String(submission.id), completed_at: now, verified_at: now, verified_by: actorReference(actor), verification_note: `${kind === "reflection" ? "Reflection" : "Practical"} accepted through BUILD 8 assessment review.`, updated_at: now }).eq("recording_assignment_id", recording.id).eq("requirement_type", kind).eq("is_required", true).select("id");
+      const status = await supabase.from("recording_requirement_statuses").update({ requirement_status: "satisfied", evidence_source: "assignment_submission", evidence_reference: String(submission.id), completed_at: now, verified_at: now, verified_by: actorReference(actor), verification_note: `${kind === "reflection" ? "Reflection" : "Practical"} accepted through assessment review.`, updated_at: now }).eq("recording_assignment_id", recording.id).eq("requirement_type", kind).eq("is_required", true).select("id");
       if (status.error) throw new LmsAdminDataError("Recorded-learning requirement evidence could not be synchronized.");
       if (status.data?.length) {
         await recordLmsAudit(supabase, { action: kind === "reflection" ? "recording_reflection_requirement_completed" : "recording_practical_requirement_completed", entityType: "recording_learning_assignment", entityId: recording.id, actorUserId: actor.actorUserId, metadata: { assignment_id: assignment.id, submission_id: submission.id } });
@@ -267,7 +277,25 @@ export async function saveQuiz(supabase: SupabaseClient, body: Row, actor: Asses
   if (opensAt && !Number.isFinite(Date.parse(opensAt))) invalid("Enter a valid opening time.");
   if (closesAt && !Number.isFinite(Date.parse(closesAt))) invalid("Enter a valid closing time.");
   if (opensAt && closesAt && Date.parse(opensAt) >= Date.parse(closesAt)) invalid("Quiz closing time must be after its opening time.");
-  const values = { cohort_course_id: offeringId, class_session_id: sessionId, title: requiredText(body.title, "Quiz title is required.", 240), description: optionalText(body.description), instructions: optionalText(body.instructions, 30_000), quiz_type: optionalText(body.quiz_type, 80) ?? "lesson_quiz", assessment_domain: domain, assessment_category: category, opens_at: opensAt ? new Date(opensAt).toISOString() : null, closes_at: closesAt ? new Date(closesAt).toISOString() : null, duration_minutes: optionalNumber(body.duration_minutes, "Duration must be at least one minute.", 1, 1440), max_attempts: numberValue(body.max_attempts ?? 1, "Maximum attempts must be at least one.", 1, 100), passing_score_percentage: numberValue(body.passing_score_percentage ?? 70, "Passing score must be between zero and 100.", 0, 100), show_score_after_submission: booleanValue(body.show_score_after_submission, true), show_correct_answers: booleanValue(body.show_correct_answers), updated_by: actor.actorUserId ?? null, updated_at: new Date().toISOString() };
+  const answersReviewableAt = optionalText(body.answers_reviewable_at, 80);
+  if (answersReviewableAt && !Number.isFinite(Date.parse(answersReviewableAt))) invalid("Enter a valid answer-review release time.");
+  if (answersReviewableAt && closesAt && Date.parse(answersReviewableAt) < Date.parse(closesAt)) invalid("Correct-answer review cannot open before the quiz closes.");
+  const values: Row = { cohort_course_id: offeringId, class_session_id: sessionId, title: requiredText(body.title, "Quiz title is required.", 240), description: optionalText(body.description), instructions: optionalText(body.instructions, 30_000), quiz_type: optionalText(body.quiz_type, 80) ?? "lesson_quiz", assessment_domain: domain, assessment_category: category, opens_at: opensAt ? new Date(opensAt).toISOString() : null, closes_at: closesAt ? new Date(closesAt).toISOString() : null, duration_minutes: optionalNumber(body.duration_minutes, "Duration must be at least one minute.", 1, 1440), max_attempts: numberValue(body.max_attempts ?? 1, "Maximum attempts must be at least one.", 1, 100), passing_score_percentage: numberValue(body.passing_score_percentage ?? 70, "Passing score must be between zero and 100.", 0, 100), show_score_after_submission: booleanValue(body.show_score_after_submission, true), show_correct_answers: booleanValue(body.show_correct_answers), updated_by: actor.actorUserId ?? null, updated_at: new Date().toISOString() };
+  if (actor.actorLabel === "REALMS Admin") {
+    const monitoringEnabled = booleanValue(body.tab_monitoring_enabled, defaultQuizTabPolicy.monitoringEnabled);
+    const warningThreshold = numberValue(body.tab_warning_threshold ?? defaultQuizTabPolicy.warningThreshold, "Tab warning threshold must be at least one.", 1, 100);
+    const flagThreshold = numberValue(body.tab_flag_threshold ?? defaultQuizTabPolicy.flagThreshold, "Tab review threshold must be at least the warning threshold.", warningThreshold, 100);
+    const autoSubmitThreshold = optionalNumber(body.tab_auto_submit_threshold, "Tab auto-submit threshold must be at least the review threshold.", flagThreshold, 100);
+    Object.assign(values, {
+      answers_reviewable_at: answersReviewableAt ? new Date(answersReviewableAt).toISOString() : null,
+      tab_monitoring_enabled: monitoringEnabled,
+      tab_warning_threshold: warningThreshold,
+      tab_flag_threshold: flagThreshold,
+      tab_auto_submit_threshold: autoSubmitThreshold,
+      randomize_question_order: booleanValue(body.randomize_question_order),
+      randomize_option_order: booleanValue(body.randomize_option_order),
+    });
+  }
   if (quizId) {
     const current = await supabase.from("quizzes").select("id, quiz_status").eq("id", quizId).maybeSingle();
     if (current.error || !current.data) invalid("Quiz not found.", 404);
@@ -289,6 +317,7 @@ export async function addQuizQuestion(supabase: SupabaseClient, quizId: string, 
   if (!(quizQuestionTypes as readonly string[]).includes(type)) invalid("Choose a valid question type.");
   const options = type === "true_false" ? [true, false] : Array.isArray(body.options) ? body.options.flatMap((item) => typeof item === "string" && item.trim() ? [item.trim().slice(0, 1000)] : []) : [];
   if (type === "multiple_choice" && options.length < 2) invalid("Multiple-choice questions require at least two options.");
+  if (type === "multiple_choice" && new Set(options.map((option) => String(option).toLocaleLowerCase())).size !== options.length) invalid("Multiple-choice options must be unique.");
   const answer = body.correct_answer;
   if (type !== "short_answer" && (answer === undefined || answer === null || answer === "")) invalid("An answer key is required for automatic grading.");
   if (type === "multiple_choice" && !options.some((option) => automaticAnswersEqual(type, option, answer))) invalid("The correct answer must match one configured option.");
@@ -310,6 +339,8 @@ export async function setQuizStatus(supabase: SupabaseClient, quizId: string, bo
     if (questions.data.reduce((sum, question) => sum + Number(question.points), 0) <= 0) invalid("Quiz total points must be greater than zero.", 409);
     if (questions.data.some((question) => question.question_type !== "short_answer" && !(question.quiz_answer_keys as unknown as Row[])?.length)) invalid("Every automatically graded question requires an answer key.", 409);
     if (quiz.data.opens_at && quiz.data.closes_at && Date.parse(quiz.data.opens_at) >= Date.parse(quiz.data.closes_at)) invalid("Quiz opening and closing times are not valid.", 409);
+    if (quiz.data.show_correct_answers && !quiz.data.answers_reviewable_at) invalid("Choose a correct-answer review release time, or keep correct-answer review disabled.", 409);
+    if (quiz.data.answers_reviewable_at && quiz.data.closes_at && Date.parse(quiz.data.answers_reviewable_at) < Date.parse(quiz.data.closes_at)) invalid("Correct-answer review cannot open before the quiz closes.", 409);
   }
   const wasPublished = quiz.data.quiz_status === "published";
   const saved = await supabase.from("quizzes").update({ quiz_status: status, published_at: status === "published" ? quiz.data.published_at ?? new Date().toISOString() : quiz.data.published_at, updated_by: actor.actorUserId ?? null, updated_at: new Date().toISOString() }).eq("id", quizId).select("*").single();
@@ -325,16 +356,37 @@ export async function startQuizAttempt(supabase: SupabaseClient, profileId: stri
   const now = new Date();
   if (quiz.data.opens_at && Date.parse(quiz.data.opens_at) > now.valueOf()) invalid("This quiz has not opened yet.", 409);
   if (quiz.data.closes_at && Date.parse(quiz.data.closes_at) <= now.valueOf()) invalid("This quiz is closed.", 409);
-  const attempts = await supabase.from("quiz_attempts").select("*").eq("quiz_id", quizId).eq("course_enrollment_id", enrollment.id).order("attempt_number");
+  let attempts = await supabase.from("quiz_attempts").select("*").eq("quiz_id", quizId).eq("course_enrollment_id", enrollment.id).order("attempt_number");
   if (attempts.error) throw new LmsAdminDataError("Quiz attempt history could not be checked.");
+  const expiredActive = attempts.data?.find((attempt) => attempt.attempt_status === "in_progress" && attempt.expires_at && Date.parse(attempt.expires_at) <= now.valueOf());
+  if (expiredActive) {
+    await finalizeExpiredQuizAttempt(supabase, String(expiredActive.id), { actorLabel: "System" });
+    attempts = await supabase.from("quiz_attempts").select("*").eq("quiz_id", quizId).eq("course_enrollment_id", enrollment.id).order("attempt_number");
+    if (attempts.error) throw new LmsAdminDataError("Quiz attempt history could not be refreshed.");
+  }
   const active = attempts.data?.find((attempt) => attempt.attempt_status === "in_progress");
   if (active && (!active.expires_at || Date.parse(active.expires_at) > now.valueOf())) return active;
-  if ((attempts.data?.length ?? 0) >= Number(quiz.data.max_attempts)) invalid("The maximum number of quiz attempts has been reached.", 409);
-  const questions = await supabase.from("quiz_questions").select("points").eq("quiz_id", quizId);
+  const grants = await supabase.from("quiz_attempt_replacement_grants").select("*").eq("quiz_id", quizId).eq("course_enrollment_id", enrollment.id).eq("grant_status", "pending").order("granted_at").limit(1);
+  if (grants.error) throw new LmsAdminDataError("Replacement-attempt eligibility could not be checked.");
+  const replacementGrant = grants.data?.[0] ?? null;
+  if (!replacementGrant && normalQuizAttemptsUsed(attempts.data ?? []) >= Number(quiz.data.max_attempts)) invalid("The maximum number of quiz attempts has been reached.", 409);
+  const questions = await supabase.from("quiz_questions").select("id, question_type, options, points, sort_order").eq("quiz_id", quizId).order("sort_order");
   if (questions.error || !questions.data?.length) invalid("This quiz is not ready to start.", 409);
   const maxPoints = questions.data.reduce((sum, question) => sum + Number(question.points), 0);
-  const saved = await supabase.from("quiz_attempts").insert({ quiz_id: quizId, course_enrollment_id: enrollment.id, attempt_number: nextAttemptNumber(attempts.data ?? []), attempt_status: "in_progress", started_at: now.toISOString(), expires_at: quizExpiry(now, quiz.data.duration_minutes, quiz.data.closes_at), max_points: maxPoints }).select("*").single();
-  if (saved.error) throw new LmsAdminDataError("Quiz attempt could not be started.");
+  const order = createQuizAttemptOrderSnapshot(questions.data, { randomizeQuestionOrder: quiz.data.randomize_question_order === true, randomizeOptionOrder: quiz.data.randomize_option_order === true }, randomUnit);
+  const saved = await supabase.from("quiz_attempts").insert({ quiz_id: quizId, course_enrollment_id: enrollment.id, attempt_number: nextAttemptNumber(attempts.data ?? []), attempt_status: "in_progress", started_at: now.toISOString(), expires_at: quizExpiry(now, quiz.data.duration_minutes, quiz.data.closes_at), max_points: maxPoints, question_order: order.questionOrder, option_orders: order.optionOrders, official_result_eligible: true, replacement_for_attempt_id: replacementGrant?.original_attempt_id ?? null, replacement_status: replacementGrant ? "replacement" : "none" }).select("*").single();
+  if (saved.error) {
+    if (saved.error.code === "23505") {
+      const winner = await supabase.from("quiz_attempts").select("*").eq("quiz_id", quizId).eq("course_enrollment_id", enrollment.id).eq("attempt_status", "in_progress").maybeSingle();
+      if (!winner.error && winner.data) return winner.data;
+    }
+    throw new LmsAdminDataError("Quiz attempt could not be started.");
+  }
+  if (replacementGrant) {
+    const consumed = await supabase.from("quiz_attempt_replacement_grants").update({ grant_status: "consumed", replacement_attempt_id: saved.data.id, consumed_at: now.toISOString(), updated_at: now.toISOString() }).eq("id", replacementGrant.id).eq("grant_status", "pending");
+    if (consumed.error) throw new LmsAdminDataError("The replacement attempt was started, but its grant could not be finalised.");
+    await supabase.from("quiz_attempt_events").upsert({ quiz_attempt_id: saved.data.id, event_type: "replacement_attempt_started", event_key: "replacement-attempt-started", metadata: { original_attempt_id: replacementGrant.original_attempt_id }, actor_user_id: actor.actorUserId ?? null, actor_label: actor.actorLabel }, { onConflict: "quiz_attempt_id,event_key", ignoreDuplicates: true });
+  }
   await recordLmsAudit(supabase, { action: "quiz_attempt_started", entityType: "quiz_attempt", entityId: saved.data.id, actorUserId: actor.actorUserId, metadata: { quiz_id: quizId, attempt_number: saved.data.attempt_number } });
   return saved.data;
 }
@@ -352,7 +404,10 @@ export async function saveQuizAnswer(supabase: SupabaseClient, profileId: string
   for (const forbidden of ["is_correct", "awarded_points", "feedback", "graded_at", "graded_by"]) if (body[forbidden] !== undefined) invalid("Quiz grading fields are determined by REALMS on the server.");
   const { attempt, quiz } = await resolveOwnedAttempt(supabase, profileId, attemptId);
   if (attempt.attempt_status !== "in_progress") invalid("This quiz attempt is no longer active.", 409);
-  if (attempt.expires_at && Date.parse(String(attempt.expires_at)) <= Date.now()) invalid("The quiz timer has ended. Submit the answers already saved.", 409);
+  if (attempt.expires_at && Date.parse(String(attempt.expires_at)) <= Date.now()) {
+    await finalizeExpiredQuizAttempt(supabase, attemptId, { actorLabel: "System" });
+    invalid("The quiz timer ended and the answers saved before expiry were submitted automatically.", 409);
+  }
   const questionId = requiredText(body.question_id, "Choose a quiz question.", 80);
   const question = await supabase.from("quiz_questions").select("id, question_type").eq("id", questionId).eq("quiz_id", quiz.id).maybeSingle();
   if (question.error || !question.data) invalid("This question does not belong to the quiz.", 403);
@@ -364,7 +419,7 @@ export async function saveQuizAnswer(supabase: SupabaseClient, profileId: string
 }
 
 async function syncQuizRecordingEvidence(supabase: SupabaseClient, attempt: Row, quiz: Row, actor: AssessmentActor) {
-  if (attempt.attempt_status !== "graded" || attempt.passed !== true) return;
+  if (attempt.attempt_status !== "graded" || attempt.passed !== true || attempt.official_result_eligible === false) return;
   const requirements = await supabase.from("session_recording_requirements").select("class_session_id").eq("quiz_id", quiz.id);
   if (requirements.error) throw new LmsAdminDataError("Recorded-learning quiz links could not be checked.");
   const sessionIds = (requirements.data ?? []).map((item) => item.class_session_id); if (!sessionIds.length) return;
@@ -372,7 +427,7 @@ async function syncQuizRecordingEvidence(supabase: SupabaseClient, attempt: Row,
   if (linked.error) throw new LmsAdminDataError("Recorded-learning assignments could not be checked.");
   for (const recording of linked.data ?? []) {
     const now = new Date().toISOString();
-    const status = await supabase.from("recording_requirement_statuses").update({ requirement_status: "satisfied", evidence_source: "quiz_attempt", evidence_reference: String(attempt.id), completed_at: now, verified_at: now, verified_by: actorReference(actor), verification_note: "Passing BUILD 8 quiz attempt.", updated_at: now }).eq("recording_assignment_id", recording.id).eq("requirement_type", "quiz").eq("is_required", true).select("id");
+    const status = await supabase.from("recording_requirement_statuses").update({ requirement_status: "satisfied", evidence_source: "quiz_attempt", evidence_reference: String(attempt.id), completed_at: now, verified_at: now, verified_by: actorReference(actor), verification_note: "Passing quiz attempt.", updated_at: now }).eq("recording_assignment_id", recording.id).eq("requirement_type", "quiz").eq("is_required", true).select("id");
     if (status.error) throw new LmsAdminDataError("Recorded-learning quiz evidence could not be synchronized.");
     if (status.data?.length) {
       await recordLmsAudit(supabase, { action: "recording_quiz_requirement_completed", entityType: "recording_learning_assignment", entityId: recording.id, actorUserId: actor.actorUserId, metadata: { quiz_id: quiz.id, quiz_attempt_id: attempt.id } });
@@ -385,6 +440,9 @@ async function calculateQuizAttempt(supabase: SupabaseClient, attemptId: string,
   const attemptResult = await supabase.from("quiz_attempts").select("*, quizzes(*)").eq("id", attemptId).maybeSingle();
   if (attemptResult.error || !attemptResult.data) invalid("Quiz attempt not found.", 404);
   const attempt = attemptResult.data as Row; const quiz = relation(attempt.quizzes);
+  if (attempt.official_result_eligible === false || ["administratively_invalidated", "voided_for_replacement"].includes(String(attempt.attempt_status))) {
+    invalid("This attempt is not eligible for grading.", 409);
+  }
   const [questions, answers] = await Promise.all([
     supabase.from("quiz_questions").select("id, question_type, points, quiz_answer_keys(correct_answer)").eq("quiz_id", quiz.id),
     supabase.from("quiz_attempt_answers").select("*").eq("quiz_attempt_id", attemptId),
@@ -422,20 +480,202 @@ async function calculateQuizAttempt(supabase: SupabaseClient, attemptId: string,
   return saved.data;
 }
 
+async function finishAutomaticQuizAttempt(
+  supabase: SupabaseClient,
+  attempt: Row,
+  quiz: Row,
+  reason: "expired" | "visibility_policy",
+  actor: AssessmentActor,
+) {
+  const now = new Date().toISOString();
+  const eventType = reason === "expired" ? "expired_auto_submitted" : "visibility_policy_auto_submitted";
+  const values = {
+    attempt_status: "submitted",
+    submitted_at: now,
+    auto_submitted_at: now,
+    expiry_finalized_at: reason === "expired" ? now : null,
+    finalisation_reason: reason,
+    updated_at: now,
+  };
+  const claimed = await supabase.from("quiz_attempts").update(values).eq("id", attempt.id).eq("attempt_status", "in_progress").select("*").maybeSingle();
+  if (claimed.error) throw new LmsAdminDataError("The quiz attempt could not be finalised.");
+  if (!claimed.data) {
+    const current = await supabase.from("quiz_attempts").select("*").eq("id", attempt.id).maybeSingle();
+    if (current.error || !current.data) invalid("Quiz attempt not found.", 404);
+    if (current.data.attempt_status === "submitted" && current.data.finalisation_reason === reason) {
+      return calculateQuizAttempt(supabase, String(attempt.id), actor);
+    }
+    return current.data;
+  }
+  const event = await supabase.from("quiz_attempt_events").upsert({
+    quiz_attempt_id: attempt.id,
+    event_type: eventType,
+    event_key: eventType,
+    metadata: { quiz_id: quiz.id, saved_answers_preserved: true },
+    actor_user_id: actor.actorUserId ?? null,
+    actor_label: actor.actorLabel,
+  }, { onConflict: "quiz_attempt_id,event_key", ignoreDuplicates: true });
+  if (event.error) throw new LmsAdminDataError("The automatic-submission audit event could not be preserved.");
+  const graded = await calculateQuizAttempt(supabase, String(attempt.id), actor);
+  await recordLmsAudit(supabase, {
+    action: reason === "expired" ? "quiz_attempt_expired_auto_submitted" : "quiz_visibility_policy_auto_submitted",
+    entityType: "quiz_attempt",
+    entityId: String(attempt.id),
+    actorUserId: actor.actorUserId,
+    metadata: { quiz_id: quiz.id, finalisation_reason: reason, saved_answers_preserved: true },
+  });
+  return graded;
+}
+
+export async function finalizeExpiredQuizAttempt(supabase: SupabaseClient, attemptId: string, actor: AssessmentActor = { actorLabel: "System" }) {
+  const result = await supabase.from("quiz_attempts").select("*, quizzes(*)").eq("id", attemptId).maybeSingle();
+  if (result.error || !result.data) invalid("Quiz attempt not found.", 404);
+  const attempt = result.data as Row;
+  const quiz = relation(attempt.quizzes);
+  if (attempt.attempt_status === "submitted" && attempt.finalisation_reason === "expired") {
+    return calculateQuizAttempt(supabase, attemptId, actor);
+  }
+  if (attempt.attempt_status !== "in_progress") return attempt;
+  if (!attempt.expires_at || Date.parse(String(attempt.expires_at)) > Date.now()) invalid("This quiz attempt has not expired.", 409);
+  return finishAutomaticQuizAttempt(supabase, attempt, quiz, "expired", actor);
+}
+
+export async function finalizeExpiredQuizAttempts(supabase: SupabaseClient, limit = 100) {
+  const boundedLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+  const [expired, interrupted] = await Promise.all([
+    supabase
+      .from("quiz_attempts")
+      .select("id")
+      .eq("attempt_status", "in_progress")
+      .not("expires_at", "is", null)
+      .lte("expires_at", new Date().toISOString())
+      .order("expires_at")
+      .limit(boundedLimit),
+    supabase
+      .from("quiz_attempts")
+      .select("id, finalisation_reason, quizzes(*)")
+      .eq("attempt_status", "submitted")
+      .in("finalisation_reason", ["expired", "visibility_policy"])
+      .order("submitted_at")
+      .limit(boundedLimit),
+  ]);
+  if (expired.error || interrupted.error) throw new LmsAdminDataError("Expired quiz attempts could not be loaded.");
+  const finalized: string[] = [];
+  for (const attempt of expired.data ?? []) {
+    await finalizeExpiredQuizAttempt(supabase, String(attempt.id), { actorLabel: "System" });
+    finalized.push(String(attempt.id));
+  }
+  const recovered: string[] = [];
+  for (const attempt of interrupted.data ?? []) {
+    const quiz = relation(attempt.quizzes);
+    await finishAutomaticQuizAttempt(supabase, attempt as Row, quiz, attempt.finalisation_reason === "expired" ? "expired" : "visibility_policy", { actorLabel: "System" });
+    recovered.push(String(attempt.id));
+  }
+  return { finalized, recovered, count: finalized.length + recovered.length };
+}
+
 export async function submitQuizAttempt(supabase: SupabaseClient, profileId: string, attemptId: string, actor: AssessmentActor) {
   const { attempt, quiz } = await resolveOwnedAttempt(supabase, profileId, attemptId);
+  if (attempt.attempt_status === "submitted" && attempt.finalisation_reason === "student_submitted") {
+    return calculateQuizAttempt(supabase, attemptId, actor);
+  }
   if (attempt.attempt_status !== "in_progress") invalid("This quiz attempt has already been submitted.", 409);
+  if (attempt.expires_at && Date.parse(String(attempt.expires_at)) <= Date.now()) {
+    return finalizeExpiredQuizAttempt(supabase, attemptId, { actorLabel: "System" });
+  }
   const now = new Date().toISOString();
-  const submitted = await supabase.from("quiz_attempts").update({ attempt_status: "submitted", submitted_at: now, updated_at: now }).eq("id", attemptId).eq("attempt_status", "in_progress").select("id").single();
+  const submitted = await supabase.from("quiz_attempts").update({ attempt_status: "submitted", submitted_at: now, finalisation_reason: "student_submitted", updated_at: now }).eq("id", attemptId).eq("attempt_status", "in_progress").select("id").maybeSingle();
   if (submitted.error) throw new LmsAdminDataError("Quiz attempt could not be submitted.");
+  if (!submitted.data) invalid("This quiz attempt has already been submitted.", 409);
   await recordLmsAudit(supabase, { action: "quiz_attempt_submitted", entityType: "quiz_attempt", entityId: attemptId, actorUserId: actor.actorUserId, metadata: { quiz_id: quiz.id, expired: Boolean(attempt.expires_at && Date.parse(String(attempt.expires_at)) <= Date.now()) } });
   return calculateQuizAttempt(supabase, attemptId, actor);
 }
 
+export async function recordQuizAttemptVisibilityEvent(
+  supabase: SupabaseClient,
+  profileId: string,
+  attemptId: string,
+  body: Row,
+  actor: AssessmentActor,
+) {
+  const eventType = requiredText(body.event_type, "Choose a visibility event.", 40);
+  if (!["visibility_hidden", "visibility_returned"].includes(eventType)) invalid("Choose a valid visibility event.");
+  const eventId = requiredText(body.event_id, "A visibility event identifier is required.", 80);
+  if (!/^[a-zA-Z0-9_-]{8,80}$/.test(eventId)) invalid("The visibility event identifier is not valid.");
+  const { attempt, quiz } = await resolveOwnedAttempt(supabase, profileId, attemptId);
+  if (attempt.attempt_status !== "in_progress") return { active: false, warning: null, hiddenEventCount: Number(attempt.tab_exit_count ?? 0), flagged: false, autoSubmitted: false };
+  if (attempt.expires_at && Date.parse(String(attempt.expires_at)) <= Date.now()) {
+    await finalizeExpiredQuizAttempt(supabase, attemptId, { actorLabel: "System" });
+    return { active: false, warning: null, hiddenEventCount: Number(attempt.tab_exit_count ?? 0), flagged: false, autoSubmitted: true };
+  }
+  if (quiz.tab_monitoring_enabled !== true) return { active: true, warning: null, hiddenEventCount: Number(attempt.tab_exit_count ?? 0), flagged: false, autoSubmitted: false };
+  const inserted = await supabase.from("quiz_attempt_events").upsert({
+    quiz_attempt_id: attemptId,
+    event_type: eventType,
+    event_key: `${eventType}-${eventId}`,
+    metadata: { source: "document_visibility" },
+    actor_user_id: actor.actorUserId ?? null,
+    actor_label: actor.actorLabel,
+  }, { onConflict: "quiz_attempt_id,event_key", ignoreDuplicates: true });
+  if (inserted.error) throw new LmsAdminDataError("The quiz visibility event could not be recorded.");
+  const count = await supabase.from("quiz_attempt_events").select("id", { count: "exact", head: true }).eq("quiz_attempt_id", attemptId).eq("event_type", "visibility_hidden");
+  if (count.error) throw new LmsAdminDataError("Quiz visibility events could not be counted.");
+  const hiddenEventCount = count.count ?? 0;
+  const updated = await supabase.from("quiz_attempts").update({ tab_exit_count: hiddenEventCount, updated_at: new Date().toISOString() }).eq("id", attemptId).eq("attempt_status", "in_progress").lt("tab_exit_count", hiddenEventCount);
+  if (updated.error) throw new LmsAdminDataError("The quiz visibility count could not be updated.");
+  const outcome = tabPolicyOutcome({
+    hiddenEventCount,
+    monitoringEnabled: true,
+    warningThreshold: Number(quiz.tab_warning_threshold ?? defaultQuizTabPolicy.warningThreshold),
+    flagThreshold: Number(quiz.tab_flag_threshold ?? defaultQuizTabPolicy.flagThreshold),
+    autoSubmitThreshold: quiz.tab_auto_submit_threshold === null || quiz.tab_auto_submit_threshold === undefined ? null : Number(quiz.tab_auto_submit_threshold),
+  });
+  let flagged = false;
+  if (eventType === "visibility_hidden" && outcome.flag) {
+    const openedAt = new Date().toISOString();
+    const review = await supabase.from("quiz_attempts").update({
+      integrity_status: "under_review",
+      integrity_review_opened_at: openedAt,
+      integrity_review_opened_by: "Automatic visibility policy",
+      integrity_review_reason: `The assessment window was hidden ${hiddenEventCount} times. This is a factual event record for academic review.`,
+      integrity_resolved_at: null,
+      integrity_resolved_by: null,
+      integrity_decision: null,
+      integrity_resolution_reason: null,
+      updated_at: openedAt,
+    }).eq("id", attemptId).neq("integrity_status", "under_review").eq("official_result_eligible", true).select("id, course_enrollment_id").maybeSingle();
+    if (review.error) throw new LmsAdminDataError("The visibility review could not be opened.");
+    flagged = Boolean(review.data);
+    if (review.data) {
+      const reviewEvent = await supabase.from("quiz_attempt_events").upsert({
+        quiz_attempt_id: attemptId,
+        event_type: "integrity_review_opened",
+        event_key: `visibility-review-${hiddenEventCount}`,
+        metadata: { trigger: "visibility_threshold", hidden_event_count: hiddenEventCount },
+        actor_label: "System",
+      }, { onConflict: "quiz_attempt_id,event_key", ignoreDuplicates: true });
+      if (reviewEvent.error) throw new LmsAdminDataError("The visibility-review audit event could not be preserved.");
+      await recordLmsAudit(supabase, { action: "quiz_integrity_review_opened", entityType: "quiz_attempt", entityId: attemptId, actorUserId: actor.actorUserId, metadata: { reason: "Visibility threshold reached.", hidden_event_count: hiddenEventCount } });
+      await triggerEngagementEvaluationForCourseEnrollment(supabase, review.data.course_enrollment_id);
+    }
+  }
+  if (eventType === "visibility_hidden" && outcome.autoSubmit) {
+    await finishAutomaticQuizAttempt(supabase, attempt, quiz, "visibility_policy", { actorLabel: "System" });
+    return { active: false, warning: "This attempt was submitted under the assessment visibility policy.", hiddenEventCount, flagged: flagged || outcome.flag, autoSubmitted: true };
+  }
+  const warning = outcome.warning === "none"
+    ? null
+    : outcome.warning === "first"
+      ? "You left the assessment window. This event has been recorded. Please remain on this page until you finish the assessment."
+      : "Multiple exits from the assessment window have been recorded. Continued interruptions may cause this attempt to be referred for academic-integrity review.";
+  return { active: true, warning, hiddenEventCount, flagged: flagged || outcome.flag, autoSubmitted: false };
+}
+
 export async function gradeQuizAnswer(supabase: SupabaseClient, answerId: string, body: Row, actor: AssessmentActor) {
-  const answerResult = await supabase.from("quiz_attempt_answers").select("*, quiz_questions(id, quiz_id, question_type, points), quiz_attempts(id, attempt_status)").eq("id", answerId).maybeSingle();
+  const answerResult = await supabase.from("quiz_attempt_answers").select("*, quiz_questions(id, quiz_id, question_type, points), quiz_attempts(id, attempt_status, official_result_eligible)").eq("id", answerId).maybeSingle();
   if (answerResult.error || !answerResult.data) invalid("Quiz answer not found.", 404);
   const answer = answerResult.data as Row; const question = relation(answer.quiz_questions); const attempt = relation(answer.quiz_attempts);
+  if (attempt.official_result_eligible === false) invalid("This attempt is not eligible for grading.", 409);
   if (question.question_type !== "short_answer") invalid("Only short-answer questions require manual grading.");
   const points = numberValue(body.awarded_points, "Awarded points must be within the question maximum.", 0, Number(question.points));
   const changed = answer.awarded_points !== null && Number(answer.awarded_points) !== points; const reason = optionalText(body.change_reason, 2000);
@@ -454,13 +694,61 @@ export async function gradeQuizAnswer(supabase: SupabaseClient, answerId: string
 export async function flagAssessmentIntegrity(supabase: SupabaseClient, type: "assignment" | "quiz", recordId: string, body: Row, actor: AssessmentActor) {
   const reason = requiredText(body.reason, "A neutral academic-review reason is required.", 2000);
   const evidenceNote = optionalText(body.evidence_note, 5000);
-  const table = type === "assignment" ? "assignment_submissions" : "quiz_attempts";
-  const statusColumn = type === "assignment" ? "submission_status" : "attempt_status";
-  const saved = await supabase.from(table).update({ [statusColumn]: "under_integrity_review", updated_at: new Date().toISOString() }).eq("id", recordId).select("id, course_enrollment_id").single();
+  const now = new Date().toISOString();
+  const saved = type === "assignment"
+    ? await supabase.from("assignment_submissions").update({ submission_status: "under_integrity_review", updated_at: now }).eq("id", recordId).select("id, course_enrollment_id").single()
+    : await supabase.from("quiz_attempts").update({
+      integrity_status: "under_review",
+      integrity_review_opened_at: now,
+      integrity_review_opened_by: actorReference(actor),
+      integrity_review_reason: reason,
+      integrity_resolved_at: null,
+      integrity_resolved_by: null,
+      integrity_decision: null,
+      integrity_resolution_reason: null,
+      updated_at: now,
+    }).eq("id", recordId).eq("official_result_eligible", true).select("id, course_enrollment_id").single();
   if (saved.error) throw new LmsAdminDataError("Academic review could not be opened.");
+  if (type === "quiz") {
+    const event = await supabase.from("quiz_attempt_events").insert({
+      quiz_attempt_id: recordId,
+      event_type: "integrity_review_opened",
+      metadata: { reason, evidence_note: evidenceNote, source: "authorised_actor" },
+      actor_user_id: actor.actorUserId ?? null,
+      actor_label: actor.actorLabel,
+    });
+    if (event.error) throw new LmsAdminDataError("The academic-review audit event could not be preserved.");
+  }
   await recordLmsAudit(supabase, { action: type === "assignment" ? "assignment_integrity_review_opened" : "quiz_integrity_review_opened", entityType: type === "assignment" ? "assignment_submission" : "quiz_attempt", entityId: recordId, actorUserId: actor.actorUserId, metadata: { reason, evidence_note: evidenceNote, neutral_student_message: "Your assessment is currently under academic review. REALMS may contact you for clarification." } });
   await triggerEngagementEvaluationForCourseEnrollment(supabase, saved.data.course_enrollment_id);
   return saved.data;
+}
+
+export async function resolveQuizAttemptIntegrity(supabase: SupabaseClient, attemptId: string, body: Row, actor: AssessmentActor) {
+  const decision = requiredText(body.decision, "Choose an integrity-review outcome.", 60) as QuizIntegrityDecision;
+  if (!(quizIntegrityDecisions as readonly string[]).includes(decision) || decision === "replacement_granted") invalid("Choose a supported integrity-review outcome.");
+  const reason = requiredText(body.reason, "A documented integrity-review reason is required.", 2000);
+  if (reason.length < 10) invalid("Provide a specific integrity-review reason of at least 10 characters.");
+  const namedActor = actorReference(actor);
+  const result = await supabase.rpc("resolve_quiz_attempt_integrity", { p_attempt_id: attemptId, p_decision: decision, p_reason: reason, p_actor: namedActor });
+  if (result.error || !result.data?.[0]) throw new LmsAdminDataError(result.error?.message ?? "The integrity review could not be resolved.");
+  const saved = result.data[0] as Row;
+  await recordLmsAudit(supabase, { action: "quiz_integrity_review_resolved", entityType: "quiz_attempt", entityId: attemptId, actorUserId: actor.actorUserId, metadata: { decision, reason, decided_by: namedActor } });
+  await triggerEngagementEvaluationForCourseEnrollment(supabase, String(saved.course_enrollment_id));
+  return saved;
+}
+
+export async function grantQuizReplacementAttempt(supabase: SupabaseClient, attemptId: string, body: Row, actor: AssessmentActor) {
+  const reason = requiredText(body.reason, "A documented replacement-attempt reason is required.", 2000);
+  if (reason.length < 10) invalid("Provide a specific replacement-attempt reason of at least 10 characters.");
+  if (body.confirm_replacement !== true) invalid("Confirm that the original attempt will be excluded and one replacement attempt granted.", 409);
+  const namedActor = actorReference(actor);
+  const result = await supabase.rpc("grant_quiz_replacement_attempt", { p_attempt_id: attemptId, p_reason: reason, p_actor: namedActor });
+  if (result.error || !result.data?.[0]) throw new LmsAdminDataError(result.error?.message ?? "The replacement attempt could not be granted.");
+  const grant = result.data[0] as Row;
+  await recordLmsAudit(supabase, { action: "quiz_replacement_attempt_granted", entityType: "quiz_attempt", entityId: attemptId, actorUserId: actor.actorUserId, metadata: { replacement_grant_id: grant.id, reason, granted_by: namedActor } });
+  await triggerEngagementEvaluationForCourseEnrollment(supabase, String(grant.course_enrollment_id));
+  return grant;
 }
 
 export const build8DomainCategories = assessmentCategories;

@@ -74,12 +74,14 @@ export async function calculateStudentEngagementMetrics(supabase: SupabaseClient
 
   const assignments = (assignmentResult.data ?? []) as Row[];
   const quizzes = (quizResult.data ?? []) as Row[];
-  const [submissionResult, attemptResult] = await Promise.all([
+  const [submissionResult, attemptResult, replacementResult] = await Promise.all([
     assignments.length && courseEnrollmentIds.length ? supabase.from("assignment_submissions").select("id, assignment_id, course_enrollment_id, submission_status, submitted_at, review_outcome").in("assignment_id", assignments.map((row) => String(row.id))).in("course_enrollment_id", courseEnrollmentIds) : empty,
-    quizzes.length && courseEnrollmentIds.length ? supabase.from("quiz_attempts").select("id, quiz_id, course_enrollment_id, attempt_number, attempt_status, passed, graded_at").in("quiz_id", quizzes.map((row) => String(row.id))).in("course_enrollment_id", courseEnrollmentIds) : empty,
+    quizzes.length && courseEnrollmentIds.length ? supabase.from("quiz_attempts").select("id, quiz_id, course_enrollment_id, attempt_number, attempt_status, passed, graded_at, integrity_status, official_result_eligible, replacement_for_attempt_id").in("quiz_id", quizzes.map((row) => String(row.id))).in("course_enrollment_id", courseEnrollmentIds) : empty,
+    quizzes.length && courseEnrollmentIds.length ? supabase.from("quiz_attempt_replacement_grants").select("id, quiz_id, course_enrollment_id, grant_status").in("quiz_id", quizzes.map((row) => String(row.id))).in("course_enrollment_id", courseEnrollmentIds).eq("grant_status", "pending") : empty,
   ]);
   fail("Assignment engagement facts could not be loaded.", submissionResult.error);
   fail("Quiz engagement facts could not be loaded.", attemptResult.error);
+  fail("Quiz replacement-attempt facts could not be loaded.", replacementResult.error);
 
   const attendance = (attendanceResult.data ?? []) as Row[];
   const finalizedAttendance = attendance.filter((row) => Boolean(row.finalized_at) && row.attendance_status !== "pending");
@@ -106,17 +108,19 @@ export async function calculateStudentEngagementMetrics(supabase: SupabaseClient
   const missingAssignments = overdueAssignments.filter((assignment) => assignment.allow_late_submission === false);
   const resubmissionsRequired = new Set(submissions.filter((row) => row.review_outcome === "revision_required").map((row) => String(row.assignment_id))).size;
   const attempts = (attemptResult.data ?? []) as Row[];
-  const failedQuizAttempts = attempts.filter((row) => row.attempt_status === "graded" && row.passed === false).length;
+  const officialAttempts = attempts.filter((row) => row.official_result_eligible !== false);
+  const failedQuizAttempts = officialAttempts.filter((row) => row.attempt_status === "graded" && row.passed === false && row.integrity_status !== "under_review").length;
   const exhaustedQuizzes = quizzes.filter((quiz) => {
-    const quizAttempts = attempts.filter((attempt) => attempt.quiz_id === quiz.id);
-    if (quizAttempts.some((attempt) => attempt.passed === true) || quizAttempts.some(quizIsAwaitingManualReview)) return false;
-    return quizAttempts.filter((attempt) => attempt.attempt_status === "graded").length >= number(quiz.max_attempts);
+    const quizAttempts = officialAttempts.filter((attempt) => attempt.quiz_id === quiz.id);
+    const hasPendingReplacement = (replacementResult.data ?? []).some((grant) => grant.quiz_id === quiz.id);
+    if (hasPendingReplacement || quizAttempts.some((attempt) => attempt.passed === true) || quizAttempts.some((attempt) => attempt.attempt_status === "in_progress") || quizAttempts.some(quizIsAwaitingManualReview) || quizAttempts.some((attempt) => attempt.integrity_status === "under_review")) return false;
+    return quizAttempts.filter((attempt) => !attempt.replacement_for_attempt_id && attempt.attempt_status === "graded").length >= number(quiz.max_attempts);
   });
   const integritySources = [
     ...attendance.filter((row) => row.integrity_flag === true).map((row) => ({ type: "attendance", id: String(row.id) })),
     ...learning.filter((row) => row.completion_status === "integrity_review").map((row) => ({ type: "recording", id: String(row.id) })),
     ...submissions.filter((row) => row.submission_status === "under_integrity_review").map((row) => ({ type: "assignment", id: String(row.id) })),
-    ...attempts.filter((row) => row.attempt_status === "under_integrity_review").map((row) => ({ type: "quiz", id: String(row.id) })),
+    ...attempts.filter((row) => row.integrity_status === "under_review" && row.official_result_eligible !== false).map((row) => ({ type: "quiz", id: String(row.id) })),
   ];
   const lastMeaningfulActivityAt = text(studentEnrollment.last_meaningful_activity_at);
   const metrics: EngagementMetrics = {

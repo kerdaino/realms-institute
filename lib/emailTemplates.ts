@@ -62,6 +62,13 @@ export type EmailRegistration = {
   scholarship_decision_email_type?: string | null;
   scholarship_decision_email_error?: string | null;
   scholarship_decision_email_last_attempted_at?: string | null;
+  advanced_entry_applicant_message?: string | null;
+  advanced_entry_decision_email_sent?: boolean;
+  advanced_entry_decision_email_sent_at?: string | null;
+  advanced_entry_decision_email_type?: string | null;
+  advanced_entry_decision_email_error?: string | null;
+  advanced_entry_decision_email_last_attempted_at?: string | null;
+  advanced_entry_decision_email_last_attempt_type?: string | null;
   admission_email_sent?: boolean;
   admission_email_sent_at?: string | null;
 };
@@ -372,12 +379,76 @@ export function createAlumniVerificationOutcomeEmail(registration: EmailRegistra
 }
 
 export function createAdvancedEntryOutcomeEmail(registration: EmailRegistration, outcome: AdvancedEntryOutcome): EmailTemplate {
-  const content = {
-    advanced_approved: ["Advanced Entry Approved", "REALMS Institute has approved your entry into the Advanced Discipleship Programme. This route approval does not automatically mean admission."],
-    foundation_required: ["Foundational Route Required", "Following review, REALMS Institute has assigned the Foundational Discipleship Programme as your approved discipleship route. This route decision remains separate from admission."],
-    more_information_required: ["More Information Required for Advanced Entry", "REALMS Institute needs more information before confirming your approved discipleship route."],
-  }[outcome];
-  return outcomeTemplate(registration, content[0], content[1], [["Advanced Entry Outcome", humanize(outcome)]], "REALMS Institute Advanced Entry Update");
+  const decisionSeparation = "This decision concerns your discipleship route only. Admission remains subject to a separate review. It does not approve scholarship support or change any payment requirement.";
+  const commonDetails: Array<[string, string | number | null]> = [
+    ["Requested Route", requestedRoute(registration)],
+    ["Skill Pathway", registration.skill_pathway],
+    ["Learning Mode", registration.learning_mode],
+  ];
+
+  if (outcome === "advanced_approved") {
+    const details = [
+      ...commonDetails.slice(0, 1),
+      ["Approved Route", "Advanced Discipleship Programme"],
+      ...commonDetails.slice(1),
+    ] satisfies Array<[string, string | number | null]>;
+    const text = `Dear ${registration.full_name},
+
+Your advanced-entry screening has been reviewed. You have been approved for the Advanced Discipleship Programme.
+
+${textLines(details)}
+
+${decisionSeparation}
+
+Please continue watching your email for admission and other application updates.
+
+With joy in Christ,
+REALMS Institute`;
+    const html = layout("Advanced Entry Screening Decision", `<p>Dear ${escapeHtml(registration.full_name)},</p><p>Your advanced-entry screening has been reviewed. You have been approved for the <strong>Advanced Discipleship Programme</strong>.</p><table style="border-collapse:collapse;width:100%;margin:20px 0">${rows(details)}</table><div style="border-left:4px solid #d7aa45;background:#fff8e6;padding:16px;margin:20px 0"><p style="margin:0">${escapeHtml(decisionSeparation)}</p></div><p>Please continue watching your email for admission and other application updates.</p><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+    return { subject: "Your REALMS Advanced Entry Screening Decision", html, text };
+  }
+
+  if (outcome === "foundation_required") {
+    const details = [
+      ...commonDetails.slice(0, 1),
+      ["Assigned Route", "Foundational Discipleship Programme"],
+      ...commonDetails.slice(1),
+    ] satisfies Array<[string, string | number | null]>;
+    const text = `Dear ${registration.full_name},
+
+Your application to REALMS remains under consideration. Following review of your advanced-entry application and screening, your discipleship route for this cohort has been assigned to the Foundational Discipleship Programme.
+
+${textLines(details)}
+
+Your selected skill pathway remains unchanged unless REALMS communicates a separate change.
+
+${decisionSeparation}
+
+Please continue watching your email for admission and other application updates.
+
+With joy in Christ,
+REALMS Institute`;
+    const html = layout("Advanced Entry Screening Decision", `<p>Dear ${escapeHtml(registration.full_name)},</p><p>Your application to REALMS remains under consideration. Following review of your advanced-entry application and screening, your discipleship route for this cohort has been assigned to the <strong>Foundational Discipleship Programme</strong>.</p><table style="border-collapse:collapse;width:100%;margin:20px 0">${rows(details)}</table><p>Your selected skill pathway remains unchanged unless REALMS communicates a separate change.</p><div style="border-left:4px solid #d7aa45;background:#fff8e6;padding:16px;margin:20px 0"><p style="margin:0">${escapeHtml(decisionSeparation)}</p></div><p>Please continue watching your email for admission and other application updates.</p><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+    return { subject: "Your REALMS Advanced Entry Screening Decision", html, text };
+  }
+
+  const applicantMessage = registration.advanced_entry_applicant_message?.trim()
+    || "Please reply to this email with the additional information requested by the REALMS admissions team.";
+  const text = `Dear ${registration.full_name},
+
+Your advanced-entry screening has been reviewed. REALMS Institute needs more information before confirming your discipleship route.
+
+Requested information:
+${applicantMessage}
+
+${decisionSeparation}
+
+Please continue watching your email for admission and other application updates.
+
+With joy in Christ,
+REALMS Institute`;
+  const html = layout("More Information Required for Advanced Entry", `<p>Dear ${escapeHtml(registration.full_name)},</p><p>Your advanced-entry screening has been reviewed. REALMS Institute needs more information before confirming your discipleship route.</p><div style="border-left:4px solid #d7aa45;background:#fff8e6;padding:16px;margin:20px 0"><p style="margin:0 0 8px;font-weight:700">Requested information</p><p style="margin:0;white-space:pre-wrap">${escapeHtml(applicantMessage)}</p></div><p>${escapeHtml(decisionSeparation)}</p><p>Please continue watching your email for admission and other application updates.</p><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+  return { subject: "Your REALMS Advanced Entry Screening Decision", html, text };
 }
 
 export function createScholarshipOutcomeEmail(registration: EmailRegistration, outcome: ScholarshipOutcome): EmailTemplate {

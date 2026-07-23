@@ -245,7 +245,7 @@ async function loadStudentFacilitatorPresentations(supabase: SupabaseClient, off
   if (!offeringIds.length) return [] as Record<string, unknown>[];
   const result = await supabase.rpc("get_student_course_facilitators", { target_offering_ids: offeringIds });
   if (result.error?.code === "PGRST202" || result.error?.code === "42883") {
-    console.warn("Build 5 facilitator presentation migration is not active.");
+    console.warn("Facilitator presentation data is unavailable.");
     return [] as Record<string, unknown>[];
   }
   fail("course facilitator presentation lookup", result.error);

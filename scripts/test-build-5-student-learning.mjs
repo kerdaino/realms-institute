@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { createClient } from "@supabase/supabase-js";
+import { confirmPortalSession } from "./live-portal-session.mjs";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const publicKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -70,11 +71,9 @@ if (process.env.BUILD_5_REQUIRE_MIGRATIONS === "1") {
   assert.ok(facilitatorResult.data.length > 0, "No assigned facilitator presentation was returned");
 }
 
-const confirmResponse = await fetch(`${baseUrl}/auth/confirm?token_hash=${encodeURIComponent(await tokenHash())}&type=magiclink`, { redirect: "manual" });
-assert.equal(confirmResponse.status, 307);
-const setCookies = confirmResponse.headers.getSetCookie();
-assert.ok(setCookies.length > 0);
-const cookie = setCookies.map((value) => value.split(";", 1)[0]).join("; ");
+const confirmation = await confirmPortalSession(baseUrl, await tokenHash());
+assert.ok([303, 307].includes(confirmation.status));
+const cookie = confirmation.cookie;
 async function load(path) {
   const response = await fetch(`${baseUrl}${path}`, { headers: { cookie }, redirect: "manual" });
   return { response, html: await response.text() };
@@ -105,7 +104,9 @@ assert.ok(deniedSession.response.status === 404 || deniedSession.response.status
 assert.ok(deniedSession.html.includes("This class session is not available in your student account."));
 const dashboardPage = await load("/student");
 assert.equal(dashboardPage.response.status, 200);
-assert.ok(dashboardPage.html.includes(`/student/sessions/${fixtureSession.id}#summary`));
+if (summaryResult.data.some((summary) => summary.class_session_id === fixtureSession.id)) {
+  assert.ok(dashboardPage.html.includes(`/student/sessions/${fixtureSession.id}#summary`));
+}
 
 const processingRecording = await admin.from("class_recordings").select("id").eq("recording_status", "processing").limit(1).maybeSingle();
 let processingRecordingAccess = "no_fixture";

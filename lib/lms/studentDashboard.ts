@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Cohort, Profile, Student, StudentEnrollment } from "@/lib/lms/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { selectCurrentStudentEnrollment } from "@/lib/lms/currentEnrollment";
+import { deriveStudentLifecycle, type StudentLifecycle } from "@/lib/lms/studentLifecycle";
 
 const dashboardErrorMessage = "We could not load part of your learning dashboard right now. Please refresh the page or contact REALMS Institute if the issue continues.";
 
@@ -96,6 +97,7 @@ export type StudentDashboardData = {
   greeting: string;
   displayName: string;
   academicStatus: string;
+  lifecycle: StudentLifecycle;
   discipleshipCourses: StudentCourse[];
   skillCourses: StudentCourse[];
   sessions: StudentSession[];
@@ -140,23 +142,6 @@ function reportFailure(label: string, error: { code?: string; message?: string }
   if (!error) return;
   console.error(`Student dashboard ${label} failed`, { code: error.code, message: error.message });
   throw new StudentDashboardDataError();
-}
-
-function humanize(value: string | null | undefined) {
-  if (!value) return "Not available";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-export function studentAcademicStatus(studentStatus: string, enrollmentStatus?: string | null) {
-  const labels: Record<string, string> = {
-    pending_onboarding: "Pending Onboarding",
-    active: "Active Student",
-    deferred: "Deferred",
-    completed: "Programme Completed",
-  };
-  const studentLabel = labels[studentStatus] ?? humanize(studentStatus);
-  if (!enrollmentStatus || enrollmentStatus === studentStatus || enrollmentStatus === "active" || enrollmentStatus === "enrolled") return studentLabel;
-  return `${studentLabel} · ${humanize(enrollmentStatus)}`;
 }
 
 function greetingForNow(now: Date) {
@@ -222,6 +207,19 @@ async function loadStudentDashboardData(profileId: string, options: LoadOptions 
   const profile = profileResult.data as DashboardProfile | null;
   const student = studentResult.data as DashboardStudent | null;
   const displayName = profile?.preferred_name || student?.preferred_name || profile?.full_name?.split(/\s+/)[0] || student?.legal_name.split(/\s+/)[0] || "Student";
+  const lifecycle = student
+    ? deriveStudentLifecycle({
+      studentStatus: student.student_status,
+      onboardingStatus: student.onboarding_status,
+      orientationCompletedAt: student.orientation_completed_at,
+      matriculatedAt: student.matriculated_at,
+      portalAccountStatus: profile?.account_status,
+    })
+    : deriveStudentLifecycle({
+      studentStatus: "pending_onboarding",
+      onboardingStatus: "not_started",
+      portalAccountStatus: profile?.account_status,
+    });
   const base: StudentDashboardData = {
     profile,
     student,
@@ -229,7 +227,8 @@ async function loadStudentDashboardData(profileId: string, options: LoadOptions 
     cohort: null,
     greeting: greetingForNow(now),
     displayName,
-    academicStatus: student ? studentAcademicStatus(student.student_status) : "Activation Pending",
+    academicStatus: student ? lifecycle.academicStatus : "Activation Pending",
+    lifecycle,
     discipleshipCourses: [],
     skillCourses: [],
     sessions: [],
@@ -246,7 +245,15 @@ async function loadStudentDashboardData(profileId: string, options: LoadOptions 
   reportFailure("enrollment lookup", enrollmentResult.error);
   const enrollment = enrollmentResult.data as DashboardEnrollment | null;
   base.enrollment = enrollment;
-  base.academicStatus = studentAcademicStatus(student.student_status, enrollment?.enrolment_status);
+  base.lifecycle = deriveStudentLifecycle({
+    studentStatus: student.student_status,
+    enrollmentStatus: enrollment?.enrolment_status,
+    onboardingStatus: student.onboarding_status,
+    orientationCompletedAt: student.orientation_completed_at,
+    matriculatedAt: student.matriculated_at,
+    portalAccountStatus: profile?.account_status,
+  });
+  base.academicStatus = base.lifecycle.academicStatus;
   if (!enrollment) return base;
 
   const [cohortResult, courseEnrollmentResult] = await Promise.all([

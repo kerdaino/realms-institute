@@ -45,7 +45,7 @@ export async function fetchAdminResults(supabase: SupabaseClient, filters: Resul
     supabase.from("capstone_defences").select("student_enrollment_id, defence_status, defence_outcome").limit(5000),
     supabase.from("cohorts").select("id, code, name, status").order("start_date", { ascending: false, nullsFirst: false }),
   ]);
-  [enrollments, results, categories, components, trackers, engagement, defences, cohorts].forEach((result) => failed(result.error, "Results dashboard could not be loaded. Apply the Build 11 security migration and try again."));
+  [enrollments, results, categories, components, trackers, engagement, defences, cohorts].forEach((result) => failed(result.error, "Results dashboard could not be loaded. Please contact a REALMS administrator."));
   const resultByEnrollment = new Map((results.data ?? []).map((row) => [row.student_enrollment_id, row]));
   const componentsByEnrollment = new Map<string, Row[]>(); for (const row of components.data ?? []) componentsByEnrollment.set(row.student_enrollment_id, [...(componentsByEnrollment.get(row.student_enrollment_id) ?? []), object(row)]);
   const trackersByEnrollment = new Map<string, Row[]>(); for (const row of trackers.data ?? []) trackersByEnrollment.set(row.student_enrollment_id, [...(trackersByEnrollment.get(row.student_enrollment_id) ?? []), object(row)]);
@@ -148,27 +148,27 @@ export async function fetchStudentGraduationTracker(supabase: SupabaseClient, pr
   if (!student.data) throw new LmsAdminDataError("Student record not found.", 404);
   const enrollment = await selectCurrentStudentEnrollment<{ id: string; cohort_id: string }>(supabase, student.data.id, "id, cohort_id"); failed(enrollment.error, "Student enrolment could not be loaded.");
   if (!enrollment.data) throw new LmsAdminDataError("Student enrolment not found.", 404);
-  const policy = await supabase.from("programme_scoring_policies").select("id").eq("cohort_id", enrollment.data.cohort_id).eq("policy_status", "active").maybeSingle(); failed(policy.error, "Programme completion policy could not be loaded.");
-  if (!policy.data) return { enrollment: enrollment.data, rows: [] };
+  const policy = await supabase.from("programme_scoring_policies").select("id, overall_pass_points, discipleship_max_points, discipleship_gate_points, skill_max_points, skill_gate_points, engagement_max_points, engagement_gate_points").eq("cohort_id", enrollment.data.cohort_id).eq("policy_status", "active").maybeSingle(); failed(policy.error, "Programme completion policy could not be loaded.");
+  if (!policy.data) return { enrollment: enrollment.data, policy: null, rows: [] };
   const [definitions, tracker] = await Promise.all([
     supabase.from("graduation_requirement_definitions").select("id, requirement_code, requirement_name, requirement_description, threshold_value, sequence_number").eq("scoring_policy_id", policy.data.id).eq("active", true).order("sequence_number"),
     supabase.from("student_graduation_requirements").select("requirement_definition_id, requirement_status, current_value, required_value, evidence_summary, evaluated_at").eq("student_enrollment_id", enrollment.data.id),
   ]);
   [definitions, tracker].forEach((query) => failed(query.error, "Programme completion tracker could not be loaded."));
   const byDefinition = new Map((tracker.data ?? []).map((row) => [row.requirement_definition_id, row]));
-  return { enrollment: enrollment.data, rows: (definitions.data ?? []).map((definition) => ({ definition, tracker: byDefinition.get(definition.id) ?? { requirement_status: "pending", current_value: null, required_value: definition.threshold_value, evidence_summary: "This requirement has not yet been formally evaluated.", evaluated_at: null } })) };
+  return { enrollment: enrollment.data, policy: policy.data, rows: (definitions.data ?? []).map((definition) => ({ definition, tracker: byDefinition.get(definition.id) ?? { requirement_status: "pending", current_value: null, required_value: definition.threshold_value, evidence_summary: "This requirement has not yet been formally assessed.", evaluated_at: null } })) };
 }
 
 export async function fetchFacilitatorGradebook(supabase: SupabaseClient, offeringIds: string[]) {
   if (!offeringIds.length) return { rows: [], capstones: [], engagement: [] };
   const [assignments, quizzes] = await Promise.all([
     supabase.from("assignments").select("id, title, cohort_course_id, assessment_category, assignment_submissions(id, attempt_number, submission_status, score_percentage, review_outcome, course_enrollments(student_enrollment_id, student_enrollments(students(student_number, legal_name, preferred_name))))").in("cohort_course_id", offeringIds),
-    supabase.from("quizzes").select("id, title, cohort_course_id, assessment_category, quiz_attempts(id, attempt_number, attempt_status, score_percentage, course_enrollments(student_enrollment_id, student_enrollments(students(student_number, legal_name, preferred_name))))").in("cohort_course_id", offeringIds),
+    supabase.from("quizzes").select("id, title, cohort_course_id, assessment_category, quiz_attempts(id, attempt_number, attempt_status, score_percentage, integrity_status, official_result_eligible, replacement_for_attempt_id, course_enrollments(student_enrollment_id, student_enrollments(students(student_number, legal_name, preferred_name))))").in("cohort_course_id", offeringIds),
   ]);
   [assignments, quizzes].forEach((query) => failed(query.error, "Assigned-course gradebook could not be loaded."));
   const rows = [
     ...(assignments.data ?? []).flatMap((assignment) => (assignment.assignment_submissions ?? []).map((submission) => ({ kind: "Assignment", assessmentId: assignment.id, assessment: assignment.title, category: assignment.assessment_category, recordId: submission.id, status: submission.submission_status, score: submission.score_percentage, reviewStatus: submission.review_outcome, attemptNumber: submission.attempt_number, studentEnrollmentId: relation(submission.course_enrollments).student_enrollment_id, student: relation(relation(submission.course_enrollments).student_enrollments).students }))),
-    ...(quizzes.data ?? []).flatMap((quiz) => (quiz.quiz_attempts ?? []).map((attempt) => ({ kind: "Quiz", assessmentId: quiz.id, assessment: quiz.title, category: quiz.assessment_category, recordId: attempt.id, status: attempt.attempt_status, score: attempt.score_percentage, reviewStatus: attempt.attempt_status, attemptNumber: attempt.attempt_number, studentEnrollmentId: relation(attempt.course_enrollments).student_enrollment_id, student: relation(relation(attempt.course_enrollments).student_enrollments).students }))),
+    ...(quizzes.data ?? []).flatMap((quiz) => (quiz.quiz_attempts ?? []).map((attempt) => ({ kind: "Quiz", assessmentId: quiz.id, assessment: quiz.title, category: quiz.assessment_category, recordId: attempt.id, status: attempt.attempt_status, score: attempt.official_result_eligible === false ? null : attempt.score_percentage, reviewStatus: attempt.official_result_eligible === false ? "excluded" : attempt.integrity_status === "under_review" ? "under_integrity_review" : attempt.attempt_status, attemptNumber: attempt.attempt_number, studentEnrollmentId: relation(attempt.course_enrollments).student_enrollment_id, student: relation(relation(attempt.course_enrollments).student_enrollments).students }))),
   ];
   const enrollmentIds = [...new Set(rows.map((row) => String(row.studentEnrollmentId)).filter(Boolean))];
   const engagement = enrollmentIds.length ? await supabase.from("student_engagement_component_evaluations").select("*, programme_score_categories(category_code, category_name, max_points)").in("student_enrollment_id", enrollmentIds).in("evaluation_status", ["pending", "evaluated"]) : { data: [], error: null };

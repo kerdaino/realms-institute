@@ -5,7 +5,7 @@ import { getCurrentUser, getCurrentUserRoles } from "@/lib/lms/auth";
 import { ensureRevisionAssignmentForRecording } from "@/lib/lms/recordingService";
 import { getStudentRecordingTarget, StudentLearningDataError } from "@/lib/lms/studentLearning";
 
-// Legacy recording links share this dynamic segment with Build 7 assignment
+// Legacy recording links share this dynamic segment with recorded-learning assignment
 // actions. For GET requests the identifier remains a class_recording id.
 export async function GET(request: Request, { params }: { params: Promise<{ assignmentId: string }> }) {
   const user = await getCurrentUser();

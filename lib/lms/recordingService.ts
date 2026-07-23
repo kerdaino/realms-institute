@@ -72,7 +72,7 @@ async function createAssignmentParts(supabase: SupabaseClient, input: {
     const dueAt = input.assignmentDueAt !== undefined ? input.assignmentDueAt : input.purpose === "REV" ? null : new Date(Date.parse(availableAt) + input.requirements.deadlineHours * 60 * 60 * 1000).toISOString();
     const inserted = await supabase.from("recording_learning_assignments").insert({ course_enrollment_id: input.courseEnrollmentId, class_session_id: input.sessionId, class_recording_id: recordingId, purpose_code: input.purpose, assignment_status: "assigned", available_at: availableAt, due_at: dueAt, requirement_snapshot: input.requirements }).select("*").single();
     if (inserted.error) {
-      if (inserted.error.code === "PGRST204" || inserted.error.message?.includes("requirement_snapshot")) throw new LmsAdminDataError("Apply the updated Build 7 recorded-learning migration before initializing assignments.", 503);
+      if (inserted.error.code === "PGRST204" || inserted.error.message?.includes("requirement_snapshot")) throw new LmsAdminDataError("Recorded-learning assignments are temporarily unavailable. Please contact a REALMS administrator.", 503);
       if (inserted.error.code !== "23505") throw new LmsAdminDataError("Recorded-learning assignment could not be created.");
       const raced = await supabase.from("recording_learning_assignments").select("*").eq("course_enrollment_id", input.courseEnrollmentId).eq("class_recording_id", recordingId).eq("purpose_code", input.purpose).single();
       if (raced.error) throw new LmsAdminDataError("Recorded-learning assignment could not be loaded after initialization.");
@@ -80,7 +80,7 @@ async function createAssignmentParts(supabase: SupabaseClient, input: {
     } else { assignment = inserted.data; created = true; }
   }
   const progress = await supabase.from("recording_progress").upsert({ recording_assignment_id: assignment.id, progress_status: "not_started", unique_watched_seconds: 0, watch_percentage: 0, watch_requirement_met: false, checkpoint_requirement_met: false, playback_session_count: 0, integrity_status: "clear" }, { onConflict: "recording_assignment_id", ignoreDuplicates: true });
-  if (progress.error) throw new LmsAdminDataError("Recording progress could not be initialized.");
+  if (progress.error) throw new LmsAdminDataError("Recording progress could not be prepared.");
   const required: Record<RecordingRequirementType, boolean> = {
     watch: input.purpose !== "REV",
     checkpoints: input.requirements.requiresCheckpoints,
@@ -91,9 +91,9 @@ async function createAssignmentParts(supabase: SupabaseClient, input: {
   };
   const statuses = recordingRequirementTypes.map((type) => ({ recording_assignment_id: assignment.id, requirement_type: type, is_required: required[type], requirement_status: required[type] ? "pending" : "not_required" }));
   const requirements = await supabase.from("recording_requirement_statuses").upsert(statuses, { onConflict: "recording_assignment_id,requirement_type", ignoreDuplicates: true });
-  if (requirements.error) throw new LmsAdminDataError("Recorded-learning requirement statuses could not be initialized.");
+  if (requirements.error) throw new LmsAdminDataError("Recorded-learning requirements could not be prepared.");
   const completion = await supabase.from("session_learning_completion").upsert({ course_enrollment_id: input.courseEnrollmentId, class_session_id: input.sessionId, completion_status: "not_started" }, { onConflict: "course_enrollment_id,class_session_id", ignoreDuplicates: true });
-  if (completion.error) throw new LmsAdminDataError("The separate learning-completion record could not be initialized.");
+  if (completion.error) throw new LmsAdminDataError("Learning-completion status could not be prepared.");
   return { assignment, created };
 }
 

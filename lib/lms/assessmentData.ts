@@ -5,6 +5,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { LmsAdminDataError } from "@/lib/lms/adminData";
 import { humanizeAssessment } from "@/lib/lms/assessment";
 import { resolveStudentCourseEnrollment } from "@/lib/lms/assessmentService";
+import {
+  applyQuizAttemptOrder,
+  isOfficialQuizAttempt,
+  normalQuizAttemptsUsed,
+  quizAnswerReviewEligibility,
+} from "@/lib/lms/quizIntegrity";
 
 type Row = Record<string, unknown>;
 export function assessmentClock() { return Date.now(); }
@@ -78,14 +84,33 @@ export async function fetchAdminQuizzes(supabase: SupabaseClient, filters: Asses
 export async function fetchQuizDetail(supabase: SupabaseClient, quizId: string, includeKeys = true) {
   const quiz = await supabase.from("quizzes").select("*, cohort_courses(id, cohort_id, course_id, cohorts(id, code, name), courses(id, code, title, course_category)), class_sessions(id, title)").eq("id", quizId).maybeSingle();
   fail("Quiz could not be loaded.", quiz.error); if (!quiz.data) throw new LmsAdminDataError("Quiz not found.", 404);
-  const questionSelect = includeKeys ? "*, quiz_answer_keys(*)" : "id, quiz_id, question_type, prompt, options, points, sort_order, is_required";
+  const questionSelect = includeKeys ? "*, quiz_answer_keys(id, question_id)" : "id, quiz_id, question_type, prompt, options, points, sort_order, is_required";
   const [questions, attempts, changes] = await Promise.all([
     supabase.from("quiz_questions").select(questionSelect).eq("quiz_id", quizId).order("sort_order"),
     supabase.from("quiz_attempts").select("*, course_enrollments(id, student_enrollments(id, students(id, student_number, legal_name, preferred_name))), quiz_attempt_answers(*, quiz_questions(id, prompt, question_type, points))").eq("quiz_id", quizId).order("started_at", { ascending: false }),
     supabase.from("assessment_grade_change_events").select("*").eq("assessment_type", "quiz").eq("assessment_id", quizId).order("created_at", { ascending: false }),
   ]);
   fail("Quiz questions could not be loaded.", questions.error); fail("Quiz attempts could not be loaded.", attempts.error); fail("Quiz grade history could not be loaded.", changes.error);
-  return { quiz: quiz.data, questions: (questions.data ?? []) as unknown as Row[], attempts: attempts.data ?? [], gradeChanges: changes.data ?? [] };
+  const attemptIds = (attempts.data ?? []).map((attempt) => attempt.id);
+  const [events, decisions, replacementGrants] = attemptIds.length ? await Promise.all([
+    supabase.from("quiz_attempt_events").select("*").in("quiz_attempt_id", attemptIds).order("occurred_at", { ascending: false }),
+    supabase.from("quiz_attempt_integrity_decisions").select("*").in("quiz_attempt_id", attemptIds).order("decided_at", { ascending: false }),
+    supabase.from("quiz_attempt_replacement_grants").select("*").eq("quiz_id", quizId).order("granted_at", { ascending: false }),
+  ]) : [
+    { data: [], error: null },
+    { data: [], error: null },
+    { data: [], error: null },
+  ];
+  fail("Quiz attempt events could not be loaded.", events.error);
+  fail("Quiz integrity decisions could not be loaded.", decisions.error);
+  fail("Quiz replacement grants could not be loaded.", replacementGrants.error);
+  const enrichedAttempts = (attempts.data ?? []).map((attempt) => ({
+    ...attempt,
+    integrity_events: (events.data ?? []).filter((event) => event.quiz_attempt_id === attempt.id),
+    integrity_decisions: (decisions.data ?? []).filter((decision) => decision.quiz_attempt_id === attempt.id),
+    replacement_grants: (replacementGrants.data ?? []).filter((grant) => grant.original_attempt_id === attempt.id || grant.replacement_attempt_id === attempt.id),
+  }));
+  return { quiz: quiz.data, questions: (questions.data ?? []) as unknown as Row[], attempts: enrichedAttempts, gradeChanges: changes.data ?? [] };
 }
 
 async function studentIdentity(supabase: SupabaseClient, profileId: string) {
@@ -125,34 +150,94 @@ export async function fetchStudentQuizzes(supabase: SupabaseClient, profileId: s
   const quizzes = await supabase.from("quizzes").select("*, cohort_courses(id, courses(id, code, title), cohorts(id, code, name))").in("cohort_course_id", offeringIds).eq("quiz_status", "published").order("opens_at", { ascending: true, nullsFirst: false });
   fail("Student quizzes could not be loaded.", quizzes.error);
   const quizIds = (quizzes.data ?? []).map((item) => item.id); const enrollmentIds = identity.enrollments.map((item) => item.id);
-  const attempts = quizIds.length ? await supabase.from("quiz_attempts").select("id, quiz_id, course_enrollment_id, attempt_number, attempt_status, started_at, expires_at, submitted_at, score_percentage, passed").in("quiz_id", quizIds).in("course_enrollment_id", enrollmentIds).order("attempt_number", { ascending: false }) : { data: [], error: null };
+  const [attempts, replacementGrants] = quizIds.length ? await Promise.all([
+    supabase.from("quiz_attempts").select("id, quiz_id, course_enrollment_id, attempt_number, attempt_status, started_at, expires_at, submitted_at, auto_submitted_at, finalisation_reason, score_percentage, passed, integrity_status, integrity_decision, official_result_eligible, replacement_for_attempt_id, replacement_status").in("quiz_id", quizIds).in("course_enrollment_id", enrollmentIds).order("attempt_number", { ascending: false }),
+    supabase.from("quiz_attempt_replacement_grants").select("id, quiz_id, course_enrollment_id, original_attempt_id, grant_status").in("quiz_id", quizIds).in("course_enrollment_id", enrollmentIds).eq("grant_status", "pending"),
+  ]) : [{ data: [], error: null }, { data: [], error: null }];
   fail("Student quiz attempts could not be loaded.", attempts.error);
-  return (quizzes.data ?? []).map((quiz) => ({ ...quiz, attempts: (attempts.data ?? []).filter((attempt) => attempt.quiz_id === quiz.id), latest_attempt: (attempts.data ?? []).find((attempt) => attempt.quiz_id === quiz.id) ?? null }));
+  fail("Student replacement-attempt eligibility could not be loaded.", replacementGrants.error);
+  return (quizzes.data ?? []).map((quiz) => {
+    const quizAttempts = (attempts.data ?? []).filter((attempt) => attempt.quiz_id === quiz.id);
+    const pendingReplacement = (replacementGrants.data ?? []).find((grant) => grant.quiz_id === quiz.id) ?? null;
+    return {
+      ...quiz,
+      attempts: quizAttempts,
+      latest_attempt: quizAttempts[0] ?? null,
+      normal_attempts_used: normalQuizAttemptsUsed(quizAttempts),
+      pending_replacement: pendingReplacement,
+      attempts_remaining: Math.max(0, Number(quiz.max_attempts) - normalQuizAttemptsUsed(quizAttempts)) + (pendingReplacement ? 1 : 0),
+    };
+  });
 }
 
 export async function fetchStudentQuiz(supabase: SupabaseClient, profileId: string, quizId: string) {
   const quiz = await supabase.from("quizzes").select("*, cohort_courses(id, courses(id, code, title), cohorts(id, code, name)), class_sessions(id, title)").eq("id", quizId).eq("quiz_status", "published").maybeSingle();
   fail("Student quiz could not be loaded.", quiz.error); if (!quiz.data) throw new LmsAdminDataError("This quiz is not available.", 404);
   const enrollment = await resolveStudentCourseEnrollment(supabase, profileId, quiz.data.cohort_course_id);
-  const [questions, attempts] = await Promise.all([
-    supabase.from("quiz_questions").select("id, question_type, prompt, options, points, sort_order, is_required").eq("quiz_id", quizId).order("sort_order"),
-    supabase.from("quiz_attempts").select("id, attempt_number, attempt_status, started_at, expires_at, submitted_at, total_score_points, max_points, score_percentage, passed, graded_at").eq("quiz_id", quizId).eq("course_enrollment_id", enrollment.id).order("attempt_number", { ascending: false }),
+  const [attempts, replacementGrants] = await Promise.all([
+    supabase.from("quiz_attempts").select("id, attempt_number, attempt_status, started_at, expires_at, submitted_at, auto_submitted_at, expiry_finalized_at, finalisation_reason, total_score_points, max_points, score_percentage, passed, graded_at, question_order, option_orders, tab_exit_count, integrity_status, integrity_review_opened_at, integrity_decision, integrity_resolved_at, official_result_eligible, replacement_for_attempt_id, replacement_status").eq("quiz_id", quizId).eq("course_enrollment_id", enrollment.id).order("attempt_number", { ascending: false }),
+    supabase.from("quiz_attempt_replacement_grants").select("id, original_attempt_id, replacement_attempt_id, grant_status, granted_at").eq("quiz_id", quizId).eq("course_enrollment_id", enrollment.id).eq("grant_status", "pending"),
   ]);
-  fail("Quiz questions could not be loaded.", questions.error); fail("Your quiz attempts could not be loaded.", attempts.error);
-  const active = attempts.data?.find((attempt) => attempt.attempt_status === "in_progress") ?? null;
+  fail("Your quiz attempts could not be loaded.", attempts.error);
+  fail("Your replacement-attempt eligibility could not be loaded.", replacementGrants.error);
+  const now = assessmentClock();
+  const allAttempts = attempts.data ?? [];
+  const active = allAttempts.find((attempt) => attempt.attempt_status === "in_progress" && (!attempt.expires_at || Date.parse(attempt.expires_at) > now)) ?? null;
+  const hasPendingReplacement = Boolean(replacementGrants.data?.length);
+  const withinWindow = (!quiz.data.opens_at || Date.parse(quiz.data.opens_at) <= now) && (!quiz.data.closes_at || Date.parse(quiz.data.closes_at) > now);
+  const review = quizAnswerReviewEligibility({
+    permitsReview: quiz.data.show_correct_answers === true,
+    reviewableAt: quiz.data.answers_reviewable_at,
+    now: new Date(now),
+    hasActiveAttempt: Boolean(active),
+    hasAttemptUnderReview: allAttempts.some((attempt) => attempt.integrity_status === "under_review"),
+    hasPendingReplacement,
+    hasAvailableNormalAttempt: withinWindow && normalQuizAttemptsUsed(allAttempts) < Number(quiz.data.max_attempts),
+    hasCompletedOfficialAttempt: allAttempts.some((attempt) => attempt.attempt_status === "graded" && isOfficialQuizAttempt(attempt)),
+  });
+  let questions: Row[] = [];
+  if (active || review.eligible) {
+    const result = await supabase.from("quiz_questions").select("id, question_type, prompt, options, points, sort_order, is_required").eq("quiz_id", quizId).order("sort_order");
+    fail("Quiz questions could not be loaded.", result.error);
+    questions = (result.data ?? []) as unknown as Row[];
+  }
+  if (active) {
+    questions = applyQuizAttemptOrder(questions as Array<Row & { id: string; question_type: string; options?: readonly unknown[] | null }>, {
+      questionOrder: Array.isArray(active.question_order) ? active.question_order.map(String) : [],
+      optionOrders: object(active.option_orders) as Record<string, number[]>,
+    });
+  }
   let answers: Row[] = [];
   if (active) {
     const result = await supabase.from("quiz_attempt_answers").select("id, question_id, submitted_answer, updated_at").eq("quiz_attempt_id", active.id);
     fail("Saved quiz answers could not be loaded.", result.error); answers = (result.data ?? []) as Row[];
   }
   let correctAnswers: Row[] = [];
-  const answerReviewWindow = (attempts.data?.length ?? 0) >= Number(quiz.data.max_attempts) || Boolean(quiz.data.closes_at && Date.parse(quiz.data.closes_at) <= assessmentClock());
-  if (quiz.data.show_correct_answers && answerReviewWindow && !active && attempts.data?.some((attempt) => attempt.attempt_status === "graded")) {
-    const keys = await supabase.from("quiz_answer_keys").select("question_id, correct_answer").in("question_id", (questions.data ?? []).filter((question) => question.question_type !== "short_answer").map((question) => question.id));
+  if (review.eligible) {
+    const reviewAttempt = allAttempts.find((attempt) => attempt.attempt_status === "graded" && isOfficialQuizAttempt(attempt));
+    if (reviewAttempt) {
+      questions = applyQuizAttemptOrder(questions as Array<Row & { id: string; question_type: string; options?: readonly unknown[] | null }>, {
+        questionOrder: Array.isArray(reviewAttempt.question_order) ? reviewAttempt.question_order.map(String) : [],
+        optionOrders: object(reviewAttempt.option_orders) as Record<string, number[]>,
+      });
+    }
+    const keys = await supabase.from("quiz_answer_keys").select("question_id, correct_answer").in("question_id", questions.filter((question) => question.question_type !== "short_answer").map((question) => String(question.id)));
     fail("Permitted quiz answer review could not be loaded.", keys.error); correctAnswers = (keys.data ?? []) as Row[];
   }
-  const safeAttempts = (attempts.data ?? []).map((attempt) => quiz.data.show_score_after_submission ? attempt : { ...attempt, total_score_points: null, max_points: null, score_percentage: null, passed: null });
-  return { quiz: quiz.data, questions: questions.data ?? [], attempts: safeAttempts, activeAttempt: active, answers, correctAnswers, enrollment };
+  const safeAttempts = allAttempts.map((attempt) => quiz.data.show_score_after_submission ? attempt : { ...attempt, total_score_points: null, max_points: null, score_percentage: null, passed: null });
+  return {
+    quiz: quiz.data,
+    questions,
+    attempts: safeAttempts,
+    activeAttempt: active,
+    answers,
+    correctAnswers,
+    enrollment,
+    answerReview: review,
+    pendingReplacement: replacementGrants.data?.[0] ?? null,
+    normalAttemptsUsed: normalQuizAttemptsUsed(allAttempts),
+    canStart: withinWindow && (normalQuizAttemptsUsed(allAttempts) < Number(quiz.data.max_attempts) || hasPendingReplacement),
+  };
 }
 
 export async function fetchAssessmentOverview(supabase: SupabaseClient) {

@@ -20,6 +20,7 @@ import {
   type GraduationRequirementStatus,
   type WeightedAssessmentEvidence,
 } from "@/lib/lms/results";
+import { isOfficialQuizAttempt } from "@/lib/lms/quizIntegrity";
 
 type Row = Record<string, unknown>;
 export type ResultActor = { actorUserId?: string | null; actorLabel: string };
@@ -107,7 +108,7 @@ export async function saveAssessmentWeighting(supabase: SupabaseClient, body: Ro
   const saved = existing.data
     ? await supabase.from("assessment_weightings").update(values).eq("id", existing.data.id).select("*").single()
     : await supabase.from("assessment_weightings").insert(values).select("*").single();
-  queryFailed(saved.error, "Assessment weighting could not be saved. Apply the Build 11 security migration and try again.");
+  queryFailed(saved.error, "Assessment weighting could not be saved. Please contact a REALMS administrator.");
   await recordLmsAudit(supabase, { action: existing.data ? "assessment_weighting_updated" : "assessment_weighting_added", entityType: "assessment_weighting", entityId: String(saved.data.id), actorUserId: actor.actorUserId, metadata: { assessment_type: assessmentType, assessment_id: assessmentId, score_category_id: scoreCategoryId, metadata_conflict_reviewed: metadataConflict, conflict_reason: conflictReason } });
   return saved.data;
 }
@@ -122,9 +123,9 @@ async function loadAttempts(supabase: SupabaseClient, assessment: Row, enrollmen
     queryFailed(attempts.error, "Assignment evidence could not be loaded.");
     return (attempts.data ?? []).map((row) => ({ id: row.id, attemptNumber: Number(row.attempt_number), status: String(row.submission_status), scorePercentage: row.score_percentage === null ? null : Number(row.score_percentage), gradedAt: row.graded_at, accepted: row.review_outcome === "accepted" }));
   }
-  const attempts = await supabase.from("quiz_attempts").select("id, attempt_number, attempt_status, score_percentage, graded_at").eq("quiz_id", String(assessment.id)).eq("course_enrollment_id", courseEnrollment.data.id).order("attempt_number");
+  const attempts = await supabase.from("quiz_attempts").select("id, attempt_number, attempt_status, score_percentage, graded_at, integrity_status, official_result_eligible").eq("quiz_id", String(assessment.id)).eq("course_enrollment_id", courseEnrollment.data.id).order("attempt_number");
   queryFailed(attempts.error, "Quiz evidence could not be loaded.");
-  return (attempts.data ?? []).map((row) => ({ id: row.id, attemptNumber: Number(row.attempt_number), status: String(row.attempt_status), scorePercentage: row.score_percentage === null ? null : Number(row.score_percentage), gradedAt: row.graded_at, accepted: true }));
+  return (attempts.data ?? []).map((row) => ({ id: row.id, attemptNumber: Number(row.attempt_number), status: row.integrity_status === "under_review" ? "integrity_review" : String(row.attempt_status), scorePercentage: row.score_percentage === null ? null : Number(row.score_percentage), gradedAt: row.graded_at, accepted: isOfficialQuizAttempt(row) }));
 }
 
 async function saveComponentScore(supabase: SupabaseClient, input: {
@@ -151,7 +152,7 @@ async function saveComponentScore(supabase: SupabaseClient, input: {
     updated_at: new Date().toISOString(),
   };
   const saved = await supabase.from("student_component_scores").upsert(values, { onConflict: "student_enrollment_id,score_category_id" }).select("*").single();
-  queryFailed(saved.error, "Component score could not be saved. Apply the Build 11 security migration and try again.");
+  queryFailed(saved.error, "Component score could not be saved. Please contact a REALMS administrator.");
   return saved.data;
 }
 
@@ -240,7 +241,7 @@ async function engagementSuggestionEvidence(supabase: SupabaseClient, studentEnr
     supabase.from("makeup_requirements").select("makeup_status, due_at").in("course_enrollment_id", ids),
     supabase.from("student_recovery_plans").select("id, plan_status").eq("student_enrollment_id", studentEnrollmentId),
     supabase.from("assignment_submissions").select("id").in("course_enrollment_id", ids).eq("submission_status", "under_integrity_review"),
-    supabase.from("quiz_attempts").select("id").in("course_enrollment_id", ids).eq("attempt_status", "under_integrity_review"),
+    supabase.from("quiz_attempts").select("id").in("course_enrollment_id", ids).eq("integrity_status", "under_review").eq("official_result_eligible", true),
   ]);
   [attendance, submissions, recordings, makeups, plans, assignmentReviews, quizReviews].forEach((result) => queryFailed(result.error, "Engagement evidence could not be prepared."));
   const expected = (attendance.data ?? []).reduce((sum, row) => sum + Number(row.engagement_checks_expected ?? 0), 0);
@@ -276,7 +277,7 @@ export async function initialiseEngagementEvaluations(supabase: SupabaseClient, 
   });
   if (rows.length) {
     const saved = await supabase.from("student_engagement_component_evaluations").upsert(rows, { onConflict: "student_enrollment_id,score_category_id", ignoreDuplicates: true });
-    queryFailed(saved.error, "Engagement evaluation rows could not be prepared. Apply the Build 11 security migration and try again.");
+    queryFailed(saved.error, "Engagement evaluation records could not be prepared. Please contact a REALMS administrator.");
   }
   return rows.length;
 }
@@ -308,7 +309,7 @@ export async function updateEngagementEvaluation(supabase: SupabaseClient, evalu
     auditAction = "engagement_component_moderated";
   } else invalid("Choose evaluate, moderate, or approve.");
   const saved = await supabase.from("student_engagement_component_evaluations").update(values).eq("id", evaluationId).select("*").single();
-  queryFailed(saved.error, "Engagement evaluation could not be saved. Apply the Build 11 security migration and try again.");
+  queryFailed(saved.error, "Engagement evaluation could not be saved. Please contact a REALMS administrator.");
   await recordLmsAudit(supabase, { action: auditAction, entityType: "engagement_component_evaluation", entityId: evaluationId, actorUserId: actor.actorUserId, metadata: { review_action: action, reviewer, category_code: category.category_code, points_before: current.data.awarded_points, points_after: saved.data.awarded_points } });
   return saved.data;
 }
@@ -341,7 +342,7 @@ export async function saveCapstoneDefence(supabase: SupabaseClient, body: Row, a
   if (["scheduled", "completed"].includes(defenceStatus) && !panel.length) invalid("Record the defence panel members.");
   const values = { student_enrollment_id: studentEnrollmentId, capstone_assignment_id: assignmentId, assignment_submission_id: submissionId, scheduled_at: scheduledAt, completed_at: defenceStatus === "completed" ? timestamp(body.completed_at) ?? new Date().toISOString() : null, defence_status: defenceStatus, defence_outcome: outcome, panel_members: panel, defence_note: defenceStatus === "completed" ? requiredText(body.defence_note, "Record an academic note for the completed defence.", 15, 5000) : text(body.defence_note), recorded_by: actorReference(actor), updated_at: new Date().toISOString() };
   const saved = await supabase.from("capstone_defences").upsert(values, { onConflict: "student_enrollment_id,capstone_assignment_id" }).select("*").single();
-  queryFailed(saved.error, "Capstone defence could not be saved. Apply the Build 11 security migration and try again.");
+  queryFailed(saved.error, "Capstone defence could not be saved. Please contact a REALMS administrator.");
   await recordLmsAudit(supabase, { action: defenceStatus === "completed" ? "capstone_defence_completed" : "capstone_defence_scheduled", entityType: "capstone_defence", entityId: String(saved.data.id), actorUserId: actor.actorUserId, metadata: { student_enrollment_id: studentEnrollmentId, capstone_assignment_id: assignmentId, defence_status: defenceStatus, defence_outcome: outcome } });
   return saved.data;
 }
@@ -405,7 +406,7 @@ async function integrityCompliance(supabase: SupabaseClient, enrollment: Row) {
   const recordings = ids.length ? await supabase.from("recording_learning_assignments").select("id, recording_progress(integrity_status)").in("course_enrollment_id", ids) : { data: [], error: null };
   const [assignmentReviews, quizReviews, cases] = await Promise.all([
     ids.length ? supabase.from("assignment_submissions").select("id").in("course_enrollment_id", ids).eq("submission_status", "under_integrity_review") : Promise.resolve({ data: [], error: null }),
-    ids.length ? supabase.from("quiz_attempts").select("id").in("course_enrollment_id", ids).eq("attempt_status", "under_integrity_review") : Promise.resolve({ data: [], error: null }),
+    ids.length ? supabase.from("quiz_attempts").select("id").in("course_enrollment_id", ids).eq("integrity_status", "under_review").eq("official_result_eligible", true) : Promise.resolve({ data: [], error: null }),
     supabase.from("student_status_review_cases").select("id, case_title, concern_summary, case_status").eq("student_enrollment_id", String(enrollment.id)).neq("case_status", "closed"),
   ]);
   if (recordings.error || assignmentReviews.error || quizReviews.error || cases.error) return { status: "under_review" as GraduationRequirementStatus, summary: "Integrity and conduct records could not be fully evaluated.", evidence: {} };
@@ -451,7 +452,7 @@ export async function evaluateStudentGraduationRequirements(supabase: SupabaseCl
     else assessment = { status: "pending", summary: "This requirement needs an evaluator.", evidence: {} };
     const values = { student_enrollment_id: studentEnrollmentId, requirement_definition_id: definition.id, requirement_status: assessment.status, current_value: assessment.current ?? null, required_value: assessment.required ?? definition.threshold_value ?? null, evidence_summary: assessment.summary, evidence_snapshot: assessment.evidence, evaluated_at: new Date().toISOString(), evaluated_by: actorReference(actor), manually_overridden: false, override_reason: null, override_by: null, updated_at: new Date().toISOString() };
     const saved = await supabase.from("student_graduation_requirements").upsert(values, { onConflict: "student_enrollment_id,requirement_definition_id" }).select("*").single();
-    queryFailed(saved.error, "Graduation tracker could not be saved. Apply the Build 11 security migration and try again.");
+    queryFailed(saved.error, "Completion tracker could not be saved. Please contact a REALMS administrator.");
     evaluated.push(saved.data);
   }
   await recordLmsAudit(supabase, { action: "graduation_requirements_evaluated", entityType: "student_enrollment", entityId: studentEnrollmentId, actorUserId: actor.actorUserId, metadata: { requirement_count: evaluated.length, met_count: evaluated.filter((row) => ["met", "waived", "not_applicable"].includes(String(row.requirement_status))).length } });
@@ -517,7 +518,7 @@ export async function calculateStudentProgrammeResult(supabase: SupabaseClient, 
     queryFailed(event.error, "Previous programme result state could not be preserved.");
     saved = await supabase.from("student_programme_results").update(values).eq("id", existing.data.id).select("*").single();
   } else saved = await supabase.from("student_programme_results").insert(values).select("*").single();
-  queryFailed(saved.error, "Programme result could not be saved. Apply the Build 11 security migration and try again.");
+  queryFailed(saved.error, "Programme result could not be saved. Please contact a REALMS administrator.");
   await recordLmsAudit(supabase, { action: existing.data ? "student_result_recalculated" : "student_result_calculated", entityType: "student_programme_result", entityId: String(saved.data.id), actorUserId: actor.actorUserId, metadata: { student_enrollment_id: studentEnrollmentId, calculation_version: version, result_status: status, result_outcome: eligibility.outcome, material_change: changed } });
   return saved.data;
 }

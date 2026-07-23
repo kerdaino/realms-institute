@@ -135,7 +135,7 @@ export async function ensureSessionAttendanceRoster(supabase: SupabaseClient, se
     supabase.from("session_attendance").upsert(attendanceRows, { onConflict: "course_enrollment_id,class_session_id", ignoreDuplicates: true }).select("id"),
     supabase.from("session_learning_completion").upsert(completionRows, { onConflict: "course_enrollment_id,class_session_id", ignoreDuplicates: true }).select("id"),
   ]);
-  if (attendanceResult.error || completionResult.error) throw new LmsAdminDataError("Attendance roster could not be initialized. Apply the Build 6 attendance migration and try again.");
+  if (attendanceResult.error || completionResult.error) throw new LmsAdminDataError("Attendance records could not be prepared. Please contact a REALMS administrator.");
   const created = attendanceResult.data?.length ?? 0;
   if (makeupByEnrollment.size) {
     const roster = await supabase.from("session_attendance").select("id, course_enrollment_id").eq("class_session_id", sessionId).in("course_enrollment_id", enrollmentIds);
@@ -160,7 +160,7 @@ export async function fetchSessionAttendance(supabase: SupabaseClient, sessionId
     supabase.from("class_sessions").select("id, title, is_required, delivery_mode, scheduled_start_at, scheduled_end_at, session_status, cohort_courses(id, cohorts(id, code, name), courses(id, code, title, course_category))").eq("id", sessionId).maybeSingle(),
     supabase.from("session_attendance").select("*, course_enrollments(id, delivery_route, student_enrollments(id, students(id, student_number, legal_name, preferred_name)))").eq("class_session_id", sessionId).order("created_at"),
   ]);
-  if (session.error || attendance.error) throw new LmsAdminDataError("Session attendance could not be loaded. Apply the Build 6 attendance migration and try again.");
+  if (session.error || attendance.error) throw new LmsAdminDataError("Session attendance could not be loaded. Please contact a REALMS administrator.");
   if (!session.data) throw new LmsAdminDataError("Class session not found.", 404);
   const attendanceIds = (attendance.data ?? []).map((row) => row.id);
   if (!attendanceIds.length) return { session: session.data, attendance: [], engagementChecks: [], changes: [] };
@@ -300,7 +300,7 @@ export type AttendanceDashboardFilters = { cohort?: string; course?: string; ses
 
 export async function fetchAttendanceDashboard(supabase: SupabaseClient, filters: AttendanceDashboardFilters = {}) {
   const result = await supabase.from("session_attendance").select("*, class_sessions(id, title, facilitator_id, scheduled_start_at, cohort_courses(id, cohorts(id, code, name), courses(id, code, title))), course_enrollments(id, delivery_route, student_enrollments(students(id, student_number, legal_name, preferred_name)))").order("created_at", { ascending: false }).limit(5000);
-  if (result.error) throw new LmsAdminDataError("Attendance dashboard could not be loaded. Apply the Build 6 attendance migration and try again.");
+  if (result.error) throw new LmsAdminDataError("Attendance dashboard could not be loaded. Please contact a REALMS administrator.");
   const search = filters.student?.trim().toLowerCase();
   const from = filters.from && /^\d{4}-\d{2}-\d{2}$/.test(filters.from) ? Date.parse(`${filters.from}T00:00:00Z`) : null;
   const to = filters.to && /^\d{4}-\d{2}-\d{2}$/.test(filters.to) ? Date.parse(`${filters.to}T23:59:59Z`) : null;

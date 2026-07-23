@@ -37,7 +37,7 @@ export default async function StudentHandbookOnboardingPage() {
           </div>
         ) : (
           <>
-            {!state.storageAvailable ? <p className="mt-7 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">Handbook acknowledgement setup is pending. You can read or download the handbook now, but acknowledgement cannot yet be recorded. Please contact REALMS Institute.</p> : null}
+            {!state.storageAvailable ? <p className="mt-7 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">Handbook acknowledgement is temporarily unavailable. You can read or download the handbook now. Please contact REALMS Institute for assistance.</p> : null}
             <HandbookAcknowledgementForm acknowledgementText={document.acknowledgementText} disabled={!state.storageAvailable} />
           </>
         )}

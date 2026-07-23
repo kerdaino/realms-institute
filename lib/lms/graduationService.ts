@@ -214,7 +214,7 @@ export async function convertConfirmedGraduateToAlumni(supabase: SupabaseClient,
   }
   const existingEvent = await supabase.from("alumni_conversion_events").select("id").eq("student_enrollment_id", String(enrollment.id)).eq("event_type", "converted").maybeSingle();
   if (!existingEvent.data) {
-    const event = await supabase.from("alumni_conversion_events").insert({ alumni_id: alumni.id, alumni_programme_record_id: programme.id, student_enrollment_id: enrollment.id, event_type: "converted", previous_state: { student_status: student.student_status, enrolment_status: enrollment.enrolment_status }, new_state: { alumni_status: alumni.alumni_status, enrolment_status: "completed" }, reason: "Approved graduation converted through the controlled Build 12 workflow.", converted_by: actorReference(actor) });
+    const event = await supabase.from("alumni_conversion_events").insert({ alumni_id: alumni.id, alumni_programme_record_id: programme.id, student_enrollment_id: enrollment.id, event_type: "converted", previous_state: { student_status: student.student_status, enrolment_status: enrollment.enrolment_status }, new_state: { alumni_status: alumni.alumni_status, enrolment_status: "completed" }, reason: "Approved completion converted through the controlled alumni workflow.", converted_by: actorReference(actor) });
     fail(event.error, "Alumni conversion history could not be saved.");
   }
   await initializeAlumniLearningArchive(supabase, String(programme.id), actor);

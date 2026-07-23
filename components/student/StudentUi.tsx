@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { institutionalValueLabel } from "@/lib/lms/presentation";
+
 export function PageHeading({ eyebrow, title, description }: { eyebrow: string; title: string; description?: string }) {
   return <header className="mb-8"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">{eyebrow}</p><h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#071327] md:text-4xl">{title}</h1>{description ? <p className="mt-3 max-w-3xl leading-7 text-slate-600">{description}</p> : null}</header>;
 }
@@ -31,7 +33,5 @@ export function formatStudentTime(value: string | null | undefined) {
 }
 
 export function humanizeStudentValue(value: string | null | undefined) {
-  if (!value) return "Not available";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return institutionalValueLabel(value);
 }
-

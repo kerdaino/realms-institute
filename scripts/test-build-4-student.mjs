@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { createClient } from "@supabase/supabase-js";
+import { confirmPortalSession } from "./live-portal-session.mjs";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const publicKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -26,7 +27,7 @@ if (verified.error || !verified.data.session) throw new Error(`Student test sign
 
 const [roleResult, ownStudentResult] = await Promise.all([
   authClient.from("user_roles").select("roles(name)").eq("user_id", fixture.profile_id),
-  authClient.from("students").select("id, profile_id, student_number, student_status, onboarding_status").eq("profile_id", fixture.profile_id),
+  authClient.from("students").select("id, profile_id, student_number, student_status, onboarding_status, orientation_completed_at, matriculated_at").eq("profile_id", fixture.profile_id),
 ]);
 assert.equal(roleResult.error, null);
 assert.equal(ownStudentResult.error, null);
@@ -77,12 +78,14 @@ const otherStudentResult = await authClient.from("students").select("id").eq("id
 assert.equal(otherStudentResult.error, null);
 assert.equal(otherStudentResult.data.length, 0);
 
-const confirmResponse = await fetch(`${baseUrl}/auth/confirm?token_hash=${encodeURIComponent(await createTokenHash())}&type=magiclink`, { redirect: "manual" });
-assert.equal(confirmResponse.status, 307);
-const setCookies = confirmResponse.headers.getSetCookie();
-assert.ok(setCookies.length > 0);
-const cookie = setCookies.map((value) => value.split(";", 1)[0]).join("; ");
+const confirmation = await confirmPortalSession(baseUrl, await createTokenHash());
+assert.ok([303, 307].includes(confirmation.status));
+const cookie = confirmation.cookie;
 const pageResults = {};
+const completedLifecycleFixture = ownStudentResult.data[0].student_status === "active"
+  && ownStudentResult.data[0].onboarding_status === "completed"
+  && Boolean(ownStudentResult.data[0].orientation_completed_at)
+  && Boolean(ownStudentResult.data[0].matriculated_at);
 for (const path of ["/student", "/student/courses", "/student/calendar", "/student/resources", "/student/profile"]) {
   const response = await fetch(`${baseUrl}${path}`, { headers: { cookie }, redirect: "manual" });
   const html = await response.text();
@@ -94,10 +97,17 @@ for (const path of ["/student", "/student/courses", "/student/calendar", "/stude
     assert.ok(html.includes(routePrefix === "RSD-DIS" ? "Foundational Discipleship Programme" : "Advanced Discipleship Programme"));
     assert.ok(html.includes(skillPrefix === "RSD-WEB" ? "Web Development" : "Cybersecurity Foundations"));
   }
+  if (completedLifecycleFixture && ["/student", "/student/profile"].includes(path)) {
+    assert.ok(html.includes("Active Student"));
+    assert.equal(html.includes("Active Student · Pending Onboarding"), false);
+    assert.equal(html.includes("Active Student · Onboarding Pending"), false);
+  }
+  if (completedLifecycleFixture && path === "/student") assert.ok(html.includes("Overall onboarding: Completed"));
 }
 
 console.log(JSON.stringify({
   authenticatedStudent: true,
+  completedLifecycleStatusVerified: completedLifecycleFixture,
   ownStudentRows: ownStudentResult.data.length,
   route: enrollmentResult.data.discipleship_route,
   skillPathway: enrollmentResult.data.skill_pathway,

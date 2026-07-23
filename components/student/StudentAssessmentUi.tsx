@@ -1,6 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { humanizeAssessment } from "@/lib/lms/assessment";
 import { assessmentFileAccept } from "@/lib/lms/privateFilePolicy";
 import { submitPrivateFileForm } from "@/components/student/privateUpload";
@@ -9,11 +8,54 @@ type Row = Record<string, unknown>;
 export function AssignmentSubmissionForm({ assignmentId, requirements, canSubmit, isResubmission }: { assignmentId: string; requirements: Row; canSubmit: boolean; isResubmission: boolean }) { const [busy, setBusy] = useState(false); const [message, setMessage] = useState(""); const [selected, setSelected] = useState(""); const [progress, setProgress] = useState<number | null>(null); if (!canSubmit) return null; async function submit(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setMessage(""); try { await submitPrivateFileForm(`/api/student/assignments/${assignmentId}/${isResubmission ? "resubmit" : "submit"}`, new FormData(event.currentTarget), setProgress); setMessage("Your submission and private attachment were received and are awaiting review."); window.location.reload(); } catch (error) { setMessage(error instanceof Error ? error.message : "Your submission could not be saved."); setBusy(false); } }
   return <form onSubmit={submit} className="grid gap-4">{message ? <p role="status" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-950">{message}</p> : null}<label className="text-sm font-medium">Written response{requirements.text_response_required ? " (required)" : ""}<textarea name="response_text" required={Boolean(requirements.text_response_required)} rows={8} className="field" /></label>{requirements.repository_url_required ? <label className="text-sm font-medium">GitHub repository URL (required)<input name="repository_url" type="url" required placeholder="https://github.com/..." className="field" /></label> : null}{requirements.deployment_url_required ? <label className="text-sm font-medium">Deployed project URL (required)<input name="deployment_url" type="url" required placeholder="https://..." className="field" /></label> : null}{requirements.external_url_allowed ? <label className="text-sm font-medium">Additional HTTPS evidence URL<input name="external_url" type="url" placeholder="https://..." className="field" /></label> : null}{requirements.file_upload_allowed ? <label className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium">Private assessment file<input name="attachment" type="file" accept={assessmentFileAccept} onChange={(event) => setSelected(event.target.files?.[0]?.name ?? "")} className="mt-2 block w-full text-sm" /><span className="mt-2 block text-xs font-normal text-slate-600">PDF, DOCX, text, JPG, PNG, WebP; ZIP only for project or capstone work. Standard limit 15 MB; project/capstone limit 50 MB.</span>{selected ? <span className="mt-2 block font-semibold text-[#071327]">Selected: {selected}</span> : null}</label> : <p className="text-xs leading-5 text-slate-500">This assignment accepts the response and links configured above; private file upload was not enabled by the assignment author.</p>}{busy ? <p role="status" className="text-sm font-semibold text-amber-800">{progress === null ? "Uploading securely…" : `Uploading securely… ${progress}%`}</p> : null}<button disabled={busy} className="rounded-xl bg-[#0b315c] px-5 py-3 font-semibold text-white disabled:opacity-50">{isResubmission ? "Submit revision" : "Submit assignment"}</button></form>; }
 
-export function QuizPlayer({ quizId, quiz, questions, activeAttempt, savedAnswers }: { quizId: string; quiz: Row; questions: Row[]; activeAttempt: Row | null; savedAnswers: Row[] }) { const [busy, setBusy] = useState(false); const [message, setMessage] = useState(""); const [remaining, setRemaining] = useState(() => activeAttempt?.expires_at ? Math.max(0, Date.parse(String(activeAttempt.expires_at)) - Date.now()) : null); useEffect(() => { if (remaining === null) return; const timer = window.setInterval(() => setRemaining(activeAttempt?.expires_at ? Math.max(0, Date.parse(String(activeAttempt.expires_at)) - Date.now()) : null), 1000); return () => window.clearInterval(timer); }, [activeAttempt?.expires_at, remaining]); const saved = useMemo(() => new Map(savedAnswers.map((answer) => [String(answer.question_id), answer.submitted_answer])), [savedAnswers]);
+export function QuizPlayer({ quizId, quiz, questions, activeAttempt, savedAnswers }: { quizId: string; quiz: Row; questions: Row[]; activeAttempt: Row | null; savedAnswers: Row[] }) { const [busy, setBusy] = useState(false); const [message, setMessage] = useState(""); const [remaining, setRemaining] = useState(() => activeAttempt?.expires_at ? Math.max(0, Date.parse(String(activeAttempt.expires_at)) - Date.now()) : null); const finalising = useRef(false); useEffect(() => { if (!activeAttempt?.expires_at) return; const update = () => setRemaining(Math.max(0, Date.parse(String(activeAttempt.expires_at)) - Date.now())); update(); const timer = window.setInterval(update, 1000); return () => window.clearInterval(timer); }, [activeAttempt?.expires_at]); const saved = useMemo(() => new Map(savedAnswers.map((answer) => [String(answer.question_id), answer.submitted_answer])), [savedAnswers]);
   async function start() { setBusy(true); const response = await fetch(`/api/student/quizzes/${quizId}/start`, { method: "POST" }); const data = await response.json(); setBusy(false); if (!response.ok) return setMessage(data.message || "Quiz could not be started."); window.location.reload(); }
   async function save(questionId: string, submittedAnswer: unknown) { if (!activeAttempt) return; setBusy(true); const response = await fetch(`/api/student/quiz-attempts/${String(activeAttempt.id)}/answer`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question_id: questionId, submitted_answer: submittedAnswer }) }); const data = await response.json(); setBusy(false); setMessage(response.ok ? "Answer saved." : data.message || "Answer could not be saved."); }
   async function finish() { if (!activeAttempt) return; setBusy(true); const response = await fetch(`/api/student/quiz-attempts/${String(activeAttempt.id)}/submit`, { method: "POST" }); const data = await response.json(); setBusy(false); if (!response.ok) return setMessage(data.message || "Quiz could not be submitted."); window.location.reload(); }
+  useEffect(() => {
+    if (!activeAttempt || quiz.tab_monitoring_enabled !== true) return;
+    const sendVisibilityEvent = async (eventType: "visibility_hidden" | "visibility_returned") => {
+      try {
+        const response = await fetch(`/api/student/quiz-attempts/${String(activeAttempt.id)}/events`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ event_type: eventType, event_id: crypto.randomUUID() }),
+          keepalive: true,
+        });
+        const data = await response.json();
+        if (data.warning) setMessage(String(data.warning));
+        if (data.autoSubmitted) window.location.reload();
+      } catch {
+        // Assessment submission and timing remain server-controlled even if telemetry delivery is interrupted.
+      }
+    };
+    const handleVisibility = () => void sendVisibilityEvent(document.hidden ? "visibility_hidden" : "visibility_returned");
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [activeAttempt, quiz.tab_monitoring_enabled]);
+  useEffect(() => {
+    if (!activeAttempt || remaining !== 0 || finalising.current) return;
+    finalising.current = true;
+    setMessage("Time has ended. Your saved answers are being submitted automatically.");
+    setBusy(true);
+    void fetch(`/api/student/quiz-attempts/${String(activeAttempt.id)}/submit`, { method: "POST" })
+      .then(async (response) => ({ response, data: await response.json() }))
+      .then(({ response, data }) => {
+        if (!response.ok) {
+          finalising.current = false;
+          setBusy(false);
+          setMessage(data.message || "The timed attempt could not be finalised. Please retry.");
+          return;
+        }
+        window.location.reload();
+      })
+      .catch(() => {
+        finalising.current = false;
+        setBusy(false);
+        setMessage("The timed attempt could not be finalised. The server expiry process will continue to protect your saved answers.");
+      });
+  }, [activeAttempt, remaining]);
   if (!activeAttempt) return <div>{message ? <p role="status" className="mb-3 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">{message}</p> : null}<button disabled={busy} onClick={() => void start()} className="rounded-xl bg-[#0b315c] px-5 py-3 font-semibold text-white">Start quiz</button></div>;
-  return <div className="space-y-5">{message ? <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-950">{message}</p> : null}<div className="sticky top-3 z-10 rounded-xl bg-[#071327] p-4 text-white"><strong>Attempt {String(activeAttempt.attempt_number)}</strong><span className="float-right font-mono">{remaining === null ? "Untimed" : `${Math.floor(remaining / 60_000)}:${String(Math.floor((remaining % 60_000) / 1000)).padStart(2, "0")}`}</span><p className="mt-1 text-xs text-white/70">The timer is based on the server-created expiry and will not restart after refresh.</p></div>{questions.map((question, index) => <Question key={String(question.id)} question={question} index={index} initial={saved.get(String(question.id))} save={save} busy={busy} />)}<button disabled={busy} onClick={() => void finish()} className="w-full rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white">Submit quiz for grading</button></div>;
+  return <div className="space-y-5">{message ? <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-950">{message}</p> : null}<div className="sticky top-3 z-10 rounded-xl bg-[#071327] p-4 text-white"><strong>Attempt {String(activeAttempt.attempt_number)}</strong><span className="float-right font-mono">{remaining === null ? "Untimed" : `${Math.floor(remaining / 60_000)}:${String(Math.floor((remaining % 60_000) / 1000)).padStart(2, "0")}`}</span><p className="mt-1 text-xs text-white/70">The timer is based on the server-created expiry and will not restart after refresh.</p>{quiz.tab_monitoring_enabled === true ? <p className="mt-1 text-xs text-white/70">Leaving the assessment window is recorded as an event. A recorded event does not by itself determine misconduct.</p> : null}</div>{questions.map((question, index) => <Question key={String(question.id)} question={question} index={index} initial={saved.get(String(question.id))} save={save} busy={busy} />)}<button disabled={busy || remaining === 0} onClick={() => void finish()} className="w-full rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white">Submit quiz for grading</button></div>;
 }
 function Question({ question, index, initial, save, busy }: { question: Row; index: number; initial: unknown; save: (id: string, answer: unknown) => Promise<void>; busy: boolean }) { const [answer, setAnswer] = useState(initial ?? ""); const type = String(question.question_type); const options = Array.isArray(question.options) ? question.options : []; return <article className="rounded-xl border border-slate-200 p-4"><div className="flex justify-between gap-3"><h3 className="font-semibold">{index + 1}. {String(question.prompt)}</h3><span className="text-sm text-slate-500">{String(question.points)} points</span></div>{type === "short_answer" ? <textarea value={String(answer)} onChange={(event) => setAnswer(event.target.value)} rows={5} className="field" /> : <div className="mt-3 space-y-2">{options.map((option) => <label key={String(option)} className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm"><input type="radio" name={`question_${String(question.id)}`} checked={String(answer) === String(option)} onChange={() => setAnswer(option)} />{humanizeAssessment(String(option))}</label>)}</div>}<button disabled={busy || answer === ""} onClick={() => void save(String(question.id), answer)} className="mt-3 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold">Save answer</button></article>; }

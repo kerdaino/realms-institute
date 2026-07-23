@@ -185,8 +185,14 @@ export function evaluateProgrammeEligibility(input: GraduationGateValues) {
 }
 
 export function humanizeResult(value: string | null | undefined) {
-  if (!value) return "Not set";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  if (!value) return "Not Set";
+  const labels: Record<string, string> = {
+    eligible_for_completion: "Eligible for Final Completion Review",
+    not_yet_eligible: "Not Yet Eligible for Completion",
+    review_required: "Review Required",
+    under_review: "Under Review",
+  };
+  return labels[value] ?? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export function normalizeSkillPathway(value: string | null | undefined) {

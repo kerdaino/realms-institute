@@ -11,13 +11,18 @@
     "test:handbook": "node --experimental-strip-types scripts/test-student-handbook.mjs",
     "test:portal-auth": "node --experimental-strip-types scripts/test-portal-auth.mjs",
     "test:public-abuse": "node --experimental-strip-types scripts/test-public-abuse-protection.mjs",
+    "test:portal-copy": "node --experimental-strip-types scripts/test-portal-lifecycle-copy.mjs",
+    "test:facilitator-live": "node --env-file=.env.local scripts/test-facilitator-portal-live.mjs",
+    "test:sessions-live": "node --env-file=.env.local scripts/test-session-ui-live.mjs",
     "test:scholarship": "node --experimental-strip-types scripts/test-scholarship-decision-payment.mjs",
     "test:private-storage": "node --experimental-strip-types scripts/test-private-storage.mjs",
     "audit:private-storage": "node --env-file=.env.local scripts/audit-private-storage-orphans.mjs",
+    "audit:student-lifecycle": "node --env-file=.env.local --experimental-strip-types scripts/audit-student-lifecycle-live.mjs",
     "prepare:august-calendar": "node --env-file=.env.local --experimental-strip-types scripts/setup-august-2026-calendar.mjs",
     "test:august-calendar": "node --experimental-strip-types scripts/test-next-5-august-calendar.mjs",
     "prepare:august-assessments": "node --env-file=.env.local --experimental-strip-types scripts/setup-august-2026-assessments.mjs",
-    "test:august-assessments": "node --experimental-strip-types scripts/test-next-6-august-assessments.mjs"
+    "test:august-assessments": "node --experimental-strip-types scripts/test-next-6-august-assessments.mjs",
+    "test:quiz-integrity": "node --experimental-strip-types scripts/test-quiz-integrity.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

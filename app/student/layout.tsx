@@ -5,10 +5,12 @@ import { StudentPortalShell } from "@/components/student/StudentPortalShell";
 import { requireRole } from "@/lib/lms/auth";
 import { getStudentDashboardData, StudentDashboardDataError, type StudentDashboardData } from "@/lib/lms/studentDashboard";
 import { getStudentHandbookState } from "@/lib/lms/studentHandbook";
+import { deriveStudentLifecycle } from "@/lib/lms/studentLifecycle";
 
 export const dynamic = "force-dynamic";
 
-const fallbackData: StudentDashboardData = { profile: null, student: null, enrollment: null, cohort: null, greeting: "Welcome", displayName: "Student", academicStatus: "Not available", discipleshipCourses: [], skillCourses: [], sessions: [], upcomingSessions: [], pastSessions: [], todaysSession: null, recentSummaries: [], availableRecordings: [], resources: [] };
+const fallbackLifecycle = deriveStudentLifecycle({ studentStatus: "pending_onboarding", onboardingStatus: "not_started", portalAccountStatus: null });
+const fallbackData: StudentDashboardData = { profile: null, student: null, enrollment: null, cohort: null, greeting: "Welcome", displayName: "Student", academicStatus: "Not available", lifecycle: fallbackLifecycle, discipleshipCourses: [], skillCourses: [], sessions: [], upcomingSessions: [], pastSessions: [], todaysSession: null, recentSummaries: [], availableRecordings: [], resources: [] };
 
 async function loadLayoutData(profileId: string) {
   try {

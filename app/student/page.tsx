@@ -15,6 +15,7 @@ import { getStudentAbsenceRequests, getStudentStandaloneMakeups } from "@/lib/lm
 import { fetchStudentGraduationTracker, fetchStudentResultData } from "@/lib/lms/resultData";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireStudentHandbookAcknowledgement } from "@/lib/lms/studentHandbookGate";
+import { deriveStudentLifecycle } from "@/lib/lms/studentLifecycle";
 
 export const metadata: Metadata = { title: "Student Dashboard | REALMS Institute" };
 
@@ -38,15 +39,24 @@ export default async function StudentDashboardPage() {
   if (!data.student || !data.enrollment) return null;
   const routeName = data.enrollment.discipleship_route === "advanced" ? "Advanced Discipleship Programme" : "Foundational Discipleship Programme";
   const pathwayName = data.enrollment.skill_pathway === "web_development" ? "Web Development" : "Cybersecurity Foundations";
+  const lifecycle = deriveStudentLifecycle({
+    studentStatus: data.student.student_status,
+    enrollmentStatus: data.enrollment.enrolment_status,
+    onboardingStatus: data.student.onboarding_status,
+    orientationCompletedAt: data.student.orientation_completed_at,
+    matriculatedAt: data.student.matriculated_at,
+    portalAccountStatus: data.profile?.account_status,
+    handbookRequired: Boolean(handbookState.requiredDocument),
+    handbookAcknowledged: handbookState.acknowledged,
+  });
   const requiredRecordings = recordedLearning.filter((item) => item.purposeCode !== "REV" && !["verified_complete", "late_complete"].includes(item.completionStatus ?? ""));
   const overdueRecording = requiredRecordings.find((item) => item.displayStatus === "incomplete");
   const checkpointRecording = requiredRecordings.find((item) => item.id !== overdueRecording?.id && item.displayStatus === "awaiting_checkpoint");
   const activeRecording = requiredRecordings.find((item) => item.id !== overdueRecording?.id && item.id !== checkpointRecording?.id && item.progress.status !== "not_started");
   const newRecording = requiredRecordings.find((item) => item.id !== overdueRecording?.id && item.progress.status === "not_started");
-  const completedRecording = recordedLearning.find((item) => item.purposeCode !== "REV" && ["verified_complete", "late_complete"].includes(item.completionStatus ?? ""));
   const assessmentActions = [
-    ...assignments.flatMap((assignment) => { const status = assessmentStudentStatus(assignment); if (!["open", "overdue", "revision_required", "awaiting_review"].includes(status)) return []; const label = status === "revision_required" ? "Resubmission Required" : status === "awaiting_review" ? "Submission Awaiting Review" : assignment.assignment_type === "practical" ? "Practical Due" : assignment.assignment_type === "reflection" ? "Reflection Due" : "Assignment Due"; return [{ label: `${label}: ${assignment.title}`, href: `/student/assignments/${assignment.id}`, dueAt: assignment.due_at, status, kind: String(assignment.assignment_type) }]; }),
-    ...quizzes.flatMap((quiz) => { const latest = quiz.latest_attempt; const status = latest?.attempt_status === "awaiting_review" ? "awaiting_review" : latest?.attempt_status === "in_progress" ? "in_progress" : (!quiz.opens_at || Date.parse(quiz.opens_at) <= Date.now()) && (!quiz.closes_at || Date.parse(quiz.closes_at) > Date.now()) && quiz.attempts.length < quiz.max_attempts ? "available" : ""; if (!status) return []; return [{ label: `${status === "awaiting_review" ? "Quiz Pending" : "Quiz Available"}: ${quiz.title}`, href: `/student/quizzes/${quiz.id}`, dueAt: quiz.closes_at, status, kind: "quiz" }]; }),
+    ...assignments.flatMap((assignment) => { const status = assessmentStudentStatus(assignment); if (!["open", "overdue", "revision_required"].includes(status)) return []; const label = status === "revision_required" ? "Resubmission Required" : assignment.assignment_type === "practical" ? "Practical Due" : assignment.assignment_type === "reflection" ? "Reflection Due" : "Assignment Due"; return [{ label: `${label}: ${assignment.title}`, href: `/student/assignments/${assignment.id}`, dueAt: assignment.due_at, status, kind: String(assignment.assignment_type) }]; }),
+    ...quizzes.flatMap((quiz) => { const latest = quiz.latest_attempt; const status = latest?.attempt_status === "in_progress" ? "in_progress" : (!quiz.opens_at || Date.parse(quiz.opens_at) <= Date.now()) && (!quiz.closes_at || Date.parse(quiz.closes_at) > Date.now()) && quiz.attempts.length < quiz.max_attempts ? "available" : ""; if (!status) return []; return [{ label: `Quiz Available: ${quiz.title}`, href: `/student/quizzes/${quiz.id}`, dueAt: quiz.closes_at, status, kind: "quiz" }]; }),
   ].sort((a, b) => assessmentUrgency(a) - assessmentUrgency(b)).slice(0, 5);
   const absenceActions = absenceRequests.flatMap((request) => {
     if (request.status === "more_information_required") return [{ label: "Additional Information Required", href: `/student/absences/${request.id}` }];
@@ -62,7 +72,6 @@ export default async function StudentDashboardPage() {
   const standaloneMakeupActions = standaloneMakeups.filter((item) => !["completed", "late_complete", "waived", "cancelled"].includes(item.status)).map((item) => ({ label: item.status === "overdue" ? "Make-Up Overdue" : "Make-Up Required", href: item.recordingAssignmentId ? `/student/recordings/${item.recordingAssignmentId}` : "/student/absences" }));
   const upcomingClass = data.upcomingSessions.find((item) => item.kind === "class_session");
   const nextActions = [
-    !data.student.orientation_completed_at ? { label: "Complete Orientation", href: "/student/profile" } : null,
     ...absenceActions,
     ...standaloneMakeupActions,
     upcomingClass ? { label: "Report Upcoming Absence", href: "/student/absences/new" } : null,
@@ -73,7 +82,6 @@ export default async function StudentDashboardPage() {
     checkpointRecording ? { label: "Complete Recording Checkpoint", href: `/student/recordings/${checkpointRecording.id}` } : null,
     activeRecording ? { label: "Continue Recording", href: `/student/recordings/${activeRecording.id}` } : null,
     newRecording ? { label: "Start Required Recording", href: `/student/recordings/${newRecording.id}` } : null,
-    completedRecording ? { label: "Recorded Verification Complete", href: `/student/recordings/${completedRecording.id}` } : null,
   ].filter((action): action is { label: string; href: string } => Boolean(action));
 
   return (
@@ -85,7 +93,7 @@ export default async function StudentDashboardPage() {
         <p className="text-white/75">{data.cohort?.name ?? "Cohort assignment pending"}</p>
         <dl className="mt-6 grid gap-4 border-t border-white/15 pt-5 sm:grid-cols-2">
           <div><dt className="text-xs font-semibold uppercase tracking-[0.14em] text-white/60">Student ID</dt><dd className="mt-1 font-semibold">{data.student.student_number}</dd></div>
-          <div><dt className="text-xs font-semibold uppercase tracking-[0.14em] text-white/60">Academic Status</dt><dd className="mt-1 font-semibold">{data.academicStatus}</dd></div>
+          <div><dt className="text-xs font-semibold uppercase tracking-[0.14em] text-white/60">Academic Status</dt><dd className="mt-1 font-semibold">{lifecycle.academicStatus}</dd></div>
         </dl>
       </header>
 
@@ -95,8 +103,8 @@ export default async function StudentDashboardPage() {
         <DataCard label="Current Academic Standing" value={humanizeStudentValue(data.enrollment.academic_standing)} detail="Standing changes require an authorised decision and recorded reason." />
       </StudentPanel>
 
-      <StudentPanel title="Programme Completion Tracker" description={publishedResult.result ? "Your published result and current completion eligibility are available." : "Draft and approved-but-unpublished scores are never shown here."} action={<Link href="/student/graduation" className="rounded-lg text-sm font-semibold text-amber-800 underline-offset-4 hover:underline">Open Tracker</Link>}>
-        {publishedResult.result ? <div className="grid gap-3 sm:grid-cols-2"><DataCard label="Published Programme Result" value={`${publishedResult.result.total_points} / 100`} detail={humanizeStudentValue(publishedResult.result.result_outcome)} /><DataCard label="Completion Requirements" value={`${completionTracker.rows.filter((row) => ["met", "waived", "not_applicable"].includes(row.tracker.requirement_status)).length} / ${completionTracker.rows.length} resolved`} detail="Completion eligibility is not final graduation." /></div> : <div className="grid gap-3 sm:grid-cols-2"><DataCard label="Programme Result" value="Not Yet Published" detail="No draft score is exposed." /><DataCard label="Current Requirements" value={`${completionTracker.rows.filter((row) => row.tracker.requirement_status === "met").length} completed`} detail={`${completionTracker.rows.filter((row) => row.tracker.requirement_status === "under_review").length} under review`} /></div>}
+      <StudentPanel title="Programme Completion Eligibility" description={publishedResult.result ? "Your published result and current completion eligibility are available." : "Only published results are shown. Unpublished scores remain private."} action={<Link href="/student/graduation" className="rounded-lg text-sm font-semibold text-amber-800 underline-offset-4 hover:underline">View Eligibility</Link>}>
+        {publishedResult.result ? <div className="grid gap-3 sm:grid-cols-2"><DataCard label="Published Programme Result" value={`${publishedResult.result.total_points} / 100`} detail={humanizeStudentValue(publishedResult.result.result_outcome)} /><DataCard label="Completion Requirements" value={`${completionTracker.rows.filter((row) => ["met", "waived", "not_applicable"].includes(row.tracker.requirement_status)).length} / ${completionTracker.rows.length} resolved`} detail="Final completion requires academic review and institutional approval." /></div> : <div className="grid gap-3 sm:grid-cols-2"><DataCard label="Programme Result" value="Not Yet Published" detail="No unpublished score is displayed." /><DataCard label="Current Requirements" value={completionTracker.rows.length ? `${completionTracker.rows.filter((row) => row.tracker.requirement_status === "met").length} completed` : "Not Yet Assessed"} detail={completionTracker.rows.length ? `${completionTracker.rows.filter((row) => row.tracker.requirement_status === "under_review").length} under review` : "Open the eligibility tracker to review the governing requirements."} /></div>}
       </StudentPanel>
 
       <StudentPanel title="My REALMS Journey" description="Your discipleship route and practical skill pathway form one integrated School of Discovery programme.">
@@ -108,15 +116,16 @@ export default async function StudentDashboardPage() {
       </StudentPanel>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <StudentPanel title="Onboarding" description={`Overall onboarding: ${humanizeStudentValue(data.student.onboarding_status)}`}>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <DataCard label="Portal Access" value="Active" />
-            <DataCard label="Orientation" value={data.student.orientation_completed_at ? "Completed" : "Pending"} detail={data.student.orientation_completed_at ? formatStudentDate(data.student.orientation_completed_at) : data.cohort?.orientation_date ? `Scheduled: ${formatStudentDate(data.cohort.orientation_date)}` : undefined} />
-            <DataCard label="Matriculation" value={data.student.matriculated_at ? "Completed" : "Pending"} detail={data.student.matriculated_at ? formatStudentDate(data.student.matriculated_at) : data.cohort?.matriculation_date ? `Scheduled: ${formatStudentDate(data.cohort.matriculation_date)}` : undefined} />
+        <StudentPanel title="Onboarding" description={`Overall onboarding: ${lifecycle.overallOnboarding}`}>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <DataCard label="Portal Access" value={lifecycle.portalAccess} />
+            <DataCard label="Student Handbook" value={lifecycle.handbook} detail={handbookState.acknowledgement ? formatStudentDate(handbookState.acknowledgement.acknowledged_at) : undefined} />
+            <DataCard label="Orientation" value={lifecycle.orientation} detail={data.student.orientation_completed_at ? formatStudentDate(data.student.orientation_completed_at) : data.cohort?.orientation_date ? `Scheduled: ${formatStudentDate(data.cohort.orientation_date)}` : undefined} />
+            <DataCard label="Matriculation" value={lifecycle.matriculation} detail={data.student.matriculated_at ? formatStudentDate(data.student.matriculated_at) : data.cohort?.matriculation_date ? `Scheduled: ${formatStudentDate(data.cohort.matriculation_date)}` : undefined} />
           </div>
         </StudentPanel>
         <StudentPanel title="Next Actions" description="Based on the learning information currently available.">
-          {nextActions.length ? <ul className="space-y-3">{nextActions.map((action) => <li key={`${action.label}-${action.href}`}><Link href={action.href} className="flex gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-[#071327] hover:bg-amber-50"><span aria-hidden="true" className="text-amber-700">→</span>{action.label}</Link></li>)}</ul> : <EmptyState>No academic action yet.</EmptyState>}
+          {nextActions.length ? <ul className="space-y-3">{nextActions.map((action) => <li key={`${action.label}-${action.href}`}><Link href={action.href} className="flex gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-[#071327] hover:bg-amber-50"><span aria-hidden="true" className="text-amber-700">→</span>{action.label}</Link></li>)}</ul> : <EmptyState>No academic action is currently required.</EmptyState>}
         </StudentPanel>
       </div>
 
