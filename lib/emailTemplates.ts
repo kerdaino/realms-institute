@@ -3,6 +3,7 @@ import "server-only";
 import { applicationStatusLabels, type ApplicationStatus } from "@/lib/applicationStatus";
 import { whatsappChannelUrl } from "@/lib/constants";
 import type { AdvancedEntryStatus, AlumniVerificationStatus, ApplicantType, RequestedDiscipleshipRoute, ScholarshipStatus } from "@/lib/registration";
+import { scholarshipFinancialSummary } from "@/lib/scholarshipFinance";
 
 export type EmailRegistration = {
   id: string;
@@ -43,6 +44,9 @@ export type EmailRegistration = {
   scholarship_can_contribute?: boolean | null;
   scholarship_contribution_amount?: number | null;
   scholarship_approved_amount?: number | null;
+  scholarship_applicant_message?: string | null;
+  financial_requirement_status?: string;
+  payment_expected_amount?: number | null;
   paid_at: string | null;
   confirmation_email_sent?: boolean;
   confirmation_email_sent_at?: string | null;
@@ -52,6 +56,12 @@ export type EmailRegistration = {
   scholarship_confirmation_email_sent_at?: string | null;
   scholarship_admin_email_sent?: boolean;
   scholarship_admin_email_sent_at?: string | null;
+  scholarship_reviewed_at?: string | null;
+  scholarship_decision_email_sent?: boolean;
+  scholarship_decision_email_sent_at?: string | null;
+  scholarship_decision_email_type?: string | null;
+  scholarship_decision_email_error?: string | null;
+  scholarship_decision_email_last_attempted_at?: string | null;
   admission_email_sent?: boolean;
   admission_email_sent_at?: string | null;
 };
@@ -101,8 +111,9 @@ function normalFee(registration: EmailRegistration) {
 }
 
 function amountPaid(registration: EmailRegistration) {
-  const paidAmount = registration.amount_paid ?? (registration.payment_status === "success" ? registration.amount : null);
-  return formatMoney(paidAmount, registration.currency);
+  return registration.amount_paid === null || registration.amount_paid === undefined
+    ? "Not recorded"
+    : formatMoney(registration.amount_paid, registration.currency);
 }
 
 function applicationStatus(registration: EmailRegistration) {
@@ -370,15 +381,140 @@ export function createAdvancedEntryOutcomeEmail(registration: EmailRegistration,
 }
 
 export function createScholarshipOutcomeEmail(registration: EmailRegistration, outcome: ScholarshipOutcome): EmailTemplate {
-  const content = {
-    approved_full: ["Full Scholarship Approved", "REALMS Institute has approved full scholarship support for your registration/application fee. Scholarship approval does not automatically guarantee admission."],
-    approved_partial: ["Partial Scholarship Approved", "REALMS Institute has approved partial scholarship support for your registration/application fee. Scholarship approval does not automatically guarantee admission."],
-    declined: ["Scholarship Request Update", "After review, REALMS Institute is unable to approve scholarship support for this application."],
-    more_information_required: ["More Information Required for Scholarship Review", "REALMS Institute needs more information before completing the review of your scholarship request."],
-  }[outcome];
-  const details: Array<[string, string | number | null]> = [["Scholarship Outcome", humanize(outcome)]];
-  if (outcome === "approved_full" || outcome === "approved_partial") details.push(["Approved Scholarship Amount", formatMoney(registration.scholarship_approved_amount, registration.currency)]);
-  return outcomeTemplate(registration, content[0], content[1], details, "REALMS Institute Scholarship Request Update");
+  return createScholarshipDecisionEmail(registration, outcome);
+}
+
+const scholarshipSupportAddress = "admissions@mail.grccglobal.org";
+
+function paymentButton(url: string) {
+  return `<a href="${escapeHtml(url)}" style="display:inline-block;background:#d7aa45;color:#071327;text-decoration:none;font-weight:700;padding:13px 20px;border-radius:999px">Complete Registration Payment</a>`;
+}
+
+export function createScholarshipDecisionEmail(
+  registration: EmailRegistration,
+  outcome: ScholarshipOutcome,
+  options: { paymentUrl?: string | null } = {},
+): EmailTemplate {
+  const summary = scholarshipFinancialSummary({
+    normalFee: Number(registration.amount),
+    scholarshipStatus: outcome,
+    approvedScholarshipAmount: registration.scholarship_approved_amount,
+    amountPaid: registration.amount_paid,
+    paymentStatus: registration.payment_status,
+  });
+  const alreadyPaid = summary.financialRequirementStatus === "satisfied_by_payment";
+  const hasPaymentUrl = Boolean(options.paymentUrl);
+  const applicantMessage = registration.scholarship_applicant_message?.trim() || null;
+  const admissionSeparation = "Scholarship and payment decisions are separate from admission. This decision does not admit or enrol you, and REALMS Institute will communicate any admission decision separately.";
+
+  if (outcome === "approved_full") {
+    const details: Array<[string, string | number | null]> = [
+      ["Scholarship Decision", "Full Scholarship Approved"],
+      ["Normal Registration Fee", normalFee(registration)],
+      ["Scholarship Support / Fee Waiver", formatMoney(summary.approvedSupport, registration.currency)],
+      ["Applicant Amount Due", formatMoney(0, registration.currency)],
+    ];
+    const text = `Dear ${registration.full_name},
+
+Your application for scholarship support has been approved in full. Your registration fee for this cohort is fully covered and no registration payment is required.
+
+${textLines(details)}
+
+${admissionSeparation}
+
+For support: ${scholarshipSupportAddress}
+
+With joy in Christ,
+REALMS Institute`;
+    const html = layout("Full Scholarship Approved", `<p>Dear ${escapeHtml(registration.full_name)},</p><p>Your application for scholarship support has been approved in full. Your registration fee for this cohort is fully covered and no registration payment is required.</p><table style="border-collapse:collapse;width:100%;margin:20px 0">${rows(details)}</table><div style="border-left:4px solid #d7aa45;background:#fff8e6;padding:16px;margin:20px 0"><p style="margin:0">${escapeHtml(admissionSeparation)}</p></div><p style="color:#475569;font-size:14px">For support: <a href="mailto:${scholarshipSupportAddress}" style="color:#071327">${scholarshipSupportAddress}</a></p><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+    return { subject: "REALMS Institute — Full Scholarship Approved", html, text };
+  }
+
+  if (outcome === "approved_partial") {
+    const details: Array<[string, string | number | null]> = [
+      ["Scholarship Decision", "Partial Scholarship Approved"],
+      ["Normal Registration Fee", normalFee(registration)],
+      ["Scholarship Support / Fee Waiver", formatMoney(summary.approvedSupport, registration.currency)],
+      ["Applicant Amount Due", formatMoney(summary.amountDue, registration.currency)],
+      ["Payment Status", alreadyPaid ? "Payment completed" : "Payment required"],
+    ];
+    const paymentText = alreadyPaid
+      ? "The required contribution has already been completed. No additional registration payment is requested."
+      : hasPaymentUrl
+        ? `Complete your registration payment securely using this link:\n${options.paymentUrl}`
+        : `Please contact ${scholarshipSupportAddress} for your secure payment link.`;
+    const paymentHtml = alreadyPaid
+      ? "<p><strong>Payment completed.</strong> No additional registration payment is requested.</p>"
+      : `<p>Your approved contribution toward the registration fee is <strong>${escapeHtml(formatMoney(summary.amountDue, registration.currency))}</strong>.</p>${hasPaymentUrl ? `<p style="margin:24px 0">${paymentButton(options.paymentUrl!)}</p>` : `<p>Please contact <a href="mailto:${scholarshipSupportAddress}">${scholarshipSupportAddress}</a> for your secure payment link.</p>`}`;
+    const text = `Dear ${registration.full_name},
+
+Congratulations. REALMS Institute has approved partial scholarship support for your registration fee.
+
+${textLines(details)}
+
+${paymentText}
+
+Payment confirms the financial part of your application; it does not by itself mean that you have been admitted.
+
+${admissionSeparation}
+
+For support: ${scholarshipSupportAddress}
+
+With joy in Christ,
+REALMS Institute`;
+    const html = layout("Partial Scholarship Approved", `<p>Dear ${escapeHtml(registration.full_name)},</p><p>Congratulations. REALMS Institute has approved partial scholarship support for your registration fee.</p><table style="border-collapse:collapse;width:100%;margin:20px 0">${rows(details)}</table>${paymentHtml}<div style="border-left:4px solid #d7aa45;background:#fff8e6;padding:16px;margin:20px 0"><p style="margin:0">Payment confirms the financial part of your application; it does not by itself mean that you have been admitted.</p></div><p>${escapeHtml(admissionSeparation)}</p><p style="color:#475569;font-size:14px">For support: <a href="mailto:${scholarshipSupportAddress}" style="color:#071327">${scholarshipSupportAddress}</a></p><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+    return { subject: "REALMS Institute — Partial Scholarship Approved", html, text };
+  }
+
+  if (outcome === "declined") {
+    const details: Array<[string, string | number | null]> = [
+      ["Scholarship Decision", "Scholarship Request Not Approved"],
+      ["Normal Registration Fee", normalFee(registration)],
+      ["Applicant Amount Due", formatMoney(summary.amountDue, registration.currency)],
+      ["Payment Status", alreadyPaid ? "Payment completed" : "Payment required"],
+    ];
+    const paymentText = alreadyPaid
+      ? "The required registration payment has already been completed. No additional payment is requested."
+      : hasPaymentUrl
+        ? `If you wish to continue your registration, use this secure payment link:\n${options.paymentUrl}`
+        : `If you wish to continue your registration, contact ${scholarshipSupportAddress} for your secure payment link.`;
+    const paymentHtml = alreadyPaid
+      ? "<p><strong>Payment completed.</strong> No additional registration payment is requested.</p>"
+      : `<p>If you wish to continue your registration, the normal registration fee remains due.</p>${hasPaymentUrl ? `<p style="margin:24px 0">${paymentButton(options.paymentUrl!)}</p>` : `<p>Please contact <a href="mailto:${scholarshipSupportAddress}">${scholarshipSupportAddress}</a> for your secure payment link.</p>`}`;
+    const text = `Dear ${registration.full_name},
+
+After review, REALMS Institute is unable to approve scholarship support for this application.
+
+${textLines(details)}
+
+${paymentText}
+
+${admissionSeparation}
+
+For support: ${scholarshipSupportAddress}
+
+With joy in Christ,
+REALMS Institute`;
+    const html = layout("Scholarship Request Update", `<p>Dear ${escapeHtml(registration.full_name)},</p><p>After review, REALMS Institute is unable to approve scholarship support for this application.</p><table style="border-collapse:collapse;width:100%;margin:20px 0">${rows(details)}</table>${paymentHtml}<div style="border-left:4px solid #d7aa45;background:#fff8e6;padding:16px;margin:20px 0"><p style="margin:0">${escapeHtml(admissionSeparation)}</p></div><p style="color:#475569;font-size:14px">For support: <a href="mailto:${scholarshipSupportAddress}" style="color:#071327">${scholarshipSupportAddress}</a></p><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+    return { subject: "REALMS Institute — Scholarship Request Update", html, text };
+  }
+
+  const request = applicantMessage || "Please reply to this email with the additional information needed to support your scholarship review.";
+  const text = `Dear ${registration.full_name},
+
+REALMS Institute needs more information before completing the review of your scholarship request.
+
+Requested information:
+${request}
+
+No scholarship or admission decision has been made by this message. Admission remains a separate review process.
+
+For support: ${scholarshipSupportAddress}
+
+With joy in Christ,
+REALMS Institute`;
+  const html = layout("More Information Required for Scholarship Review", `<p>Dear ${escapeHtml(registration.full_name)},</p><p>REALMS Institute needs more information before completing the review of your scholarship request.</p><div style="border-left:4px solid #d7aa45;background:#fff8e6;padding:16px;margin:20px 0"><p style="margin:0 0 8px;font-weight:700">Requested information</p><p style="margin:0;white-space:pre-wrap">${escapeHtml(request)}</p></div><p>No scholarship or admission decision has been made by this message. Admission remains a separate review process.</p><p style="color:#475569;font-size:14px">For support: <a href="mailto:${scholarshipSupportAddress}" style="color:#071327">${scholarshipSupportAddress}</a></p><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+  return { subject: "REALMS Institute — More Information Required for Scholarship Review", html, text };
 }
 
 function outcomeTemplate(registration: EmailRegistration, title: string, message: string, details: Array<[string, string | number | null]>, subject: string): EmailTemplate {

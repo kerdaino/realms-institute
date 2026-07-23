@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { verifyPaystackTransaction } from "@/lib/paystack";
-import { hasExpectedPaystackRegistrationSource, reconcileRegistrationPayment } from "@/lib/paymentReconciliation";
+import { hasExpectedPaystackRegistrationSource, isScholarshipPaystackRegistrationSource, reconcileRegistrationPayment } from "@/lib/paymentReconciliation";
 import { consumePublicRateLimits, publicRequestSource } from "@/lib/publicRateLimit.server";
 import { PUBLIC_RATE_LIMIT_MESSAGE } from "@/lib/publicRateLimitPolicy";
 import { sendRegistrationEmailsIfNeeded, type RegistrationEmailStatus } from "@/lib/registrationEmails";
 import { PaymentRegistrationConflictError, recordUnconfirmedRegistrationPayment, resolvePaystackRegistration, saveVerifiedRegistrationFromPaystack, type RegistrationSaveResult } from "@/lib/saveRegistration";
+import { recordUnconfirmedScholarshipPayment, resolveScholarshipPaymentFromPaystack, saveVerifiedScholarshipPayment } from "@/lib/scholarshipPayment.server";
 
 const unmatchedPaymentMessage = "We could not match this payment to your registration. Please contact REALMS Institute with your payment reference.";
 const underpaymentMessage = "The amount received was below the required registration fee. Please contact REALMS Institute with your payment reference.";
@@ -48,26 +49,39 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, message: unmatchedPaymentMessage }, { status: 409 });
     }
 
-    const normalized = await resolvePaystackRegistration(metadata, reference);
-    if (!normalized.isValid || !normalized.applicationId || !normalized.calculatedFee) {
-      console.error("Paystack registration application unmatched", { reference });
+    const scholarshipPayment = isScholarshipPaystackRegistrationSource(metadata);
+    const scholarshipResolution = scholarshipPayment ? await resolveScholarshipPaymentFromPaystack(metadata, reference) : null;
+    const normalized = scholarshipPayment ? null : await resolvePaystackRegistration(metadata, reference);
+    const selfPayRegistration = normalized?.isValid ? normalized.registration : null;
+    if (
+      (scholarshipPayment && !scholarshipResolution)
+      || (!scholarshipPayment && (!normalized?.isValid || !normalized.applicationId || !normalized.calculatedFee))
+    ) {
+      console.error("Paystack registration application unmatched", { reference, paymentKind: scholarshipPayment ? "scholarship" : "self_pay" });
       return NextResponse.json({ success: false, message: unmatchedPaymentMessage }, { status: 409 });
     }
+    const calculatedFee = scholarshipResolution?.calculatedFee || normalized!.calculatedFee!;
 
     const reconciliation = reconcileRegistrationPayment({
-      expectedKobo: normalized.calculatedFee.amount * 100,
+      expectedKobo: calculatedFee.amount * 100,
       receivedKobo: transaction.amount,
-      expectedCurrency: normalized.calculatedFee.currency,
+      expectedCurrency: calculatedFee.currency,
       receivedCurrency: transaction.currency,
     });
     if (reconciliation.varianceType === "currency_mismatch") {
       console.error("Paystack currency mismatch", { reference, expectedCurrency: reconciliation.expectedCurrency, receivedCurrency: reconciliation.receivedCurrency });
-      try { await recordUnconfirmedRegistrationPayment(transaction, normalized, reconciliation); } catch { console.error("Paystack currency mismatch could not be recorded", { reference }); }
+      try {
+        if (scholarshipResolution) await recordUnconfirmedScholarshipPayment(transaction, scholarshipResolution, reconciliation);
+        else await recordUnconfirmedRegistrationPayment(transaction, normalized!, reconciliation);
+      } catch { console.error("Paystack currency mismatch could not be recorded", { reference }); }
       return NextResponse.json({ success: false, message: currencyMismatchMessage }, { status: 409 });
     }
     if (reconciliation.varianceType === "underpayment") {
       console.error("Paystack payment underpaid", { reference, expectedKobo: reconciliation.expectedKobo, receivedKobo: reconciliation.receivedKobo, shortfallKobo: reconciliation.shortfallKobo, currency: reconciliation.receivedCurrency });
-      try { await recordUnconfirmedRegistrationPayment(transaction, normalized, reconciliation); } catch { console.error("Paystack underpayment could not be recorded", { reference }); }
+      try {
+        if (scholarshipResolution) await recordUnconfirmedScholarshipPayment(transaction, scholarshipResolution, reconciliation);
+        else await recordUnconfirmedRegistrationPayment(transaction, normalized!, reconciliation);
+      } catch { console.error("Paystack underpayment could not be recorded", { reference }); }
       return NextResponse.json({ success: false, message: underpaymentMessage }, { status: 409 });
     }
     if (reconciliation.varianceType === "overpayment") console.info("Paystack payment verified with excess amount", { reference, expectedKobo: reconciliation.expectedKobo, receivedKobo: reconciliation.receivedKobo, excessKobo: reconciliation.excessKobo, currency: reconciliation.receivedCurrency });
@@ -75,7 +89,9 @@ export async function GET(request: NextRequest) {
 
     let registrationSave: RegistrationSaveResult;
     try {
-      registrationSave = await saveVerifiedRegistrationFromPaystack(transaction, normalized, reconciliation);
+      registrationSave = scholarshipResolution
+        ? await saveVerifiedScholarshipPayment(transaction, scholarshipResolution, reconciliation)
+        : await saveVerifiedRegistrationFromPaystack(transaction, normalized!, reconciliation);
     } catch (saveError) {
       if (saveError instanceof PaymentRegistrationConflictError) {
         console.error("Paystack transaction already assigned inconsistently", { reference });
@@ -95,6 +111,23 @@ export async function GET(request: NextRequest) {
     const paidAmount = reconciliation.receivedKobo / 100;
     const requiredAmount = reconciliation.expectedKobo / 100;
     const paidCurrency = reconciliation.receivedCurrency;
+    const registrationDetails = scholarshipResolution ? {
+      fullName: scholarshipResolution.registration.full_name,
+      email: scholarshipResolution.registration.email,
+      whatsapp: scholarshipResolution.registration.whatsapp,
+      learningMode: scholarshipResolution.registration.learning_mode,
+      skillPathway: scholarshipResolution.registration.skill_pathway,
+      requestedDiscipleshipRoute: scholarshipResolution.registration.requested_discipleship_route,
+      screeningStatus: scholarshipResolution.registration.screening_status,
+    } : {
+      fullName: selfPayRegistration!.fullName,
+      email: selfPayRegistration!.email,
+      whatsapp: selfPayRegistration!.whatsapp,
+      learningMode: selfPayRegistration!.learningMode,
+      skillPathway: selfPayRegistration!.skillPathway,
+      requestedDiscipleshipRoute: selfPayRegistration!.requestedDiscipleshipRoute,
+      screeningStatus: selfPayRegistration!.screeningStatus,
+    };
     return NextResponse.json({
       success: true,
       status: "success",
@@ -106,7 +139,7 @@ export async function GET(request: NextRequest) {
       display: formatPaymentAmount(paidAmount, paidCurrency),
       requiredAmount,
       requiredDisplay: formatPaymentAmount(requiredAmount, paidCurrency),
-      publicFeeDisplay: normalized.calculatedFee.publicDisplay ?? formatPaymentAmount(requiredAmount, paidCurrency),
+      publicFeeDisplay: calculatedFee.publicDisplay ?? formatPaymentAmount(requiredAmount, paidCurrency),
       variance: {
         type: reconciliation.varianceType,
         amount: reconciliation.varianceKobo / 100,
@@ -114,15 +147,7 @@ export async function GET(request: NextRequest) {
       },
       paidAt: transaction.paid_at ?? transaction.paidAt ?? null,
       metadata: {
-        registration: {
-          fullName: normalized.registration.fullName,
-          email: normalized.registration.email,
-          whatsapp: normalized.registration.whatsapp,
-          learningMode: normalized.registration.learningMode,
-          skillPathway: normalized.registration.skillPathway,
-          requestedDiscipleshipRoute: normalized.registration.requestedDiscipleshipRoute,
-          screeningStatus: normalized.registration.screeningStatus,
-        },
+        registration: registrationDetails,
       },
       registrationMatched: true,
       registrationSave: { saved: true as const, id: registrationSave.id },

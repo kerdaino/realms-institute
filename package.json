@@ -11,6 +11,7 @@
     "test:handbook": "node --experimental-strip-types scripts/test-student-handbook.mjs",
     "test:portal-auth": "node --experimental-strip-types scripts/test-portal-auth.mjs",
     "test:public-abuse": "node --experimental-strip-types scripts/test-public-abuse-protection.mjs",
+    "test:scholarship": "node --experimental-strip-types scripts/test-scholarship-decision-payment.mjs",
     "test:private-storage": "node --experimental-strip-types scripts/test-private-storage.mjs",
     "audit:private-storage": "node --env-file=.env.local scripts/audit-private-storage-orphans.mjs",
     "prepare:august-calendar": "node --env-file=.env.local --experimental-strip-types scripts/setup-august-2026-calendar.mjs",

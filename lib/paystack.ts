@@ -1,10 +1,8 @@
 import "server-only";
 
-import type { CohortFee } from "@/lib/registration";
-
 type InitializeParams = {
   email: string;
-  fee: CohortFee;
+  fee: { amount: number; currency: string };
   reference: string;
   callbackUrl: string;
   metadata: Record<string, unknown>;

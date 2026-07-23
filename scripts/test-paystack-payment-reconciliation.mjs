@@ -27,6 +27,7 @@ assert.equal(currencyMismatch.accepted, false);
 assert.equal(currencyMismatch.varianceType, "currency_mismatch");
 
 assert.equal(hasExpectedPaystackRegistrationSource({ source: "realms_august_2026_registration" }), true);
+assert.equal(hasExpectedPaystackRegistrationSource({ source: "realms_august_2026_scholarship_payment" }), true);
 assert.equal(hasExpectedPaystackRegistrationSource({ source: "untrusted_source" }), false);
 assert.equal(paymentReferenceMatchesApplication("REALMS-123", "REALMS-123"), true);
 assert.equal(paymentReferenceMatchesApplication("REALMS-OTHER", "REALMS-123"), false);
@@ -48,7 +49,8 @@ const [verificationRoute, saveRegistration, paymentVerificationAudit, registrati
 ]);
 assert.match(verificationRoute, /hasExpectedPaystackRegistrationSource/);
 assert.match(verificationRoute, /reconciliation\.varianceType === "underpayment"/);
-assert.match(verificationRoute, /recordUnconfirmedRegistrationPayment\(transaction, normalized, reconciliation\)/);
+assert.match(verificationRoute, /recordUnconfirmedRegistrationPayment\(transaction, normalized!?, reconciliation\)/);
+assert.match(verificationRoute, /recordUnconfirmedScholarshipPayment\(transaction, scholarshipResolution, reconciliation\)/);
 assert.match(verificationRoute, /paymentVerificationAuditStatus === "pending"/);
 assert.match(saveRegistration, /\.neq\("payment_status", "success"\)/);
 assert.match(saveRegistration, /\.eq\("paystack_raw->>id", String\(paystackData\.id\)\)/);

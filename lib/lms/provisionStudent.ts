@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Cohort, Student, StudentEnrollment } from "@/lib/lms/types";
+import { isFinancialRequirementSatisfied } from "@/lib/scholarshipFinance";
 import {
   advancedDiscipleshipCourses,
   cybersecurityCourses,
@@ -13,7 +14,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { ensurePortalProfile, ensurePortalRole, findOrCreatePortalAuthUser, normalizePortalEmail, PortalIdentityError } from "@/lib/lms/portalIdentity";
 
 const currentCohortCode = "RSD-AUG-2026";
-const registrationSelect = "id, application_status, assigned_discipleship_route, skill_pathway, learning_mode, full_name, email, whatsapp, country, city";
+const registrationSelect = "id, application_status, assigned_discipleship_route, skill_pathway, learning_mode, full_name, email, whatsapp, country, city, funding_route, scholarship_status, scholarship_approved_amount, amount, amount_paid, payment_status, financial_requirement_status";
 const studentSelect = "id, profile_id, registration_id, student_number, legal_name, preferred_name, email, phone, country, city, identity_verification_status, student_status, onboarding_status, orientation_completed_at, matriculated_at, emergency_contact_name, emergency_contact_phone, internal_admin_note, created_at, updated_at";
 const enrollmentSelect = "id, student_id, cohort_id, discipleship_route, skill_pathway, skill_learning_mode, enrolment_status, enrolled_at, completed_at, created_at, updated_at";
 
@@ -28,6 +29,13 @@ type ProvisionableRegistration = {
   whatsapp: string;
   country: string;
   city: string;
+  funding_route: string;
+  scholarship_status: string;
+  scholarship_approved_amount: number | null;
+  amount: number;
+  amount_paid: number | null;
+  payment_status: string;
+  financial_requirement_status: string;
 };
 
 type NormalizedSkill = {
@@ -218,6 +226,9 @@ export async function provisionStudentFromRegistration(input: { registrationId: 
 
   const registration = await loadRegistration(supabase, input.registrationId);
   if (registration.application_status !== "admitted") throw new StudentProvisioningError("Only an admitted registration can be provisioned.", 409);
+  if (!isFinancialRequirementSatisfied(registration)) {
+    throw new StudentProvisioningError("The registration financial requirement must be satisfied by verified payment or an approved full scholarship before provisioning.", 409);
+  }
   if (registration.assigned_discipleship_route !== "foundational" && registration.assigned_discipleship_route !== "advanced") {
     throw new StudentProvisioningError("An approved discipleship route is required before provisioning.", 409);
   }

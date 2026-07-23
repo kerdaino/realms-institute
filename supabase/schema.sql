@@ -22,8 +22,12 @@ create table if not exists public.registrations (
   amount_display text,
   exchange_note text,
   amount_paid numeric,
+  payment_expected_amount numeric,
   payment_reference text constraint registrations_payment_reference_key unique,
   payment_status text not null,
+  financial_requirement_status text not null default 'payment_required',
+  payment_authorization_url text,
+  payment_initialized_at timestamptz,
   paid_at timestamptz,
   paystack_customer_email text,
   paystack_raw jsonb,
@@ -69,6 +73,7 @@ create table if not exists public.registrations (
   scholarship_can_contribute boolean,
   scholarship_contribution_amount numeric,
   scholarship_approved_amount numeric,
+  scholarship_applicant_message text,
   scholarship_review_note text,
   scholarship_reviewed_at timestamptz,
   scholarship_reviewed_by text,
@@ -82,6 +87,11 @@ create table if not exists public.registrations (
   scholarship_confirmation_email_sent_at timestamptz,
   scholarship_admin_email_sent boolean not null default false,
   scholarship_admin_email_sent_at timestamptz,
+  scholarship_decision_email_sent boolean not null default false,
+  scholarship_decision_email_sent_at timestamptz,
+  scholarship_decision_email_type text,
+  scholarship_decision_email_error text,
+  scholarship_decision_email_last_attempted_at timestamptz,
   admission_email_sent boolean not null default false,
   admission_email_sent_at timestamptz
 );
@@ -101,6 +111,10 @@ alter table registrations
 -- Values are validated in TypeScript/server code. No new database CHECK constraints are added yet.
 alter table public.registrations
   add column if not exists amount_paid numeric,
+  add column if not exists payment_expected_amount numeric,
+  add column if not exists financial_requirement_status text not null default 'payment_required',
+  add column if not exists payment_authorization_url text,
+  add column if not exists payment_initialized_at timestamptz,
   add column if not exists applicant_type text not null default 'new_student',
   add column if not exists requested_discipleship_route text not null default 'foundational',
   add column if not exists assigned_discipleship_route text default 'foundational',
@@ -138,6 +152,7 @@ alter table public.registrations
   add column if not exists scholarship_can_contribute boolean,
   add column if not exists scholarship_contribution_amount numeric,
   add column if not exists scholarship_approved_amount numeric,
+  add column if not exists scholarship_applicant_message text,
   add column if not exists scholarship_review_note text,
   add column if not exists scholarship_reviewed_at timestamptz,
   add column if not exists scholarship_reviewed_by text,
@@ -174,8 +189,62 @@ alter table public.registrations
   add column if not exists scholarship_confirmation_email_sent_at timestamptz,
   add column if not exists scholarship_admin_email_sent boolean not null default false,
   add column if not exists scholarship_admin_email_sent_at timestamptz,
+  add column if not exists scholarship_decision_email_sent boolean not null default false,
+  add column if not exists scholarship_decision_email_sent_at timestamptz,
+  add column if not exists scholarship_decision_email_type text,
+  add column if not exists scholarship_decision_email_error text,
+  add column if not exists scholarship_decision_email_last_attempted_at timestamptz,
   add column if not exists admission_email_sent boolean not null default false,
   add column if not exists admission_email_sent_at timestamptz;
+
+update public.registrations
+set
+  financial_requirement_status = case
+    when funding_route = 'self_pay'
+      and payment_status = 'success'
+      and coalesce(amount_paid, 0) >= amount then 'satisfied_by_payment'
+    when funding_route = 'scholarship_request'
+      and scholarship_status = 'approved_partial'
+      and scholarship_approved_amount > 0
+      and scholarship_approved_amount < amount
+      and payment_status = 'success'
+      and coalesce(amount_paid, 0) >= amount - scholarship_approved_amount then 'satisfied_by_payment'
+    when funding_route = 'scholarship_request'
+      and scholarship_status = 'declined'
+      and payment_status = 'success'
+      and coalesce(amount_paid, 0) >= amount then 'satisfied_by_payment'
+    when funding_route = 'scholarship_request'
+      and scholarship_status = 'approved_full'
+      and scholarship_approved_amount = amount then 'satisfied_by_scholarship'
+    else 'payment_required'
+  end,
+  payment_expected_amount = case
+    when funding_route = 'scholarship_request'
+      and scholarship_status = 'approved_full'
+      and scholarship_approved_amount = amount then 0
+    when funding_route = 'scholarship_request'
+      and scholarship_status = 'approved_partial'
+      and scholarship_approved_amount > 0
+      and scholarship_approved_amount < amount then amount - scholarship_approved_amount
+    when funding_route = 'scholarship_request'
+      and scholarship_status = 'declined' then amount
+    when funding_route = 'self_pay' then amount
+    else null
+  end;
+
+alter table public.registrations
+  drop constraint if exists registrations_financial_requirement_status_check,
+  drop constraint if exists registrations_payment_expected_amount_check;
+
+alter table public.registrations
+  add constraint registrations_financial_requirement_status_check
+    check (financial_requirement_status in ('payment_required', 'satisfied_by_payment', 'satisfied_by_scholarship')) not valid,
+  add constraint registrations_payment_expected_amount_check
+    check (payment_expected_amount is null or payment_expected_amount >= 0) not valid;
+
+alter table public.registrations
+  validate constraint registrations_financial_requirement_status_check,
+  validate constraint registrations_payment_expected_amount_check;
 
 -- The unique constraint above creates the required unique payment-reference index.
 create index if not exists registrations_email_idx on public.registrations (email);

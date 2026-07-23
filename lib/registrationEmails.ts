@@ -9,23 +9,26 @@ import {
   createApplicantStatusUpdateEmail,
   createScholarshipAdminEmail,
   createScholarshipApplicantEmail,
-  createScholarshipOutcomeEmail,
+  createScholarshipDecisionEmail,
   type AdvancedEntryOutcome,
   type AlumniVerificationOutcome,
   type EmailRegistration,
   type EmailTemplate,
   type ScholarshipOutcome,
 } from "@/lib/emailTemplates";
+import { scholarshipFinancialSummary } from "@/lib/scholarshipFinance";
+import { createScholarshipPaymentLink } from "@/lib/scholarshipPayment.server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type RegistrationEmailStatus = { applicant: EmailSendResult; admin: EmailSendResult };
 export type ScholarshipEmailStatus = { applicant: EmailSendResult; admin: EmailSendResult };
+export type ScholarshipDecisionEmailStatus = EmailSendResult & { decision?: ScholarshipOutcome };
 type RegistrationEmailOptions = { force?: boolean };
 type PaidEmailKind = "applicant" | "admin" | "admission";
 type ScholarshipEmailKind = "scholarship_applicant" | "scholarship_admin";
 
 const paidEmailRegistrationSelect = "id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, fee_policy_consent, computer_access_confirmed, amount, amount_paid, currency, public_fee_display, amount_display, payment_reference, payment_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, screening_status, screening_objective_score, screening_objective_max, scholarship_status, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, admission_email_sent, admission_email_sent_at";
-const scholarshipEmailRegistrationSelect = `${paidEmailRegistrationSelect}, funding_route, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, scholarship_approved_amount, scholarship_confirmation_email_sent, scholarship_confirmation_email_sent_at, scholarship_admin_email_sent, scholarship_admin_email_sent_at`;
+const scholarshipEmailRegistrationSelect = `${paidEmailRegistrationSelect}, funding_route, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, scholarship_approved_amount, scholarship_applicant_message, financial_requirement_status, payment_expected_amount, scholarship_reviewed_at, scholarship_confirmation_email_sent, scholarship_confirmation_email_sent_at, scholarship_admin_email_sent, scholarship_admin_email_sent_at, scholarship_decision_email_sent, scholarship_decision_email_sent_at, scholarship_decision_email_type, scholarship_decision_email_error, scholarship_decision_email_last_attempted_at`;
 
 function paidColumns(kind: PaidEmailKind) {
   if (kind === "applicant") return { sentColumn: "confirmation_email_sent", sentAtColumn: "confirmation_email_sent_at" };
@@ -143,5 +146,110 @@ export async function sendAdvancedEntryOutcomeEmail(registration: EmailRegistrat
 }
 
 export async function sendScholarshipOutcomeEmail(registration: EmailRegistration, outcome: ScholarshipOutcome): Promise<EmailSendResult> {
-  return deliver(registration.email, createScholarshipOutcomeEmail(registration, outcome));
+  const financials = scholarshipFinancialSummary({
+    normalFee: Number(registration.amount),
+    scholarshipStatus: outcome,
+    approvedScholarshipAmount: registration.scholarship_approved_amount,
+    amountPaid: registration.amount_paid,
+    paymentStatus: registration.payment_status,
+  });
+  const paymentUrl = (outcome === "approved_partial" || outcome === "declined")
+    && financials.financialRequirementStatus === "payment_required"
+    ? createScholarshipPaymentLink(registration.id)
+    : null;
+  return deliver(registration.email, createScholarshipDecisionEmail(registration, outcome, { paymentUrl }));
+}
+
+const decisionOutcomes = ["approved_full", "approved_partial", "declined", "more_information_required"] as const;
+
+function isDecisionOutcome(value: string): value is ScholarshipOutcome {
+  return (decisionOutcomes as readonly string[]).includes(value);
+}
+
+export async function sendCurrentScholarshipDecisionEmail(applicationId: string): Promise<ScholarshipDecisionEmailStatus> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { sent: false, reason: "Supabase is required for auditable scholarship decision email delivery." };
+  const now = new Date();
+  const cutoff = new Date(now.valueOf() - 30_000).toISOString();
+  const { data, error } = await supabase
+    .from("registrations")
+    .update({
+      scholarship_decision_email_last_attempted_at: now.toISOString(),
+      scholarship_decision_email_error: null,
+    })
+    .eq("id", applicationId)
+    .eq("funding_route", "scholarship_request")
+    .or(`scholarship_decision_email_last_attempted_at.is.null,scholarship_decision_email_last_attempted_at.lt.${cutoff}`)
+    .select(scholarshipEmailRegistrationSelect)
+    .maybeSingle();
+  if (error) {
+    console.error("Scholarship decision email attempt could not be claimed", { code: error.code });
+    return { sent: false, reason: error.code === "42703" ? "Apply the scholarship decision email migration before sending notifications." : "Scholarship decision email delivery could not be started." };
+  }
+  if (!data) return { sent: false, reason: "Please wait at least 30 seconds before sending this scholarship decision email again." };
+  const registration = data as EmailRegistration;
+  const decision = registration.scholarship_status;
+  if (!isDecisionOutcome(decision)) return { sent: false, reason: "Save a scholarship decision before sending its notification." };
+
+  const summary = scholarshipFinancialSummary({
+    normalFee: Number(registration.amount),
+    scholarshipStatus: decision,
+    approvedScholarshipAmount: registration.scholarship_approved_amount,
+    amountPaid: registration.amount_paid,
+    paymentStatus: registration.payment_status,
+  });
+  if (!summary.valid) {
+    const reason = "The saved scholarship amount is inconsistent with the normal registration fee.";
+    await supabase.from("registrations").update({ scholarship_decision_email_error: reason }).eq("id", applicationId);
+    return { sent: false, reason, decision };
+  }
+
+  let paymentUrl: string | null = null;
+  try {
+    if (
+      (decision === "approved_partial" || decision === "declined")
+      && summary.financialRequirementStatus === "payment_required"
+    ) {
+      paymentUrl = createScholarshipPaymentLink(applicationId);
+    }
+  } catch (linkError) {
+    const reason = linkError instanceof Error ? linkError.message : "The secure scholarship payment link could not be created.";
+    await supabase.from("registrations").update({ scholarship_decision_email_error: reason.slice(0, 1000) }).eq("id", applicationId);
+    return { sent: false, reason, decision };
+  }
+
+  const result = await deliver(
+    registration.email,
+    createScholarshipDecisionEmail(registration, decision, { paymentUrl }),
+    `realms-scholarship-decision-${applicationId}-${decision}-${now.toISOString()}`,
+  );
+  const auditState = {
+    scholarship_decision: decision,
+    email_sent: result.sent,
+    attempted_at: now.toISOString(),
+    provider_email_id: result.sent ? result.id ?? null : null,
+  };
+  if (result.sent) {
+    await supabase.from("registrations").update({
+      scholarship_decision_email_sent: true,
+      scholarship_decision_email_sent_at: now.toISOString(),
+      scholarship_decision_email_type: decision,
+      scholarship_decision_email_error: null,
+    }).eq("id", applicationId);
+  } else {
+    await supabase.from("registrations").update({
+      scholarship_decision_email_error: result.reason.slice(0, 1000),
+    }).eq("id", applicationId);
+  }
+  const audit = await supabase.from("registration_review_events").insert({
+    registration_id: applicationId,
+    event_type: result.sent ? "scholarship_decision_email_sent" : "scholarship_decision_email_failed",
+    previous_state: null,
+    new_state: auditState,
+    note: result.sent ? "Scholarship decision email delivered through the configured provider." : result.reason.slice(0, 1000),
+    actor: "REALMS Admin",
+    created_at: now.toISOString(),
+  });
+  if (audit.error) console.error("Scholarship decision email audit insert failed", { code: audit.error.code });
+  return result.sent ? { ...result, decision } : { ...result, decision };
 }

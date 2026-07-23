@@ -149,4 +149,4 @@ function FilterSelect({ name, label, options }: { name: string; label: string; o
 function Cell({ children }: { children: ReactNode }) { return <td className="px-4 py-4 text-slate-700">{children}</td>; }
 function MobileDetail({ label, value }: { label: string; value: string }) { return <div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</dt><dd className="mt-1 text-slate-900">{value}</dd></div>; }
 function formatDate(value: string | null) { return value ? new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(value)) : "Not recorded"; }
-function formatAmountPaid(registration: AdminRegistration) { const amountPaid = registration.amount_paid ?? (registration.payment_status === "success" ? Number(registration.amount) : null); return amountPaid === null ? "Not yet paid" : `${registration.currency} ${amountPaid.toLocaleString("en")}`; }
+function formatAmountPaid(registration: AdminRegistration) { return registration.amount_paid === null ? "No money recorded" : `${registration.currency} ${Number(registration.amount_paid).toLocaleString("en")}`; }

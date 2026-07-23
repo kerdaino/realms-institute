@@ -21,10 +21,10 @@ import {
   type ScreeningStatus,
 } from "@/lib/registration";
 
-const sharedRegistrationFields = "id, created_at, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, consent, fee_policy_consent, computer_access_confirmed, amount, amount_paid, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, alumni_previous_cohort, alumni_previous_email, alumni_previous_phone, alumni_student_id, screening_status, screening_answers, funding_route, scholarship_status, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, admission_email_sent, admission_email_sent_at";
+const sharedRegistrationFields = "id, created_at, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, consent, fee_policy_consent, computer_access_confirmed, amount, amount_paid, payment_expected_amount, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status, financial_requirement_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, alumni_previous_cohort, alumni_previous_email, alumni_previous_phone, alumni_student_id, screening_status, screening_answers, funding_route, scholarship_status, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, admission_email_sent, admission_email_sent_at";
 
 export const adminRegistrationListFields = sharedRegistrationFields;
-export const adminRegistrationFields = `${sharedRegistrationFields}, alumni_review_note, alumni_reviewed_at, alumni_reviewed_by, theological_institution, theological_programme, theological_duration, theological_year_completed, theological_qualification, screening_objective_score, screening_objective_max, screening_short_answer_1_score, screening_short_answer_2_score, screening_short_answer_score, screening_total_score, screening_percentage, screening_review_note, screening_reviewed_at, screening_reviewed_by, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, scholarship_approved_amount, scholarship_review_note, scholarship_reviewed_at, scholarship_reviewed_by, scholarship_confirmation_email_sent, scholarship_confirmation_email_sent_at, scholarship_admin_email_sent, scholarship_admin_email_sent_at, admin_note_updated_at, admin_note_updated_by`;
+export const adminRegistrationFields = `${sharedRegistrationFields}, alumni_review_note, alumni_reviewed_at, alumni_reviewed_by, theological_institution, theological_programme, theological_duration, theological_year_completed, theological_qualification, screening_objective_score, screening_objective_max, screening_short_answer_1_score, screening_short_answer_2_score, screening_short_answer_score, screening_total_score, screening_percentage, screening_review_note, screening_reviewed_at, screening_reviewed_by, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, scholarship_approved_amount, scholarship_applicant_message, scholarship_review_note, scholarship_reviewed_at, scholarship_reviewed_by, scholarship_confirmation_email_sent, scholarship_confirmation_email_sent_at, scholarship_admin_email_sent, scholarship_admin_email_sent_at, scholarship_decision_email_sent, scholarship_decision_email_sent_at, scholarship_decision_email_type, scholarship_decision_email_error, scholarship_decision_email_last_attempted_at, admin_note_updated_at, admin_note_updated_by`;
 
 export type AdminRegistration = {
   id: string;
@@ -46,12 +46,14 @@ export type AdminRegistration = {
   computer_access_confirmed: boolean;
   amount: number;
   amount_paid: number | null;
+  payment_expected_amount: number | null;
   currency: string;
   public_fee_display: string | null;
   amount_display: string | null;
   exchange_note: string | null;
   payment_reference: string | null;
   payment_status: string;
+  financial_requirement_status: string;
   application_status: ApplicationStatus;
   applicant_type: ApplicantType;
   requested_discipleship_route: RequestedDiscipleshipRoute;
@@ -89,6 +91,7 @@ export type AdminRegistration = {
   scholarship_can_contribute?: boolean | null;
   scholarship_contribution_amount?: number | null;
   scholarship_approved_amount?: number | null;
+  scholarship_applicant_message?: string | null;
   scholarship_review_note?: string | null;
   scholarship_reviewed_at?: string | null;
   scholarship_reviewed_by?: string | null;
@@ -96,6 +99,11 @@ export type AdminRegistration = {
   scholarship_confirmation_email_sent_at?: string | null;
   scholarship_admin_email_sent?: boolean;
   scholarship_admin_email_sent_at?: string | null;
+  scholarship_decision_email_sent?: boolean;
+  scholarship_decision_email_sent_at?: string | null;
+  scholarship_decision_email_type?: string | null;
+  scholarship_decision_email_error?: string | null;
+  scholarship_decision_email_last_attempted_at?: string | null;
   admin_note: string | null;
   admin_note_updated_at?: string | null;
   admin_note_updated_by?: string | null;

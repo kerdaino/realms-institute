@@ -7,6 +7,8 @@ export const publicRateLimitPolicies = {
   scholarship_email: { limit: 3, windowSeconds: 24 * 60 * 60 },
   paystack_initialize_source: { limit: 8, windowSeconds: 15 * 60 },
   paystack_initialize_email: { limit: 4, windowSeconds: 60 * 60 },
+  scholarship_payment_source: { limit: 12, windowSeconds: 15 * 60 },
+  scholarship_payment_token: { limit: 6, windowSeconds: 15 * 60 },
   paystack_verify_source: { limit: 60, windowSeconds: 10 * 60 },
   paystack_verify_reference: { limit: 20, windowSeconds: 10 * 60 },
   forgot_password_source: { limit: 10, windowSeconds: 15 * 60 },

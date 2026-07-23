@@ -36,12 +36,14 @@ export type SavedRegistration = {
   computer_access_confirmed: boolean;
   amount: number;
   amount_paid: number | null;
+  payment_expected_amount: number | null;
   currency: string;
   public_fee_display: string | null;
   amount_display: string | null;
   exchange_note: string | null;
   payment_reference: string | null;
   payment_status: string;
+  financial_requirement_status: string;
   application_status: string;
   applicant_type: string;
   requested_discipleship_route: string;
@@ -63,6 +65,7 @@ export type SavedRegistration = {
   scholarship_can_contribute: boolean | null;
   scholarship_contribution_amount: number | null;
   scholarship_approved_amount: number | null;
+  scholarship_applicant_message: string | null;
   admin_note: string | null;
   reviewed_at: string | null;
   reviewed_by: string | null;
@@ -75,6 +78,11 @@ export type SavedRegistration = {
   scholarship_confirmation_email_sent_at: string | null;
   scholarship_admin_email_sent: boolean;
   scholarship_admin_email_sent_at: string | null;
+  scholarship_decision_email_sent: boolean;
+  scholarship_decision_email_sent_at: string | null;
+  scholarship_decision_email_type: string | null;
+  scholarship_decision_email_error: string | null;
+  scholarship_decision_email_last_attempted_at: string | null;
   admission_email_sent: boolean;
   admission_email_sent_at: string | null;
 };
@@ -149,7 +157,7 @@ function exchangeNote(fee: CalculatedFeeMetadata | CohortFee) {
   return "exchangeNote" in fee ? fee.exchangeNote ?? null : null;
 }
 
-export const savedRegistrationSelect = "id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, fee_policy_consent, computer_access_confirmed, amount, amount_paid, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, screening_status, screening_answers, screening_objective_score, screening_objective_max, screening_short_answer_score, screening_short_answer_max, screening_total_score, screening_percentage, funding_route, scholarship_status, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, scholarship_approved_amount, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, scholarship_confirmation_email_sent, scholarship_confirmation_email_sent_at, scholarship_admin_email_sent, scholarship_admin_email_sent_at, admission_email_sent, admission_email_sent_at";
+export const savedRegistrationSelect = "id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, fee_policy_consent, computer_access_confirmed, amount, amount_paid, payment_expected_amount, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status, financial_requirement_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, screening_status, screening_answers, screening_objective_score, screening_objective_max, screening_short_answer_score, screening_short_answer_max, screening_total_score, screening_percentage, funding_route, scholarship_status, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, scholarship_approved_amount, scholarship_applicant_message, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, scholarship_confirmation_email_sent, scholarship_confirmation_email_sent_at, scholarship_admin_email_sent, scholarship_admin_email_sent_at, scholarship_decision_email_sent, scholarship_decision_email_sent_at, scholarship_decision_email_type, scholarship_decision_email_error, scholarship_decision_email_last_attempted_at, admission_email_sent, admission_email_sent_at";
 
 const paymentApplicationSelect = "id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, consent, fee_policy_consent, computer_access_confirmed, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, screening_status, alumni_previous_cohort, alumni_previous_email, alumni_previous_phone, alumni_student_id, theological_institution, theological_programme, theological_duration, theological_year_completed, theological_qualification, screening_answers, funding_route, scholarship_status, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, amount, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status";
 
@@ -234,6 +242,8 @@ export function buildRegistrationColumns(registration: RegistrationPayload, fee:
     scholarship_contribution_amount: registration.scholarshipContributionAmount,
     amount: fee.amount,
     amount_paid: null,
+    payment_expected_amount: registration.fundingRoute === "self_pay" ? fee.amount : null,
+    financial_requirement_status: "payment_required",
     currency: fee.currency,
     public_fee_display: publicFeeDisplay(fee),
     amount_display: fee.display,
@@ -263,6 +273,7 @@ export function buildVerifiedPaymentColumns(paystackData: PaystackVerificationDa
   return {
     amount_paid: paystackData.amount / 100,
     payment_status: "success",
+    financial_requirement_status: "satisfied_by_payment",
     payment_reference: paystackData.reference,
     paid_at: verifiedAt,
     paystack_customer_email: readCustomerEmail(paystackData.customer),
