@@ -78,6 +78,8 @@ export type StudentResource = {
   description: string | null;
   resourceType: string;
   externalUrl: string | null;
+  hasControlledFile: boolean;
+  fileName: string | null;
   courseCode: string;
   courseTitle: string;
   sessionId: string;
@@ -343,7 +345,7 @@ async function loadStudentDashboardData(profileId: string, options: LoadOptions 
   });
 
   if (options.includeResources) {
-    const resourceResult = await supabase.from("session_resources").select("id, class_session_id, title, description, resource_type, external_url, access_level, is_active, sort_order").in("class_session_id", sessionIds).eq("is_active", true).eq("access_level", "enrolled_students").order("sort_order").order("created_at");
+    const resourceResult = await supabase.from("session_resources").select("id, class_session_id, title, description, resource_type, external_url, storage_path, file_name, access_level, is_active, sort_order").in("class_session_id", sessionIds).eq("is_active", true).eq("access_level", "enrolled_students").order("sort_order").order("created_at");
     reportFailure("resource lookup", resourceResult.error);
     base.resources = (resourceResult.data ?? []).flatMap((raw) => {
       const row = object(raw);
@@ -351,7 +353,7 @@ async function loadStudentDashboardData(profileId: string, options: LoadOptions 
       const id = text(row.id);
       const title = text(row.title);
       if (!session || !id || !title) return [];
-      return [{ id, title, description: text(row.description), resourceType: text(row.resource_type) ?? "resource", externalUrl: safeExternalUrl(row.external_url), courseCode: session.courseCode, courseTitle: session.courseTitle, sessionId: session.id, sessionTitle: session.title } satisfies StudentResource];
+      return [{ id, title, description: text(row.description), resourceType: text(row.resource_type) ?? "resource", externalUrl: safeExternalUrl(row.external_url), hasControlledFile: Boolean(text(row.storage_path)), fileName: text(row.file_name), courseCode: session.courseCode, courseTitle: session.courseTitle, sessionId: session.id, sessionTitle: session.title } satisfies StudentResource];
     });
   }
   return base;

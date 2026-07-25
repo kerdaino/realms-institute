@@ -26,6 +26,7 @@ export type LmsAuditAction =
   | "class_summary_published"
   | "class_summary_archived"
   | "session_resource_added"
+  | "session_resource_file_uploaded"
   | "session_resource_updated"
   | "session_resource_deactivated"
   | "class_recording_added"

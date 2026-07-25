@@ -8,7 +8,7 @@ import { assertFacilitatorOfferingAccess, resolveStudentCourseEnrollment } from 
 import { assessmentUploadLimit, fileExtension, isDangerousFileExtension, privateFileContentMatches, privateFileLimits, privateFileSignedUrlSeconds, privateStorageBuckets, safeDisplayFilename } from "@/lib/lms/privateFilePolicy";
 
 type Row = Record<string, unknown>;
-type ValidatedUpload = { bytes: Uint8Array; checksum: string; filename: string; mimeType: string; size: number; extension: string };
+export type ValidatedUpload = { bytes: Uint8Array; checksum: string; filename: string; mimeType: string; size: number; extension: string };
 
 const assessmentMimeByExtension: Record<string, readonly string[]> = {
   pdf: ["application/pdf"],
@@ -23,16 +23,27 @@ const assessmentMimeByExtension: Record<string, readonly string[]> = {
 const absenceMimeByExtension: Record<string, readonly string[]> = {
   pdf: ["application/pdf"], jpg: ["image/jpeg"], jpeg: ["image/jpeg"], png: ["image/png"], webp: ["image/webp"],
 };
+const learningResourceMimeByExtension: Record<string, readonly string[]> = {
+  pdf: ["application/pdf"],
+  docx: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  pptx: ["application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+  xlsx: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  txt: ["text/plain"],
+  jpg: ["image/jpeg"],
+  jpeg: ["image/jpeg"],
+  png: ["image/png"],
+  webp: ["image/webp"],
+};
 
 function relation(value: unknown): Row { return Array.isArray(value) ? (value[0] as Row | undefined) ?? {} : value && typeof value === "object" ? value as Row : {}; }
 function storageError(message = "Your file could not be uploaded. Please check the file type and size and try again.", status = 400): never { throw new LmsAdminDataError(message, status); }
-export async function validatePrivateUpload(file: File, area: "assessment" | "absence", maximumBytes: number): Promise<ValidatedUpload> {
+export async function validatePrivateUpload(file: File, area: "assessment" | "absence" | "learning_resource", maximumBytes: number): Promise<ValidatedUpload> {
   if (!(file instanceof File) || file.size <= 0) storageError();
   if (file.size > maximumBytes) storageError();
   const filename = safeDisplayFilename(file.name);
   if (isDangerousFileExtension(filename)) storageError();
   const extension = fileExtension(filename);
-  const allowed = area === "assessment" ? assessmentMimeByExtension : absenceMimeByExtension;
+  const allowed = area === "assessment" ? assessmentMimeByExtension : area === "absence" ? absenceMimeByExtension : learningResourceMimeByExtension;
   if (!allowed[extension]?.includes(file.type.toLowerCase())) storageError();
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (!privateFileContentMatches(extension, bytes)) storageError();

@@ -2,6 +2,7 @@ export const privateStorageBuckets = {
   assessment: "assessment-submissions",
   absence: "absence-evidence",
   award: "institutional-awards",
+  learningResource: "learning-resources",
 } as const;
 
 export const privateFileLimits = {
@@ -9,12 +10,16 @@ export const privateFileLimits = {
   assessmentProjectArchive: 50 * 1024 * 1024,
   absenceEvidence: 10 * 1024 * 1024,
   certificatePdf: 10 * 1024 * 1024,
+  // Vercel Functions currently cap request payloads at 4.5 MB. Keeping the
+  // file itself at 4 MB leaves room for multipart fields and headers.
+  learningResource: 4 * 1024 * 1024,
 } as const;
 
 export const privateFileSignedUrlSeconds = 5 * 60;
 
 export const assessmentFileAccept = ".pdf,.docx,.txt,.jpg,.jpeg,.png,.webp,.zip";
 export const absenceFileAccept = ".pdf,.jpg,.jpeg,.png,.webp";
+export const learningResourceFileAccept = ".pdf,.docx,.pptx,.xlsx,.txt,.jpg,.jpeg,.png,.webp";
 
 const dangerousExtensions = new Set(["exe", "dmg", "pkg", "bat", "cmd", "scr", "com", "msi", "app", "jar", "ps1", "sh"]);
 
@@ -47,6 +52,8 @@ function containsAscii(bytes: Uint8Array, token: string) {
 export function privateFileContentMatches(extension: string, bytes: Uint8Array) {
   if (extension === "pdf") return hasPrefix(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d]);
   if (extension === "docx") return (hasPrefix(bytes, [0x50, 0x4b, 0x03, 0x04]) || hasPrefix(bytes, [0x50, 0x4b, 0x05, 0x06])) && containsAscii(bytes, "[Content_Types].xml") && containsAscii(bytes, "word/");
+  if (extension === "pptx") return (hasPrefix(bytes, [0x50, 0x4b, 0x03, 0x04]) || hasPrefix(bytes, [0x50, 0x4b, 0x05, 0x06])) && containsAscii(bytes, "[Content_Types].xml") && containsAscii(bytes, "ppt/");
+  if (extension === "xlsx") return (hasPrefix(bytes, [0x50, 0x4b, 0x03, 0x04]) || hasPrefix(bytes, [0x50, 0x4b, 0x05, 0x06])) && containsAscii(bytes, "[Content_Types].xml") && containsAscii(bytes, "xl/");
   if (extension === "zip") return hasPrefix(bytes, [0x50, 0x4b, 0x03, 0x04]) || hasPrefix(bytes, [0x50, 0x4b, 0x05, 0x06]);
   if (["jpg", "jpeg"].includes(extension)) return hasPrefix(bytes, [0xff, 0xd8, 0xff]);
   if (extension === "png") return hasPrefix(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);

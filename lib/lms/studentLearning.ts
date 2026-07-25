@@ -90,6 +90,7 @@ export type LearningResource = {
   resourceType: string;
   externalUrl: string | null;
   hasControlledFile: boolean;
+  fileName: string | null;
 };
 
 export type LearningRecording = {
@@ -348,7 +349,7 @@ async function loadOfferingContent(supabase: SupabaseClient, offeringIds: string
   const sessionIds = (sessionResult.data ?? []).map((row) => row.id);
   const [summaryResult, resourceResult, recordingResult, assignments] = await Promise.all([
     sessionIds.length ? supabase.from("class_summaries").select("id, class_session_id, title, version_number, published_at, updated_at, summary_status").in("class_session_id", sessionIds).eq("summary_status", "published") : Promise.resolve({ data: [], error: null }),
-    sessionIds.length ? supabase.from("session_resources").select("id, class_session_id, title, description, resource_type, access_level, is_active").in("class_session_id", sessionIds).eq("is_active", true).eq("access_level", "enrolled_students") : Promise.resolve({ data: [], error: null }),
+    sessionIds.length ? supabase.from("session_resources").select("id, class_session_id, title, description, resource_type, external_url, storage_path, file_name, access_level, is_active").in("class_session_id", sessionIds).eq("is_active", true).eq("access_level", "enrolled_students") : Promise.resolve({ data: [], error: null }),
     sessionIds.length ? supabase.from("class_recordings").select("id, class_session_id, title, provider, duration_seconds, recording_status, access_level, available_from, available_until, created_at").in("class_session_id", sessionIds).eq("recording_status", "available").eq("access_level", "enrolled_students") : Promise.resolve({ data: [], error: null }),
     loadStudentFacilitatorPresentations(supabase, offeringIds),
   ]);
@@ -408,7 +409,7 @@ async function loadStudentCourseDetail(courseEnrollmentId: string): Promise<Stud
   const resources = content.resources.flatMap((row) => {
     const session = sessionById.get(text(row.class_session_id) ?? ""); const id = text(row.id); const title = text(row.title);
     if (!session || !id || !title) return [];
-    return [{ id, sessionId: session.id, sessionTitle: session.title, title, description: text(row.description), resourceType: text(row.resource_type) ?? "other", externalUrl: null, hasControlledFile: false } satisfies LearningResource];
+    return [{ id, sessionId: session.id, sessionTitle: session.title, title, description: text(row.description), resourceType: text(row.resource_type) ?? "other", externalUrl: safeHttpUrl(row.external_url), hasControlledFile: Boolean(text(row.storage_path)), fileName: text(row.file_name) } satisfies LearningResource];
   });
   const recordings = currentRecordings.flatMap((row) => mapRecording(row, sessionById, now, false));
   return { course, upcomingSessions: sessions.filter((session) => !session.isPast && session.status !== "completed"), pastSessions: sessions.filter((session) => session.isPast || session.status === "completed"), summaryArchive, resources, recordings };
@@ -454,7 +455,7 @@ async function loadStudentSessionDetail(sessionId: string): Promise<StudentSessi
   if (!courseEnrollmentResult.data) return null;
   const [summaryResult, resourceResult, recordingResult, siblingResult, assignments] = await Promise.all([
     context.supabase.from("class_summaries").select("id, class_session_id, title, learning_objectives, key_teaching_points, key_scriptures_references, important_concepts, practical_applications, action_points, recommended_resources, additional_notes, summary_status, version_number, published_at, updated_at").eq("class_session_id", sessionId).eq("summary_status", "published").maybeSingle(),
-    context.supabase.from("session_resources").select("id, class_session_id, title, description, resource_type, external_url, storage_path, access_level, is_active, sort_order").eq("class_session_id", sessionId).eq("is_active", true).eq("access_level", "enrolled_students").order("sort_order"),
+    context.supabase.from("session_resources").select("id, class_session_id, title, description, resource_type, external_url, storage_path, file_name, access_level, is_active, sort_order").eq("class_session_id", sessionId).eq("is_active", true).eq("access_level", "enrolled_students").order("sort_order"),
     context.supabase.from("class_recordings").select("id, class_session_id, title, provider, external_url, embed_url, duration_seconds, recording_status, access_level, available_from, available_until, created_at").eq("class_session_id", sessionId).eq("recording_status", "available").eq("access_level", "enrolled_students").order("created_at"),
     context.supabase.from("class_sessions").select("id, title, description, session_number, session_type, delivery_mode, scheduled_start_at, scheduled_end_at, timezone, session_status, facilitator_id, facilitators(id, display_name, title)").eq("cohort_course_id", offeringId).eq("visibility_status", "enrolled_only"),
     loadStudentFacilitatorPresentations(context.supabase, [offeringId]),
@@ -475,7 +476,7 @@ async function loadStudentSessionDetail(sessionId: string): Promise<StudentSessi
   const resources = (resourceResult.data ?? []).flatMap((raw) => {
     const row = object(raw); const id = text(row.id); const title = text(row.title);
     if (!id || !title) return [];
-    return [{ id, sessionId, sessionTitle: baseSession.title, title, description: text(row.description), resourceType: text(row.resource_type) ?? "other", externalUrl: safeHttpUrl(row.external_url), hasControlledFile: Boolean(text(row.storage_path)) } satisfies LearningResource];
+    return [{ id, sessionId, sessionTitle: baseSession.title, title, description: text(row.description), resourceType: text(row.resource_type) ?? "other", externalUrl: safeHttpUrl(row.external_url), hasControlledFile: Boolean(text(row.storage_path)), fileName: text(row.file_name) } satisfies LearningResource];
   });
   const recordings = (recordingResult.data ?? []).flatMap((raw) => mapRecording(object(raw), sessionById, now, true));
   const session = { ...baseSession, physicalLocation: course.deliveryRoute === "PL" ? text(sessionResult.data.physical_location) : null };

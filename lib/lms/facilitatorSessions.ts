@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getCurrentUser, getCurrentUserRoles } from "@/lib/lms/auth";
-import { LmsAdminDataError } from "@/lib/lms/adminData";
+import { LmsAdminDataError, requireLmsAdminClient } from "@/lib/lms/adminData";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type FacilitatorSessionContext = { userId: string; facilitatorId: string; displayName: string; supabase: SupabaseClient };
@@ -43,10 +43,11 @@ export async function requireFacilitatorSessionAccess(context: FacilitatorSessio
 
 export async function fetchFacilitatorSession(context: FacilitatorSessionContext, sessionId: string) {
   await requireFacilitatorSessionAccess(context, sessionId);
+  const admin = requireLmsAdminClient();
   const [session, summary, resources, recordings] = await Promise.all([
     context.supabase.from("class_sessions").select("*, cohort_courses(*, courses(id, code, title, description, course_purpose, learning_outcomes), cohorts(id, code, name)), facilitators(id, display_name, title)").eq("id", sessionId).single(),
     context.supabase.from("class_summaries").select("*").eq("class_session_id", sessionId).maybeSingle(),
-    context.supabase.from("session_resources").select("*").eq("class_session_id", sessionId).eq("is_active", true).order("sort_order"),
+    admin.from("session_resources").select("*").eq("class_session_id", sessionId).order("sort_order").order("created_at"),
     context.supabase.from("class_recordings").select("id, class_session_id, title, provider, duration_seconds, recording_status, access_level, available_from, available_until, quality_checked, quality_checked_at").eq("class_session_id", sessionId).order("created_at"),
   ]);
   for (const result of [session, summary, resources, recordings]) if (result.error) throw new LmsAdminDataError("Assigned class session details could not be loaded.");

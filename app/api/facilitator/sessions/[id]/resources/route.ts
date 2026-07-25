@@ -1,20 +1,23 @@
 import { NextResponse } from "next/server";
-import { isAdminAuthenticated } from "@/lib/adminAuth";
+
 import { isUuid } from "@/lib/lms/adminConstants";
 import { LmsAdminDataError, requireLmsAdminClient } from "@/lib/lms/adminData";
 import { lmsApiError, readJsonObject } from "@/lib/lms/apiResponse";
+import { requireFacilitatorSessionAccess, resolveFacilitatorSessionContext } from "@/lib/lms/facilitatorSessions";
 import { addExternalLearningResource, storeLearningResourceUpload } from "@/lib/lms/learningResourceStorage.server";
 import { privateFileLimits } from "@/lib/lms/privateFilePolicy";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await isAdminAuthenticated())) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
   const { id } = await params;
   if (!isUuid(id)) return NextResponse.json({ message: "Class session not found." }, { status: 404 });
   try {
+    const context = await resolveFacilitatorSessionContext();
+    await requireFacilitatorSessionAccess(context, id);
     const admin = requireLmsAdminClient();
-    const actor = { actorLabel: "REALMS Admin" as const, auditClient: admin };
+    const actor = { actorLabel: "Facilitator" as const, actorUserId: context.userId, auditClient: admin };
+
     if (request.headers.get("content-type")?.includes("multipart/form-data")) {
       const contentLength = Number(request.headers.get("content-length") || 0);
       if (contentLength > privateFileLimits.learningResource + 256 * 1024) {
@@ -22,7 +25,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       }
       const form = await request.formData();
       const candidate = form.get("attachment");
-      if (!(candidate instanceof File) || candidate.size <= 0) throw new LmsAdminDataError("Choose a learning-material file.", 400);
+      if (!(candidate instanceof File) || candidate.size <= 0) {
+        throw new LmsAdminDataError("Choose a learning-material file.", 400);
+      }
       const resource = await storeLearningResourceUpload(admin, {
         sessionId: id,
         title: form.get("title"),
@@ -34,15 +39,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       });
       return NextResponse.json({ resource }, { status: 201 });
     }
+
     const body = await readJsonObject(request);
-    if (!body) throw new LmsAdminDataError("Valid resource details are required.", 400);
-    return NextResponse.json({
-      resource: await addExternalLearningResource(admin, id, {
-        ...body,
-        publish_now: body.publish_now ?? (body.access_level ? body.access_level === "enrolled_students" : true),
-      }, actor),
-    }, { status: 201 });
+    if (!body || body.source !== "external_link") {
+      throw new LmsAdminDataError("Valid resource details are required.", 400);
+    }
+    const resource = await addExternalLearningResource(admin, id, body, actor);
+    return NextResponse.json({ resource }, { status: 201 });
   } catch (error) {
-    return lmsApiError(error, "Session resource could not be added.");
+    return lmsApiError(error, "The learning resource could not be added.");
   }
 }

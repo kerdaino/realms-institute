@@ -233,10 +233,14 @@ export type SessionResource = {
   storage_path: string | null;
   file_name: string | null;
   mime_type: string | null;
+  size_bytes: number | null;
+  sha256: string | null;
   access_level: string;
   sort_order: number;
   is_active: boolean;
   created_by: string | null;
+  uploaded_by: string | null;
+  uploaded_at: string | null;
   created_at: string;
   updated_at: string;
 };

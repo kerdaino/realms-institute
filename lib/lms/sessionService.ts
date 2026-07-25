@@ -22,7 +22,7 @@ import {
 import { LmsAdminDataError } from "@/lib/lms/adminData";
 import { initializeAwaitingMakeupsForSession } from "@/lib/lms/absenceService";
 
-type Actor = { actorUserId?: string | null; actorLabel: "REALMS Admin" | "Facilitator"; auditClient?: SupabaseClient };
+export type SessionActor = { actorUserId?: string | null; actorLabel: "REALMS Admin" | "Facilitator"; auditClient?: SupabaseClient };
 
 function invalid(message: string): never { throw new LmsAdminDataError(message, 400); }
 function validWholeNumber(value: unknown, minimum = 0) { if (value === "" || value === null || value === undefined) return null; const number = Number(value); return Number.isInteger(number) && number >= minimum ? number : undefined; }
@@ -67,7 +67,7 @@ function normalizeSessionInput(body: Record<string, unknown>, requireOffering: b
   };
 }
 
-export async function createClassSession(supabase: SupabaseClient, body: Record<string, unknown>, actor: Actor) {
+export async function createClassSession(supabase: SupabaseClient, body: Record<string, unknown>, actor: SessionActor) {
   const values = normalizeSessionInput(body, true);
   const result = await supabase.from("class_sessions").insert({ ...values, created_by: actor.actorUserId ?? null, updated_by: actor.actorUserId ?? null }).select("*").single();
   if (result.error) {
@@ -78,7 +78,7 @@ export async function createClassSession(supabase: SupabaseClient, body: Record<
   return result.data;
 }
 
-export async function updateClassSession(supabase: SupabaseClient, id: string, body: Record<string, unknown>, actor: Actor) {
+export async function updateClassSession(supabase: SupabaseClient, id: string, body: Record<string, unknown>, actor: SessionActor) {
   const currentResult = await supabase.from("class_sessions").select("*").eq("id", id).maybeSingle();
   if (currentResult.error) throw new LmsAdminDataError("Class session could not be loaded.");
   if (!currentResult.data) throw new LmsAdminDataError("Class session not found.", 404);
@@ -110,7 +110,7 @@ function normalizeSummary(body: Record<string, unknown>) {
 }
 function summaryChanged(current: Record<string, unknown>, next: Record<string, unknown>) { return summaryFields.some((field) => JSON.stringify(current[field] ?? null) !== JSON.stringify(next[field] ?? null)); }
 
-export async function saveClassSummary(supabase: SupabaseClient, sessionId: string, body: Record<string, unknown>, actor: Actor) {
+export async function saveClassSummary(supabase: SupabaseClient, sessionId: string, body: Record<string, unknown>, actor: SessionActor) {
   const existing = await supabase.from("class_summaries").select("*").eq("class_session_id", sessionId).maybeSingle();
   if (existing.error) throw new LmsAdminDataError("Class summary could not be loaded.");
   const values = normalizeSummary(body);
@@ -130,7 +130,7 @@ export async function saveClassSummary(supabase: SupabaseClient, sessionId: stri
   return { summary: result.data, changed: true };
 }
 
-export async function setClassSummaryStatus(supabase: SupabaseClient, sessionId: string, status: "published" | "archived", actor: Actor) {
+export async function setClassSummaryStatus(supabase: SupabaseClient, sessionId: string, status: "published" | "archived", actor: SessionActor) {
   const existing = await supabase.from("class_summaries").select("*").eq("class_session_id", sessionId).maybeSingle();
   if (existing.error || !existing.data) throw new LmsAdminDataError("Create and save the class summary before changing its publication status.", 409);
   if (existing.data.summary_status === status) return existing.data;
@@ -140,22 +140,22 @@ export async function setClassSummaryStatus(supabase: SupabaseClient, sessionId:
   return result.data;
 }
 
-export async function addSessionResource(supabase: SupabaseClient, sessionId: string, body: Record<string, unknown>, actor: Actor) {
+export async function addSessionResource(supabase: SupabaseClient, sessionId: string, body: Record<string, unknown>, actor: SessionActor) {
   const title = readText(body.title, 240); const externalUrl = readHttpUrl(body.external_url); const sortOrder = validWholeNumber(body.sort_order, 0);
   if (!title || !isOneOf(resourceTypes, body.resource_type) || !isOneOf(sessionAccessLevels, body.access_level) || externalUrl === undefined || sortOrder === undefined) invalid("Valid resource details are required.");
   const result = await supabase.from("session_resources").insert({ class_session_id: sessionId, title, description: readText(body.description), resource_type: body.resource_type, external_url: externalUrl, access_level: body.access_level, sort_order: sortOrder ?? 0, is_active: true, created_by: actor.actorUserId ?? null }).select("*").single();
   if (result.error) throw new LmsAdminDataError("Session resource could not be added.");
-  await recordLmsAudit(supabase, { action: "session_resource_added", entityType: "session_resource", entityId: result.data.id, actorUserId: actor.actorUserId, metadata: { class_session_id: sessionId, resource_type: result.data.resource_type, access_level: result.data.access_level, actor: actor.actorLabel } }); return result.data;
+  await recordLmsAudit(actor.auditClient ?? supabase, { action: "session_resource_added", entityType: "session_resource", entityId: result.data.id, actorUserId: actor.actorUserId, metadata: { class_session_id: sessionId, resource_type: result.data.resource_type, access_level: result.data.access_level, actor: actor.actorLabel } }); return result.data;
 }
 
-export async function updateSessionResource(supabase: SupabaseClient, resourceId: string, body: Record<string, unknown>, actor: Actor) {
+export async function updateSessionResource(supabase: SupabaseClient, resourceId: string, body: Record<string, unknown>, actor: SessionActor) {
   const current = await supabase.from("session_resources").select("*").eq("id", resourceId).maybeSingle(); if (current.error || !current.data) throw new LmsAdminDataError("Session resource not found.", 404);
   const title = readText(body.title, 240); const externalUrl = readHttpUrl(body.external_url); const sortOrder = validWholeNumber(body.sort_order, 0); if (!title || !isOneOf(resourceTypes, body.resource_type) || !isOneOf(sessionAccessLevels, body.access_level) || externalUrl === undefined || sortOrder === undefined || typeof body.is_active !== "boolean") invalid("Valid resource details are required.");
   const result = await supabase.from("session_resources").update({ title, description: readText(body.description), resource_type: body.resource_type, external_url: externalUrl, access_level: body.access_level, sort_order: sortOrder ?? 0, is_active: body.is_active, updated_at: new Date().toISOString() }).eq("id", resourceId).select("*").single(); if (result.error) throw new LmsAdminDataError("Session resource could not be updated.");
-  const deactivated = current.data.is_active && !result.data.is_active; await recordLmsAudit(supabase, { action: deactivated ? "session_resource_deactivated" : "session_resource_updated", entityType: "session_resource", entityId: resourceId, actorUserId: actor.actorUserId, metadata: { class_session_id: current.data.class_session_id, resource_type: result.data.resource_type, access_level: result.data.access_level, actor: actor.actorLabel } }); return result.data;
+  const deactivated = current.data.is_active && !result.data.is_active; await recordLmsAudit(actor.auditClient ?? supabase, { action: deactivated ? "session_resource_deactivated" : "session_resource_updated", entityType: "session_resource", entityId: resourceId, actorUserId: actor.actorUserId, metadata: { class_session_id: current.data.class_session_id, resource_type: result.data.resource_type, access_level: result.data.access_level, actor: actor.actorLabel } }); return result.data;
 }
 
-export async function addClassRecording(supabase: SupabaseClient, sessionId: string, body: Record<string, unknown>, actor: Actor) {
+export async function addClassRecording(supabase: SupabaseClient, sessionId: string, body: Record<string, unknown>, actor: SessionActor) {
   const values = normalizeRecording(body); const result = await supabase.from("class_recordings").insert({ class_session_id: sessionId, ...values, created_by: actor.actorUserId ?? null }).select("*").single(); if (result.error) throw new LmsAdminDataError("Recording metadata could not be added."); await recordLmsAudit(supabase, { action: "class_recording_added", entityType: "class_recording", entityId: result.data.id, actorUserId: actor.actorUserId, metadata: { class_session_id: sessionId, provider: result.data.provider, recording_status: result.data.recording_status, access_level: result.data.access_level, actor: actor.actorLabel } }); if (result.data.recording_status === "available" && result.data.access_level === "enrolled_students") await initializeAwaitingMakeupsForSession(supabase, sessionId, actor); return result.data;
 }
 function normalizeRecording(body: Record<string, unknown>) {
@@ -164,6 +164,6 @@ function normalizeRecording(body: Record<string, unknown>) {
   if (body.recording_status === "available" && !externalUrl && !embedUrl) invalid("An available recording requires a secure external or embed URL."); if (from && until && Date.parse(until) <= Date.parse(from)) invalid("Recording availability end must be after its start.");
   return { title, provider: body.provider, external_url: externalUrl, embed_url: embedUrl, external_recording_id: readText(body.external_recording_id, 500), duration_seconds: duration, recording_status: body.recording_status, access_level: body.access_level, retention_status: "active", available_from: from, available_until: until, quality_checked: body.quality_checked, quality_checked_at: body.quality_checked ? new Date().toISOString() : null, updated_at: new Date().toISOString() };
 }
-export async function updateClassRecording(supabase: SupabaseClient, recordingId: string, body: Record<string, unknown>, actor: Actor) {
+export async function updateClassRecording(supabase: SupabaseClient, recordingId: string, body: Record<string, unknown>, actor: SessionActor) {
   const current = await supabase.from("class_recordings").select("*").eq("id", recordingId).maybeSingle(); if (current.error || !current.data) throw new LmsAdminDataError("Recording not found.", 404); const values = normalizeRecording(body); if (current.data.quality_checked && values.quality_checked) values.quality_checked_at = current.data.quality_checked_at; const result = await supabase.from("class_recordings").update(values).eq("id", recordingId).select("*").single(); if (result.error) throw new LmsAdminDataError("Recording metadata could not be updated."); await recordLmsAudit(supabase, { action: "class_recording_updated", entityType: "class_recording", entityId: recordingId, actorUserId: actor.actorUserId, metadata: { class_session_id: current.data.class_session_id, previous_status: current.data.recording_status, next_status: result.data.recording_status, access_level: result.data.access_level, actor: actor.actorLabel } }); if (!current.data.quality_checked && result.data.quality_checked) await recordLmsAudit(supabase, { action: "class_recording_quality_checked", entityType: "class_recording", entityId: recordingId, actorUserId: actor.actorUserId, metadata: { class_session_id: current.data.class_session_id, actor: actor.actorLabel } }); if (result.data.recording_status === "available" && result.data.access_level === "enrolled_students") await initializeAwaitingMakeupsForSession(supabase, current.data.class_session_id, actor); return result.data;
 }

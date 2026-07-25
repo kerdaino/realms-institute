@@ -16,6 +16,7 @@
     "test:sessions-live": "node --env-file=.env.local scripts/test-session-ui-live.mjs",
     "test:scholarship": "node --experimental-strip-types scripts/test-scholarship-decision-payment.mjs",
     "test:private-storage": "node --experimental-strip-types scripts/test-private-storage.mjs",
+    "test:learning-resources": "node --experimental-strip-types scripts/test-learning-resources.mjs",
     "audit:private-storage": "node --env-file=.env.local scripts/audit-private-storage-orphans.mjs",
     "audit:student-lifecycle": "node --env-file=.env.local --experimental-strip-types scripts/audit-student-lifecycle-live.mjs",
     "prepare:august-calendar": "node --env-file=.env.local --experimental-strip-types scripts/setup-august-2026-calendar.mjs",
