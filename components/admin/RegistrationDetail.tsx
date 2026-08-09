@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from
 import { AdminMessage } from "@/components/admin/DashboardStats";
 import { Badge } from "@/components/admin/RegistrationsManager";
 import { applicationStatusLabels, applicationStatuses } from "@/lib/applicationStatus";
+import { applicationDeletionReasonLabels, applicationDeletionReasons, type ApplicationDeletionReason } from "@/lib/applicationLifecycle";
 import type { AdminRegistration } from "@/lib/adminRegistrations";
 import { isFinancialRequirementSatisfied, scholarshipFinancialSummary } from "@/lib/scholarshipFinance";
 import {
@@ -26,6 +27,8 @@ type ScreeningReview = {
 };
 
 type StudentProvisioning = { id: string; student_number: string; profile_id: string | null; student_status: string; onboarding_status: string };
+type CanonicalCandidate = Pick<AdminRegistration, "id" | "full_name" | "email" | "created_at" | "payment_status" | "scholarship_status" | "advanced_entry_status" | "application_status">;
+type SupersedingApplication = Pick<AdminRegistration, "id" | "full_name" | "email" | "created_at">;
 
 const advancedEntryDecisionEmailLabels: Record<string, string> = {
   advanced_approved: "Approved Advanced",
@@ -56,6 +59,17 @@ export function RegistrationDetail({ id }: { id: string }) {
   const [studentProvisioning, setStudentProvisioning] = useState<StudentProvisioning | null>(null);
   const [provisioning, setProvisioning] = useState(false);
   const [portalSending, setPortalSending] = useState(false);
+  const [canonicalCandidates, setCanonicalCandidates] = useState<CanonicalCandidate[]>([]);
+  const [supersedingApplication, setSupersedingApplication] = useState<SupersedingApplication | null>(null);
+  const [showRemoval, setShowRemoval] = useState(false);
+  const [deletionReason, setDeletionReason] = useState<ApplicationDeletionReason | "">("");
+  const [deletionNote, setDeletionNote] = useState("");
+  const [supersededByApplicationId, setSupersededByApplicationId] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [removing, setRemoving] = useState(false);
+  const [showRestore, setShowRestore] = useState(false);
+  const [restoreConfirmation, setRestoreConfirmation] = useState("");
+  const [restoring, setRestoring] = useState(false);
 
   const loadRegistration = useCallback(async () => {
     const response = await fetch(`/api/admin/registrations/${encodeURIComponent(id)}`, { cache: "no-store" });
@@ -66,6 +80,8 @@ export function RegistrationDetail({ id }: { id: string }) {
     setScreeningReview(body.screeningReview || null);
     setReviewEvents(body.reviewEvents || []);
     setStudentProvisioning(body.studentProvisioning || null);
+    setCanonicalCandidates(body.canonicalCandidates || []);
+    setSupersedingApplication(body.supersedingApplication || null);
     setAlumniNote(next.alumni_review_note || "");
     setScreeningNote(next.screening_review_note || "");
     setAdvancedEntryApplicantMessage(next.advanced_entry_applicant_message || "");
@@ -92,6 +108,8 @@ export function RegistrationDetail({ id }: { id: string }) {
         setScreeningReview(body.screeningReview || null);
         setReviewEvents(body.reviewEvents || []);
         setStudentProvisioning(body.studentProvisioning || null);
+        setCanonicalCandidates(body.canonicalCandidates || []);
+        setSupersedingApplication(body.supersedingApplication || null);
         setAlumniNote(next.alumni_review_note || "");
         setScreeningNote(next.screening_review_note || "");
         setAdvancedEntryApplicantMessage(next.advanced_entry_applicant_message || "");
@@ -228,6 +246,55 @@ export function RegistrationDetail({ id }: { id: string }) {
     }
   }
 
+  async function removeApplication() {
+    setRemoving(true);
+    setActionMessage("");
+    try {
+      const response = await fetch(`/api/admin/registrations/${encodeURIComponent(id)}/removal`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          confirmation: deleteConfirmation,
+          reason: deletionReason,
+          note: deletionNote,
+          supersededByApplicationId: supersededByApplicationId || null,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.message || "Application could not be removed safely.");
+      setShowRemoval(false);
+      setDeleteConfirmation("");
+      await loadRegistration();
+      setActionMessage(body.message);
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "Application could not be removed safely.");
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  async function restoreApplication() {
+    setRestoring(true);
+    setActionMessage("");
+    try {
+      const response = await fetch(`/api/admin/registrations/${encodeURIComponent(id)}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation: restoreConfirmation }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.message || "Application could not be restored safely.");
+      setShowRestore(false);
+      setRestoreConfirmation("");
+      await loadRegistration();
+      setActionMessage(body.message);
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "Application could not be restored safely.");
+    } finally {
+      setRestoring(false);
+    }
+  }
+
   if (message) return <AdminMessage message={message} />;
   if (!registration) return <p className="text-slate-600">Loading registration...</p>;
   const liveShortScore = numericScore(shortAnswer1Score) + numericScore(shortAnswer2Score);
@@ -251,11 +318,32 @@ export function RegistrationDetail({ id }: { id: string }) {
   );
   const advancedEntryEmailStatus = currentAdvancedEntryDecisionWasSent ? "Sent" : currentAdvancedEntryAttemptFailed ? "Failed" : "Not sent";
 
-  return <div className="space-y-6">
-    <Link href="/admin/registrations" className="text-sm font-semibold text-amber-800 hover:underline">Back to registrations</Link>
-    {actionMessage ? <AdminMessage message={actionMessage} /> : null}
+  if (registration.deleted_at) {
+    return <div className="space-y-6">
+      <Link href="/admin/applications?recordScope=deleted" className="text-sm font-semibold text-amber-800 hover:underline">Back to deleted applications</Link>
+      {actionMessage ? <AdminMessage message={actionMessage} /> : null}
+      <section className="rounded-2xl border border-red-300 bg-red-50 p-5 sm:p-6">
+        <div className="flex flex-wrap items-center gap-3"><h2 className="text-xl font-semibold text-red-950">Deleted application</h2><Badge tone="red">Deleted</Badge></div>
+        <p className="mt-3 text-sm leading-6 text-red-900">This record is excluded from active admissions queues and communications. Its decisions, payment evidence, email history, audit events, and any provisioned student records remain intact.</p>
+        <Details items={[["Deletion Reason", registration.deletion_reason ? applicationDeletionReasonLabels[registration.deletion_reason] : "Not recorded"], ["Deleted At", formatDate(registration.deleted_at)], ["Deleted By", registration.deleted_by || "Not recorded"], ["Administrative Note", registration.deletion_note || "Not provided"], ["Superseded By", supersedingApplication ? `${supersedingApplication.full_name} — ${formatDate(supersedingApplication.created_at)}` : "Not recorded"]]} />
+        {supersedingApplication ? <Link href={`/admin/applications/${supersedingApplication.id}`} className="mt-4 inline-block text-sm font-semibold text-red-900 underline">Open application being kept</Link> : null}
+      </section>
+      <Section title="Applicant & Application"><Details items={[["Applicant", registration.full_name], ["Email", registration.email], ["Cohort", registration.cohort_code], ["Application Date", formatDate(registration.created_at)], ["Payment Status", labelOrValue(paymentStatusLabels, registration.payment_status)], ["Scholarship Status", scholarshipStatusLabels[registration.scholarship_status]], ["Advanced Entry Status", advancedEntryStatusLabels[registration.advanced_entry_status]], ["Admission Status", applicationStatusLabels[registration.application_status]]]} /></Section>
+      <Section title="Preserved Financial & Communication History"><Details items={[["Amount Paid", formatAmountPaid(registration)], ["Payment Reference", registration.payment_reference || "Not created"], ["Paid At", formatDate(registration.paid_at)], ["Communication Recipient", registration.email], ["Scholarship Decision Email", registration.scholarship_decision_email_sent ? `Sent ${formatDate(registration.scholarship_decision_email_sent_at || null)}` : registration.scholarship_decision_email_error ? `Failed — ${registration.scholarship_decision_email_error}` : "Not sent"], ["Scholarship Email Type", registration.scholarship_decision_email_type ? labelOrValue(scholarshipStatusLabels, registration.scholarship_decision_email_type) : "Not recorded"], ["Advanced Entry Decision Email", registration.advanced_entry_decision_email_sent ? `Sent ${formatDate(registration.advanced_entry_decision_email_sent_at || null)}` : registration.advanced_entry_decision_email_error ? `Failed — ${registration.advanced_entry_decision_email_error}` : "Not sent"], ["Advanced Entry Email Type", registration.advanced_entry_decision_email_type ? labelOrValue(advancedEntryDecisionEmailLabels, registration.advanced_entry_decision_email_type) : "Not recorded"], ["Admission/Status Email", registration.admission_email_sent ? `Sent ${formatDate(registration.admission_email_sent_at)}` : "Not sent"]]} />{registration.payment_status === "success" || Number(registration.amount_paid || 0) > 0 ? <p className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">This application contains payment history. Removing the application does not alter or refund the financial transaction.</p> : null}</Section>
+      <Section title="Student Record">{studentProvisioning ? <><Details items={[["Student ID", studentProvisioning.student_number], ["Student Status", labelOrValue({}, studentProvisioning.student_status)], ["Onboarding", labelOrValue({}, studentProvisioning.onboarding_status)]]} /><p className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">Deleting this application does not delete or withdraw the existing student record. Student withdrawal or de-enrolment remains a separate controlled process.</p><Link href={`/admin/students/${studentProvisioning.id}`} className="mt-4 inline-block text-sm font-semibold text-amber-900 underline">View preserved student record</Link></> : <p className="mt-4 text-sm text-slate-600">No provisioned student record is linked to this application.</p>}</Section>
+      <Section title="Administrative Notes"><form onSubmit={saveAdminNote} className="grid gap-4"><ReviewNote label="General Admin Note" value={adminNote} onChange={setAdminNote} /><ActionButton submit disabled={Boolean(saving)}>{saving === "note" ? "Saving..." : "Save Admin Note"}</ActionButton></form></Section>
+      <Section title="Audit History"><AuditHistory events={reviewEvents} /></Section>
+      <section className="rounded-2xl border border-emerald-300 bg-emerald-50 p-5 sm:p-6"><h2 className="text-lg font-semibold text-emerald-950">Restore Application</h2><p className="mt-3 text-sm leading-6 text-emerald-900">Restoration returns this record to its current admissions queues. It does not resend old emails or repeat decisions.</p><div className="mt-5"><ActionButton onClick={() => setShowRestore(true)}>Restore Application</ActionButton></div></section>
+      {showRestore ? <ConfirmationModal title="Restore Application" onClose={() => setShowRestore(false)}><p className="text-sm leading-6 text-slate-700">Restore <strong>{registration.full_name}</strong> to active admissions operations? Existing decisions and email history will remain unchanged.</p><label className="mt-5 grid gap-2 text-sm font-semibold text-slate-800"><span>Type RESTORE to confirm</span><input value={restoreConfirmation} onChange={(event) => setRestoreConfirmation(event.target.value)} className="min-h-12 rounded-xl border border-slate-300 px-4" /></label><div className="mt-5 flex gap-3"><ActionButton disabled={restoring || restoreConfirmation !== "RESTORE"} onClick={() => void restoreApplication()}>{restoring ? "Restoring..." : "Restore Application"}</ActionButton><ActionButton tone="secondary" disabled={restoring} onClick={() => setShowRestore(false)}>Cancel</ActionButton></div></ConfirmationModal> : null}
+    </div>;
+  }
 
-    <Section title="A. Applicant Information"><Details items={[["Full Name", registration.full_name], ["Email", registration.email], ["WhatsApp", registration.whatsapp], ["Country", registration.country], ["State / City", registration.city], ["Gender", registration.gender], ["Age Range", registration.age_range], ["Church / Fellowship", registration.church || "Not provided"], ["Applicant Type", applicantTypeLabels[registration.applicant_type]], ["Submitted", formatDate(registration.created_at)]]} /></Section>
+  return <div className="space-y-6">
+    <Link href="/admin/applications" className="text-sm font-semibold text-amber-800 hover:underline">Back to applications</Link>
+    {actionMessage ? <AdminMessage message={actionMessage} /> : null}
+    {canonicalCandidates.length ? <p className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950"><strong>Potential duplicate:</strong> {canonicalCandidates.length + 1} active applications use {registration.email.trim().toLowerCase()} for {registration.cohort_code}. Review each record before deciding which one to retain.</p> : null}
+
+    <Section title="A. Applicant Information"><Details items={[["Full Name", registration.full_name], ["Email", registration.email], ["WhatsApp", registration.whatsapp], ["Cohort", registration.cohort_code], ["Country", registration.country], ["State / City", registration.city], ["Gender", registration.gender], ["Age Range", registration.age_range], ["Church / Fellowship", registration.church || "Not provided"], ["Applicant Type", applicantTypeLabels[registration.applicant_type]], ["Submitted", formatDate(registration.created_at)]]} /></Section>
 
     <Section title="B. Programme Selection"><Details items={[["Requested Discipleship Route", requestedRouteLabels[registration.requested_discipleship_route]], ["Assigned Discipleship Route", registration.assigned_discipleship_route ? assignedRouteLabels[registration.assigned_discipleship_route] : "Not Yet Assigned"], ["Skill Pathway", registration.skill_pathway], ["Skill Pathway Learning Mode", registration.learning_mode], ["Reason for Joining", registration.reason], ["Referral Source", registration.referral_source], ["Computer Access", registration.computer_access_confirmed ? "Confirmed" : "Not confirmed"]]} /><p className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">Route approval and admission are separate decisions. An assigned discipleship route does not mark this applicant admitted.</p></Section>
 
@@ -289,7 +377,9 @@ export function RegistrationDetail({ id }: { id: string }) {
 
     <Section title="I. Email Status"><Details items={[["Applicant Payment Confirmation", registration.confirmation_email_sent ? "Sent" : "Not sent"], ["Applicant Payment Confirmation Sent At", formatDate(registration.confirmation_email_sent_at)], ["Paid Application Admin Notification", registration.admin_email_sent ? "Sent" : "Not sent"], ["Paid Application Admin Notification Sent At", formatDate(registration.admin_email_sent_at)], ["Advanced Entry Decision Email", advancedEntryEmailStatus], ["Advanced Entry Decision Type Sent", registration.advanced_entry_decision_email_type ? advancedEntryDecisionEmailLabels[registration.advanced_entry_decision_email_type] || labelOrValue({}, registration.advanced_entry_decision_email_type) : "Not sent"], ["Advanced Entry Decision Email Sent At", formatDate(registration.advanced_entry_decision_email_sent_at || null)], ["Advanced Entry Last Decision Email Attempt", formatDate(registration.advanced_entry_decision_email_last_attempted_at || null)], ["Advanced Entry Decision Email Failure", currentAdvancedEntryAttemptFailed ? registration.advanced_entry_decision_email_error || "Unknown delivery failure" : "None for current decision"], ["Scholarship Applicant Confirmation", registration.scholarship_confirmation_email_sent ? "Sent" : "Not sent"], ["Scholarship Applicant Confirmation Sent At", formatDate(registration.scholarship_confirmation_email_sent_at || null)], ["Scholarship Admin Notification", registration.scholarship_admin_email_sent ? "Sent" : "Not sent"], ["Scholarship Admin Notification Sent At", formatDate(registration.scholarship_admin_email_sent_at || null)], ["Scholarship Decision Email", registration.scholarship_decision_email_sent ? "Sent" : "Not sent"], ["Scholarship Decision Type Sent", registration.scholarship_decision_email_type ? scholarshipStatusLabels[registration.scholarship_decision_email_type as keyof typeof scholarshipStatusLabels] : "Not sent"], ["Scholarship Decision Email Sent At", formatDate(registration.scholarship_decision_email_sent_at || null)], ["Scholarship Last Decision Email Attempt", formatDate(registration.scholarship_decision_email_last_attempted_at || null)], ["Scholarship Decision Email Failure", registration.scholarship_decision_email_error || "None"], ["Admission/Status Email", registration.admission_email_sent ? "Sent" : "Not sent"], ["Admission/Status Sent At", formatDate(registration.admission_email_sent_at)]]} /><button type="button" disabled={resending || registration.payment_status !== "success"} onClick={resendApplicationEmails} className="mt-5 rounded-lg border border-[#071327] px-5 py-3 text-sm font-semibold text-[#071327] hover:bg-[#071327] hover:text-white disabled:cursor-not-allowed disabled:opacity-60">{resending ? "Resending..." : "Resend Application Emails"}</button>{registration.payment_status !== "success" ? <p className="mt-3 text-sm text-slate-600">Payment-confirmation emails remain unavailable without verified successful payment.</p> : null}{resendMessage ? <p className="mt-4 text-sm font-semibold text-slate-700">{resendMessage}</p> : null}</Section>
 
-    <Section title="I. Admin Notes"><form onSubmit={saveAdminNote} className="grid gap-4"><ReviewNote label="General Admin Note" value={adminNote} onChange={setAdminNote} /><ActionButton submit disabled={Boolean(saving)}>{saving === "note" ? "Saving..." : "Save Admin Note"}</ActionButton></form><Details items={[["Note Updated At", formatDate(registration.admin_note_updated_at || null)], ["Note Updated By", registration.admin_note_updated_by || "Not recorded"]]} /><div className="mt-7 border-t border-slate-200 pt-6"><h3 className="font-semibold text-[#071327]">Advanced Entry & Scholarship Review History</h3>{reviewEvents.length ? <div className="mt-4 grid gap-3">{reviewEvents.map((event) => <article key={event.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><p className="font-semibold capitalize text-[#071327]">{event.event_type ? event.event_type.replaceAll("_", " ") : "Review event"}</p><span className="text-xs text-slate-500">{formatDate(event.created_at)}</span></div><p className="mt-2 text-sm text-slate-600">Reviewed by {event.actor || "REALMS Admin"}</p>{event.note ? <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{event.note}</p> : <p className="mt-2 text-sm text-slate-500">No review note recorded.</p>}</article>)}</div> : <p className="mt-3 text-sm text-slate-600">No advanced-entry or scholarship decisions have been recorded yet.</p>}</div></Section>
+    <Section title="I. Admin Notes"><form onSubmit={saveAdminNote} className="grid gap-4"><ReviewNote label="General Admin Note" value={adminNote} onChange={setAdminNote} /><ActionButton submit disabled={Boolean(saving)}>{saving === "note" ? "Saving..." : "Save Admin Note"}</ActionButton></form><Details items={[["Note Updated At", formatDate(registration.admin_note_updated_at || null)], ["Note Updated By", registration.admin_note_updated_by || "Not recorded"]]} /><div className="mt-7 border-t border-slate-200 pt-6"><h3 className="font-semibold text-[#071327]">Application Review History</h3><AuditHistory events={reviewEvents} /></div></Section>
+    <section className="rounded-2xl border border-red-300 bg-red-50 p-5 sm:p-6"><h2 className="text-lg font-semibold text-red-950">Danger Zone</h2><p className="mt-3 text-sm leading-6 text-red-900">Delete this application from active admissions operations. Historical decisions, payments and communications may be retained for institutional recordkeeping.</p><div className="mt-5"><ActionButton tone="danger" onClick={() => setShowRemoval(true)}>Delete Application</ActionButton></div></section>
+    {showRemoval ? <ConfirmationModal title="Delete Application" onClose={() => setShowRemoval(false)}><Details items={[["Applicant", registration.full_name], ["Email", registration.email], ["Application Date", formatDate(registration.created_at)], ["Payment Status", labelOrValue(paymentStatusLabels, registration.payment_status)], ["Scholarship Status", scholarshipStatusLabels[registration.scholarship_status]], ["Advanced-entry Status", advancedEntryStatusLabels[registration.advanced_entry_status]], ["Admission Status", applicationStatusLabels[registration.application_status]]]} /><p className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">This application will be removed from active admissions operations. Historical decisions, payments and communications may be retained for institutional recordkeeping.</p>{registration.payment_status === "success" || Number(registration.amount_paid || 0) > 0 ? <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">This application contains payment history. Removing the application does not alter or refund the financial transaction.</p> : null}{studentProvisioning ? <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">Deleting this application does not delete or withdraw the existing student record.</p> : null}<label className="mt-5 grid gap-2 text-sm font-semibold text-slate-800"><span>Reason</span><select required value={deletionReason} onChange={(event) => { setDeletionReason(event.target.value as ApplicationDeletionReason | ""); if (!['duplicate_application', 'applicant_restarted_application'].includes(event.target.value)) setSupersededByApplicationId(""); }} className="min-h-12 rounded-xl border border-slate-300 bg-white px-4"><option value="" disabled>Select a reason</option>{applicationDeletionReasons.map((reason) => <option key={reason} value={reason}>{applicationDeletionReasonLabels[reason]}</option>)}</select></label>{deletionReason === "duplicate_application" || deletionReason === "applicant_restarted_application" ? <label className="mt-5 grid gap-2 text-sm font-semibold text-slate-800"><span>Application to keep (optional)</span><select value={supersededByApplicationId} onChange={(event) => setSupersededByApplicationId(event.target.value)} className="min-h-12 rounded-xl border border-slate-300 bg-white px-4"><option value="">Not selected</option>{canonicalCandidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.full_name} — {formatDate(candidate.created_at)} — {labelOrValue(paymentStatusLabels, candidate.payment_status)}</option>)}</select></label> : null}<ReviewNote label={deletionReason === "other" ? "Administrative Note (required)" : "Administrative Note (optional)"} value={deletionNote} onChange={setDeletionNote} /><label className="mt-5 grid gap-2 text-sm font-semibold text-slate-800"><span>Type DELETE to confirm</span><input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} className="min-h-12 rounded-xl border border-red-300 px-4" /></label><div className="mt-5 flex flex-wrap gap-3"><ActionButton tone="danger" disabled={removing || deleteConfirmation !== "DELETE" || !deletionReason || (deletionReason === "other" && !deletionNote.trim())} onClick={() => void removeApplication()}>{removing ? "Removing..." : "Delete Application"}</ActionButton><ActionButton tone="secondary" disabled={removing} onClick={() => setShowRemoval(false)}>Cancel</ActionButton></div></ConfirmationModal> : null}
   </div>;
 }
 
@@ -303,3 +393,5 @@ function formatDate(value: string | null) { return value ? new Intl.DateTimeForm
 function formatAmountPaid(registration: AdminRegistration) { return registration.amount_paid === null ? "No money recorded as received" : `${registration.currency} ${Number(registration.amount_paid).toLocaleString("en")}`; }
 function formatMoneyValue(amount: number, currency: string) { return `${currency} ${Number(amount).toLocaleString("en")}`; }
 function numericScore(value: string) { const parsed = Number(value); return Number.isFinite(parsed) && parsed >= 0 && parsed <= 25 ? parsed : 0; }
+function AuditHistory({ events }: { events: ReviewEvent[] }) { return events.length ? <div className="mt-4 grid gap-3">{events.map((event) => <article key={event.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><p className="font-semibold capitalize text-[#071327]">{event.event_type ? event.event_type.replaceAll("_", " ") : "Review event"}</p><span className="text-xs text-slate-500">{formatDate(event.created_at)}</span></div><p className="mt-2 text-sm text-slate-600">Recorded by {event.actor || "REALMS Admin"}</p>{event.note ? <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{event.note}</p> : <p className="mt-2 text-sm text-slate-500">No note recorded.</p>}</article>)}</div> : <p className="mt-3 text-sm text-slate-600">No audit events have been recorded yet.</p>; }
+function ConfirmationModal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) { return <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl sm:p-7"><div className="flex items-start justify-between gap-4"><h2 className="text-xl font-semibold text-[#071327]">{title}</h2><button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700">Close</button></div><div className="mt-5">{children}</div></div></div>; }

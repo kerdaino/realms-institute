@@ -14,7 +14,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { ensurePortalProfile, ensurePortalRole, findOrCreatePortalAuthUser, normalizePortalEmail, PortalIdentityError } from "@/lib/lms/portalIdentity";
 
 const currentCohortCode = "RSD-AUG-2026";
-const registrationSelect = "id, application_status, assigned_discipleship_route, skill_pathway, learning_mode, full_name, email, whatsapp, country, city, funding_route, scholarship_status, scholarship_approved_amount, amount, amount_paid, payment_status, financial_requirement_status";
+const registrationSelect = "id, application_status, assigned_discipleship_route, skill_pathway, learning_mode, full_name, email, whatsapp, country, city, funding_route, scholarship_status, scholarship_approved_amount, amount, amount_paid, payment_status, financial_requirement_status, deleted_at";
 const studentSelect = "id, profile_id, registration_id, student_number, legal_name, preferred_name, email, phone, country, city, identity_verification_status, student_status, onboarding_status, orientation_completed_at, matriculated_at, emergency_contact_name, emergency_contact_phone, internal_admin_note, created_at, updated_at";
 const enrollmentSelect = "id, student_id, cohort_id, discipleship_route, skill_pathway, skill_learning_mode, enrolment_status, enrolled_at, completed_at, created_at, updated_at";
 
@@ -36,6 +36,7 @@ type ProvisionableRegistration = {
   amount_paid: number | null;
   payment_status: string;
   financial_requirement_status: string;
+  deleted_at: string | null;
 };
 
 type NormalizedSkill = {
@@ -78,7 +79,7 @@ function normalizeLearningMode(value: string) {
 }
 
 async function loadRegistration(supabase: SupabaseClient, registrationId: string) {
-  const { data, error } = await supabase.from("registrations").select(registrationSelect).eq("id", registrationId).maybeSingle();
+  const { data, error } = await supabase.from("registrations").select(registrationSelect).eq("id", registrationId).is("deleted_at", null).maybeSingle();
   if (error) throw new StudentProvisioningError("The admitted registration could not be loaded.", 500);
   if (!data) throw new StudentProvisioningError("Registration not found.", 404);
   return data as ProvisionableRegistration;

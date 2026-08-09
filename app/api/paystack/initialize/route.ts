@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { duplicateApplicationMessage, DuplicateActiveApplicationError } from "@/lib/applicationLifecycle";
 import { initializePaystackTransaction } from "@/lib/paystack";
 import { consumePublicRateLimits, hashPublicSubmissionIdentifier, publicRequestSource } from "@/lib/publicRateLimit.server";
 import { PUBLIC_RATE_LIMIT_MESSAGE } from "@/lib/publicRateLimitPolicy";
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
   try {
     application = await createRegistrationApplication(registration, fee, reference, submissionKeyHash);
   } catch (error) {
+    if (error instanceof DuplicateActiveApplicationError) return NextResponse.json({ success: false, message: duplicateApplicationMessage }, { status: 409 });
     console.error("Pre-payment application save failed", error);
     return NextResponse.json({ success: false, message: "Your application could not be saved safely, so payment was not started. Please try again or contact REALMS Institute." }, { status: 503 });
   }

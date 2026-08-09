@@ -18,7 +18,7 @@ export default async function ScholarshipReceivedPage({ searchParams }: { search
   let confirmed = false;
   let screeningSubmitted = false;
   if (supabase && /^[0-9a-f-]{36}$/i.test(applicationId)) {
-    const { data } = await supabase.from("registrations").select("funding_route, scholarship_status, screening_status").eq("id", applicationId).eq("funding_route", "scholarship_request").eq("scholarship_status", "pending").maybeSingle();
+    const { data } = await supabase.from("registrations").select("funding_route, scholarship_status, screening_status").eq("id", applicationId).eq("funding_route", "scholarship_request").eq("scholarship_status", "pending").is("deleted_at", null).maybeSingle();
     confirmed = Boolean(data);
     screeningSubmitted = data?.screening_status === "submitted";
   }

@@ -28,7 +28,7 @@ type RegistrationEmailOptions = { force?: boolean };
 type PaidEmailKind = "applicant" | "admin" | "admission";
 type ScholarshipEmailKind = "scholarship_applicant" | "scholarship_admin";
 
-const paidEmailRegistrationSelect = "id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, fee_policy_consent, computer_access_confirmed, amount, amount_paid, currency, public_fee_display, amount_display, payment_reference, payment_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, screening_status, screening_objective_score, screening_objective_max, scholarship_status, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, admission_email_sent, admission_email_sent_at";
+const paidEmailRegistrationSelect = "id, deleted_at, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, fee_policy_consent, computer_access_confirmed, amount, amount_paid, currency, public_fee_display, amount_display, payment_reference, payment_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, screening_status, screening_objective_score, screening_objective_max, scholarship_status, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, admission_email_sent, admission_email_sent_at";
 const scholarshipEmailRegistrationSelect = `${paidEmailRegistrationSelect}, funding_route, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, scholarship_approved_amount, scholarship_applicant_message, financial_requirement_status, payment_expected_amount, scholarship_reviewed_at, scholarship_confirmation_email_sent, scholarship_confirmation_email_sent_at, scholarship_admin_email_sent, scholarship_admin_email_sent_at, scholarship_decision_email_sent, scholarship_decision_email_sent_at, scholarship_decision_email_type, scholarship_decision_email_error, scholarship_decision_email_last_attempted_at`;
 const advancedEntryEmailRegistrationSelect = `${paidEmailRegistrationSelect}, advanced_entry_applicant_message, advanced_entry_decision_email_sent, advanced_entry_decision_email_sent_at, advanced_entry_decision_email_type, advanced_entry_decision_email_error, advanced_entry_decision_email_last_attempted_at, advanced_entry_decision_email_last_attempt_type`;
 
@@ -58,15 +58,16 @@ function adminEmail() {
   return process.env.REALMS_ADMIN_EMAIL?.trim() || "gloryrealm2025@gmail.com";
 }
 
-async function fetchPaidRegistration(id: string, fallback: EmailRegistration) {
+async function fetchPaidRegistration(id: string) {
   const supabase = getSupabaseAdmin();
-  if (!supabase) return fallback;
+  if (!supabase) return { registration: null, reason: "Supabase is required to verify the application is active before email delivery." };
   const { data, error } = await supabase.from("registrations").select(paidEmailRegistrationSelect).eq("id", id).maybeSingle();
   if (error) {
     console.error("Could not fetch registration before email send", error);
-    return fallback;
+    return { registration: null, reason: error.code === "42703" ? "Apply the application soft-delete migration before sending application emails." : "Application state could not be verified before email delivery." };
   }
-  return (data as EmailRegistration | null) || fallback;
+  if (!data) return { registration: null, reason: "Application was not found before email delivery." };
+  return { registration: data as EmailRegistration, reason: null };
 }
 
 async function fetchScholarshipRegistration(id: string) {
@@ -89,7 +90,10 @@ async function sendPaidOnce(registration: EmailRegistration, kind: PaidEmailKind
   const supabase = getSupabaseAdmin();
   if (!supabase) return { sent: false, reason: "Supabase is required to prevent duplicate emails." };
   const { sentColumn, sentAtColumn } = paidColumns(kind);
-  const currentRegistration = await fetchPaidRegistration(registration.id, registration);
+  const fetched = await fetchPaidRegistration(registration.id);
+  if (!fetched.registration) return { sent: false, reason: fetched.reason || "Application state could not be verified before email delivery." };
+  const currentRegistration = fetched.registration;
+  if (Boolean((currentRegistration as unknown as Record<string, unknown>).deleted_at)) return { sent: false, reason: "Deleted applications cannot receive new communications." };
   if (!options.force && Boolean((currentRegistration as unknown as Record<string, unknown>)[sentColumn])) return { sent: false, reason: "Already sent." };
   const { to, template } = paidMessage(currentRegistration, kind);
   const idempotencyKey = options.force ? undefined : `realms-registration-${registration.id}-${kind}`;
@@ -105,6 +109,7 @@ async function sendScholarshipOnce(registration: EmailRegistration, kind: Schola
   const supabase = getSupabaseAdmin();
   if (!supabase) return { sent: false, reason: "Supabase is required to prevent duplicate emails." };
   const { sentColumn, sentAtColumn } = scholarshipColumns(kind);
+  if (Boolean((registration as unknown as Record<string, unknown>).deleted_at)) return { sent: false, reason: "Deleted applications cannot receive new communications." };
   if (Boolean((registration as unknown as Record<string, unknown>)[sentColumn])) return { sent: false, reason: "Already sent." };
   const { to, template } = scholarshipMessage(registration, kind);
   const result = await deliver(to, template);
@@ -184,6 +189,7 @@ export async function sendCurrentScholarshipDecisionEmail(applicationId: string)
     })
     .eq("id", applicationId)
     .eq("funding_route", "scholarship_request")
+    .is("deleted_at", null)
     .or(`scholarship_decision_email_last_attempted_at.is.null,scholarship_decision_email_last_attempted_at.lt.${cutoff}`)
     .select(scholarshipEmailRegistrationSelect)
     .maybeSingle();
@@ -272,6 +278,7 @@ export async function sendCurrentAdvancedEntryDecisionEmail(applicationId: strin
     .from("registrations")
     .select(advancedEntryEmailRegistrationSelect)
     .eq("id", applicationId)
+    .is("deleted_at", null)
     .maybeSingle();
   if (currentError) {
     console.error("Advanced-entry decision email registration could not be loaded", { code: currentError.code });
@@ -296,6 +303,7 @@ export async function sendCurrentAdvancedEntryDecisionEmail(applicationId: strin
     })
     .eq("id", applicationId)
     .eq("advanced_entry_status", decision)
+    .is("deleted_at", null)
     .or(`advanced_entry_decision_email_last_attempted_at.is.null,advanced_entry_decision_email_last_attempted_at.lt.${cutoff},advanced_entry_decision_email_last_attempt_type.is.null,advanced_entry_decision_email_last_attempt_type.neq.${decision}`)
     .select("id")
     .maybeSingle();

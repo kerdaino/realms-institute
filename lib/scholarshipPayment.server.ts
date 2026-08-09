@@ -90,10 +90,12 @@ function financials(row: ScholarshipPaymentRow) {
   });
 }
 
-async function loadRegistration(id: string) {
+async function loadRegistration(id: string, options: { includeDeleted?: boolean } = {}) {
   const supabase = getSupabaseAdmin();
   if (!supabase) return null;
-  const { data, error } = await supabase.from("registrations").select(scholarshipPaymentSelect).eq("id", id).eq("funding_route", "scholarship_request").maybeSingle();
+  let query = supabase.from("registrations").select(scholarshipPaymentSelect).eq("id", id).eq("funding_route", "scholarship_request");
+  if (!options.includeDeleted) query = query.is("deleted_at", null);
+  const { data, error } = await query.maybeSingle();
   if (error) {
     console.error("Scholarship payment application lookup failed", { code: error.code });
     return null;
@@ -180,7 +182,8 @@ export async function initializeScholarshipPayment(token: string) {
     .eq("id", row.id)
     .eq("funding_route", "scholarship_request")
     .eq("scholarship_status", row.scholarship_status)
-    .eq("payment_status", row.payment_status);
+    .eq("payment_status", row.payment_status)
+    .is("deleted_at", null);
   claim = row.payment_reference ? claim.eq("payment_reference", row.payment_reference) : claim.is("payment_reference", null);
   const claimed = await claim.select("id").maybeSingle();
   if (claimed.error) {
@@ -219,7 +222,7 @@ export async function initializeScholarshipPayment(token: string) {
   const stored = await supabase.from("registrations").update({
     payment_authorization_url: transaction.authorization_url,
     payment_initialized_at: initializedAt,
-  }).eq("id", row.id).eq("payment_reference", reference).eq("payment_status", "pending").select("id").maybeSingle();
+  }).eq("id", row.id).eq("payment_reference", reference).eq("payment_status", "pending").is("deleted_at", null).select("id").maybeSingle();
   if (stored.error || !stored.data) {
     console.error("Scholarship payment recovery URL could not be saved", { applicationId: row.id, reference });
   }
@@ -229,7 +232,7 @@ export async function initializeScholarshipPayment(token: string) {
 export async function resolveScholarshipPaymentFromPaystack(metadata: unknown, reference: string): Promise<ScholarshipPaymentResolution | null> {
   const source = metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata as Record<string, unknown> : {};
   if (source.source !== scholarshipPaystackMetadataSource || typeof source.registration_id !== "string" || !/^[0-9a-f-]{36}$/i.test(source.registration_id)) return null;
-  const row = await loadRegistration(source.registration_id);
+  const row = await loadRegistration(source.registration_id, { includeDeleted: true });
   if (!row || !paymentReferenceMatchesApplication(row.payment_reference, reference)) return null;
   const summary = financials(row);
   if (!summary.valid || !summary.amountDue || (row.scholarship_status !== "approved_partial" && row.scholarship_status !== "declined")) return null;
@@ -259,7 +262,7 @@ export async function recordUnconfirmedScholarshipPayment(paystackData: Paystack
   if (reconciliation.accepted) throw new PaymentRegistrationConflictError();
   const supabase = getSupabaseAdmin();
   if (!supabase) return;
-  const current = await loadRegistration(resolved.applicationId);
+  const current = await loadRegistration(resolved.applicationId, { includeDeleted: true });
   if (!current || !paymentReferenceMatchesApplication(current.payment_reference, paystackData.reference) || current.payment_status === "success") throw new PaymentRegistrationConflictError();
   await assertTransactionOwnership(paystackData, resolved.applicationId);
   const saved = await supabase.from("registrations").update({
@@ -286,7 +289,7 @@ export async function recordUnconfirmedScholarshipPayment(paystackData: Paystack
 export async function saveVerifiedScholarshipPayment(paystackData: PaystackVerificationData, resolved: ScholarshipPaymentResolution, reconciliation: PaymentReconciliation): Promise<RegistrationSaveResult> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { saved: false, reason: "Supabase is not configured." };
-  const existing = await loadRegistration(resolved.applicationId);
+  const existing = await loadRegistration(resolved.applicationId, { includeDeleted: true });
   if (!existing || !paymentReferenceMatchesApplication(existing.payment_reference, paystackData.reference)) throw new PaymentRegistrationConflictError();
   await assertTransactionOwnership(paystackData, resolved.applicationId);
   if (existing.payment_status === "success") {
@@ -301,7 +304,7 @@ export async function saveVerifiedScholarshipPayment(paystackData: PaystackVerif
   }).eq("id", resolved.applicationId).eq("funding_route", "scholarship_request").eq("payment_reference", paystackData.reference).neq("payment_status", "success").select(scholarshipPaymentSelect).maybeSingle();
   if (error) throw new Error(`SCHOLARSHIP_PAYMENT_SAVE_FAILED:${error.message}`);
   if (!data) {
-    const concurrent = await loadRegistration(resolved.applicationId);
+    const concurrent = await loadRegistration(resolved.applicationId, { includeDeleted: true });
     if (!concurrent || concurrent.payment_status !== "success" || concurrent.payment_reference !== paystackData.reference || Number(concurrent.amount_paid) !== paystackData.amount / 100) throw new PaymentRegistrationConflictError();
     const audit = await recordPaymentVerificationEvent(supabase, { registrationId: concurrent.id, reference: paystackData.reference, previousStatus: "success", reconciliation });
     return { saved: true, id: concurrent.id, registration: concurrent, paymentVerificationAuditStatus: audit };

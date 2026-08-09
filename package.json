@@ -23,7 +23,8 @@
     "test:august-calendar": "node --experimental-strip-types scripts/test-next-5-august-calendar.mjs",
     "prepare:august-assessments": "node --env-file=.env.local --experimental-strip-types scripts/setup-august-2026-assessments.mjs",
     "test:august-assessments": "node --experimental-strip-types scripts/test-next-6-august-assessments.mjs",
-    "test:quiz-integrity": "node --experimental-strip-types scripts/test-quiz-integrity.mjs"
+    "test:quiz-integrity": "node --experimental-strip-types scripts/test-quiz-integrity.mjs",
+    "test:application-removal": "node --experimental-strip-types scripts/test-application-removal.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { currentAdmissionsCohortCode, DuplicateActiveApplicationError, escapePostgrestLikePattern, normalizeApplicantEmail } from "@/lib/applicationLifecycle";
 import { scoreFoundationalScreening, screeningObjectiveMax } from "@/lib/foundationalScreeningAnswers.server";
 import { paymentReferenceMatchesApplication, type PaymentReconciliation } from "@/lib/paymentReconciliation";
 import { recordPaymentVerificationEvent, type PaymentVerificationAuditStatus } from "@/lib/paymentVerificationAudit";
@@ -20,6 +21,8 @@ export class PaymentRegistrationConflictError extends Error {
 
 export type SavedRegistration = {
   id: string;
+  cohort_code: string;
+  deleted_at: string | null;
   full_name: string;
   email: string;
   whatsapp: string;
@@ -157,9 +160,9 @@ function exchangeNote(fee: CalculatedFeeMetadata | CohortFee) {
   return "exchangeNote" in fee ? fee.exchangeNote ?? null : null;
 }
 
-export const savedRegistrationSelect = "id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, fee_policy_consent, computer_access_confirmed, amount, amount_paid, payment_expected_amount, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status, financial_requirement_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, screening_status, screening_answers, screening_objective_score, screening_objective_max, screening_short_answer_score, screening_short_answer_max, screening_total_score, screening_percentage, funding_route, scholarship_status, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, scholarship_approved_amount, scholarship_applicant_message, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, scholarship_confirmation_email_sent, scholarship_confirmation_email_sent_at, scholarship_admin_email_sent, scholarship_admin_email_sent_at, scholarship_decision_email_sent, scholarship_decision_email_sent_at, scholarship_decision_email_type, scholarship_decision_email_error, scholarship_decision_email_last_attempted_at, admission_email_sent, admission_email_sent_at";
+export const savedRegistrationSelect = "id, cohort_code, deleted_at, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, fee_policy_consent, computer_access_confirmed, amount, amount_paid, payment_expected_amount, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status, financial_requirement_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, screening_status, screening_answers, screening_objective_score, screening_objective_max, screening_short_answer_score, screening_short_answer_max, screening_total_score, screening_percentage, funding_route, scholarship_status, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, scholarship_approved_amount, scholarship_applicant_message, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, scholarship_confirmation_email_sent, scholarship_confirmation_email_sent_at, scholarship_admin_email_sent, scholarship_admin_email_sent_at, scholarship_decision_email_sent, scholarship_decision_email_sent_at, scholarship_decision_email_type, scholarship_decision_email_error, scholarship_decision_email_last_attempted_at, admission_email_sent, admission_email_sent_at";
 
-const paymentApplicationSelect = "id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, consent, fee_policy_consent, computer_access_confirmed, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, screening_status, alumni_previous_cohort, alumni_previous_email, alumni_previous_phone, alumni_student_id, theological_institution, theological_programme, theological_duration, theological_year_completed, theological_qualification, screening_answers, funding_route, scholarship_status, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, amount, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status";
+const paymentApplicationSelect = "id, cohort_code, deleted_at, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, consent, fee_policy_consent, computer_access_confirmed, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, screening_status, alumni_previous_cohort, alumni_previous_email, alumni_previous_phone, alumni_student_id, theological_institution, theological_programme, theological_duration, theological_year_completed, theological_qualification, screening_answers, funding_route, scholarship_status, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, amount, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status";
 
 const screeningShortAnswerMax = 50;
 
@@ -204,6 +207,7 @@ export function normalizeScreeningFields(registration: Pick<RegistrationPayload,
 
 export function buildRegistrationColumns(registration: RegistrationPayload, fee: CohortFee) {
   return {
+    cohort_code: currentAdmissionsCohortCode,
     full_name: registration.fullName,
     email: registration.email,
     whatsapp: registration.whatsapp,
@@ -303,6 +307,35 @@ export async function createRegistrationApplication(registration: RegistrationPa
       screening_status: payload.screening_status,
     });
   }
+  if (submissionKeyHash) {
+    const existingSubmission = await supabase
+      .from("registrations")
+      .select("id, payment_reference, payment_status, payment_authorization_url")
+      .eq("submission_key_hash", submissionKeyHash)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!existingSubmission.error && existingSubmission.data?.id) {
+      const id = String(existingSubmission.data.id);
+      return {
+        id,
+        applicationReference: id,
+        paymentReference: typeof existingSubmission.data.payment_reference === "string" ? existingSubmission.data.payment_reference : null,
+        paymentStatus: typeof existingSubmission.data.payment_status === "string" ? existingSubmission.data.payment_status : null,
+        paymentAuthorizationUrl: typeof existingSubmission.data.payment_authorization_url === "string" ? existingSubmission.data.payment_authorization_url : null,
+        reused: true,
+      };
+    }
+  }
+  const duplicateCheck = await supabase
+    .from("registrations")
+    .select("id")
+    .eq("cohort_code", currentAdmissionsCohortCode)
+    .is("deleted_at", null)
+    .ilike("email", escapePostgrestLikePattern(normalizeApplicantEmail(registration.email)))
+    .limit(1)
+    .maybeSingle();
+  if (duplicateCheck.error) throw new Error(`APPLICATION_DUPLICATE_CHECK_FAILED:${duplicateCheck.error.message}`);
+  if (duplicateCheck.data) throw new DuplicateActiveApplicationError();
   const { data, error } = await supabase
     .from("registrations")
     .insert(payload)
@@ -314,6 +347,7 @@ export async function createRegistrationApplication(registration: RegistrationPa
         .from("registrations")
         .select("id, payment_reference, payment_status, payment_authorization_url")
         .eq("submission_key_hash", submissionKeyHash)
+        .is("deleted_at", null)
         .maybeSingle();
       if (!existing.error && existing.data?.id) {
         const id = String(existing.data.id);
@@ -326,6 +360,9 @@ export async function createRegistrationApplication(registration: RegistrationPa
           reused: true,
         };
       }
+    }
+    if (error?.code === "23505" && (error.message.includes("ACTIVE_APPLICATION_ALREADY_EXISTS") || error.message.includes("registrations_active_cohort_email_guard"))) {
+      throw new DuplicateActiveApplicationError();
     }
     console.error("Supabase application save failed:", error);
     throw new Error(`APPLICATION_SAVE_FAILED:${error?.message || "No application record was returned."}`);
@@ -351,6 +388,7 @@ export async function recordRegistrationPaymentInitialization(applicationId: str
     .eq("id", applicationId)
     .eq("payment_reference", paymentReference)
     .eq("payment_status", "pending")
+    .is("deleted_at", null)
     .select("id")
     .maybeSingle();
   if (error || !data?.id) throw new Error(`PAYMENT_INITIALIZATION_SAVE_FAILED:${error?.message || "Application state changed."}`);
@@ -361,8 +399,9 @@ export async function validateRegistrationApplicationForPayment(input: { applica
   if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
   const { data, error } = await supabase
     .from("registrations")
-    .select("id, email, funding_route, amount, currency, payment_status, payment_reference, payment_authorization_url")
+    .select("id, email, funding_route, amount, currency, payment_status, payment_reference, payment_authorization_url, deleted_at")
     .eq("id", input.applicationId)
+    .is("deleted_at", null)
     .maybeSingle();
   if (error || !data) throw new Error(`APPLICATION_PAYMENT_STATE_UNAVAILABLE:${error?.message || "Application was not found."}`);
   const valid = data.funding_route === "self_pay"

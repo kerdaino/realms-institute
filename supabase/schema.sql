@@ -1,6 +1,12 @@
 create table if not exists public.registrations (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
+  cohort_code text not null default 'RSD-AUG-2026',
+  deleted_at timestamptz,
+  deleted_by text,
+  deletion_reason text,
+  deletion_note text,
+  superseded_by_application_id uuid,
   full_name text not null,
   email text not null,
   whatsapp text not null,
@@ -112,7 +118,13 @@ alter table registrations
   add column if not exists application_status text not null default 'pending_review',
   add column if not exists admin_note text,
   add column if not exists reviewed_at timestamptz,
-  add column if not exists reviewed_by text;
+  add column if not exists reviewed_by text,
+  add column if not exists cohort_code text not null default 'RSD-AUG-2026',
+  add column if not exists deleted_at timestamptz,
+  add column if not exists deleted_by text,
+  add column if not exists deletion_reason text,
+  add column if not exists deletion_note text,
+  add column if not exists superseded_by_application_id uuid;
 
 -- August 2026 programme architecture and pre-payment application support.
 -- Values are validated in TypeScript/server code. No new database CHECK constraints are added yet.
@@ -362,3 +374,7 @@ create index if not exists registrations_scholarship_status_idx on public.regist
 alter table public.registration_review_events enable row level security;
 
 -- No public policies are created. Backend access uses the server-only service role.
+
+-- The controlled removal constraints, cohort/email duplicate guard, and atomic
+-- soft-delete/restore functions are provided in application_soft_delete.sql.
+-- Apply that separately after this base registration schema has been reviewed.

@@ -187,7 +187,7 @@ export async function fetchAdminFacilitator(supabase: SupabaseClient, id: string
 }
 
 export async function fetchAdminDashboard(supabase: SupabaseClient) {
-  const registrationResult = await supabase.from("registrations").select("application_status, advanced_entry_status, scholarship_status");
+  const registrationResult = await supabase.from("registrations").select("application_status, advanced_entry_status, scholarship_status").is("deleted_at", null);
   throwQueryError("Applications", registrationResult.error);
   const registrations = registrationResult.data ?? [];
   const counts = await Promise.all([

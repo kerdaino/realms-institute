@@ -3,7 +3,7 @@ import { RegistrationsManager } from "@/components/admin/RegistrationsManager";
 import { requireAdmin } from "@/lib/adminAuth";
 import { isApplicationRecordScope } from "@/lib/applicationLifecycle";
 
-export default async function AdminRegistrationsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+export default async function AdminApplicationsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireAdmin();
   const search = await searchParams;
   const requestedScope = typeof search.recordScope === "string" ? search.recordScope : "active";

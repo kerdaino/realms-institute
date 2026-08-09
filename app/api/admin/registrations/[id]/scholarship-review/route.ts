@@ -22,7 +22,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const applicantMessage = typeof payload.applicantMessage === "string" ? payload.applicantMessage.trim().slice(0, 3000) : "";
   if (!(actions as readonly string[]).includes(action)) return NextResponse.json({ message: "A valid scholarship review action is required." }, { status: 400 });
 
-  const { data: current, error: currentError } = await supabase.from("registrations").select(adminRegistrationFields).eq("id", id).maybeSingle();
+  const { data: current, error: currentError } = await supabase.from("registrations").select(adminRegistrationFields).eq("id", id).is("deleted_at", null).maybeSingle();
   if (currentError?.code === "42703") return NextResponse.json({ message: "Apply the latest supabase/schema.sql migration before using scholarship review." }, { status: 503 });
   if (currentError) return NextResponse.json({ message: "Registration could not be loaded." }, { status: 500 });
   if (!current) return NextResponse.json({ message: "Registration not found." }, { status: 404 });
@@ -87,7 +87,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     });
   }
 
-  const { data, error } = await supabase.from("registrations").update(updates).eq("id", id).eq("funding_route", "scholarship_request").select(adminRegistrationFields).maybeSingle();
+  const { data, error } = await supabase.from("registrations").update(updates).eq("id", id).eq("funding_route", "scholarship_request").is("deleted_at", null).select(adminRegistrationFields).maybeSingle();
   if (error) {
     console.error("Scholarship review update failed", error);
     return NextResponse.json({ message: "Scholarship review could not be saved." }, { status: 500 });
@@ -107,7 +107,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     newState: { scholarship_status: data.scholarship_status, scholarship_approved_amount: data.scholarship_approved_amount },
   });
   const emailStatus = await sendCurrentScholarshipDecisionEmail(id);
-  const refreshed = await supabase.from("registrations").select(adminRegistrationFields).eq("id", id).maybeSingle();
+  const refreshed = await supabase.from("registrations").select(adminRegistrationFields).eq("id", id).is("deleted_at", null).maybeSingle();
   const message = emailStatus.sent
     ? "Scholarship decision saved and applicant notified. Admission status was not changed."
     : `Scholarship decision saved, but the applicant notification could not be delivered. ${emailStatus.reason} You can resend it below.`;

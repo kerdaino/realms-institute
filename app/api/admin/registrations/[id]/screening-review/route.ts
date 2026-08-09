@@ -30,7 +30,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (shortAnswer1Score === null || shortAnswer2Score === null) return NextResponse.json({ message: "Each short answer score must be between 0 and 25." }, { status: 400 });
   if (action === "request_more_information" && !applicantMessage) return NextResponse.json({ message: "Add the applicant-facing information request that will be included in the email." }, { status: 400 });
 
-  const { data: current, error: currentError } = await supabase.from("registrations").select(adminRegistrationFields).eq("id", id).maybeSingle();
+  const { data: current, error: currentError } = await supabase.from("registrations").select(adminRegistrationFields).eq("id", id).is("deleted_at", null).maybeSingle();
   if (currentError?.code === "42703") return NextResponse.json({ message: "Apply the latest supabase/schema.sql migration before using screening review." }, { status: 503 });
   if (currentError) return NextResponse.json({ message: "Registration could not be loaded." }, { status: 500 });
   if (!current) return NextResponse.json({ message: "Registration not found." }, { status: 404 });
@@ -58,7 +58,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (action === "require_foundational") Object.assign(updates, { screening_status: "foundation_required", advanced_entry_status: "foundation_required", assigned_discipleship_route: "foundational" });
   if (action === "request_more_information") Object.assign(updates, { screening_status: "more_information_required", advanced_entry_status: "more_information_required" });
 
-  const { data, error } = await supabase.from("registrations").update(updates).eq("id", id).eq("applicant_type", "prior_theological_education").select(adminRegistrationFields).maybeSingle();
+  const { data, error } = await supabase.from("registrations").update(updates).eq("id", id).eq("applicant_type", "prior_theological_education").is("deleted_at", null).select(adminRegistrationFields).maybeSingle();
   if (error) {
     console.error("Screening review update failed", error);
     return NextResponse.json({ message: "Screening review could not be saved." }, { status: 500 });
@@ -77,7 +77,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     newState: { screening_status: data.screening_status, advanced_entry_status: data.advanced_entry_status, assigned_discipleship_route: data.assigned_discipleship_route, screening_total_score: data.screening_total_score },
   });
   const emailStatus = await sendCurrentAdvancedEntryDecisionEmail(id);
-  const refreshed = await supabase.from("registrations").select(adminRegistrationFields).eq("id", id).maybeSingle();
+  const refreshed = await supabase.from("registrations").select(adminRegistrationFields).eq("id", id).is("deleted_at", null).maybeSingle();
   const message = emailStatus.sent
     ? "Advanced-entry decision saved and applicant notified. Admission status was not changed."
     : `Advanced-entry decision saved, but the applicant notification could not be delivered. ${emailStatus.reason} You can resend it below.`;

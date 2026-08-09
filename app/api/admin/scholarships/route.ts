@@ -9,7 +9,7 @@ export async function GET() {
   if (!(await isAdminAuthenticated())) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
   const supabase = getSupabaseAdmin();
   if (!supabase) return NextResponse.json({ message: "Supabase is not configured." }, { status: 503 });
-  const { data, error } = await supabase.from("registrations").select(scholarshipFields).eq("funding_route", "scholarship_request").order("created_at", { ascending: false }).limit(5000);
+  const { data, error } = await supabase.from("registrations").select(scholarshipFields).eq("funding_route", "scholarship_request").is("deleted_at", null).order("created_at", { ascending: false }).limit(5000);
   if (error) {
     console.error("Admin scholarship requests query failed", error);
     return NextResponse.json({ message: "Scholarship requests could not be loaded." }, { status: 500 });

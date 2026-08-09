@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { isApplicationRecordScope, type ApplicationDeletionReason, type ApplicationRecordScope } from "@/lib/applicationLifecycle";
 import { isApplicationStatus, type ApplicationStatus } from "@/lib/applicationStatus";
 import { learningModes, skillPathways } from "@/lib/constants";
 import {
@@ -21,7 +22,7 @@ import {
   type ScreeningStatus,
 } from "@/lib/registration";
 
-const sharedRegistrationFields = "id, created_at, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, consent, fee_policy_consent, computer_access_confirmed, amount, amount_paid, payment_expected_amount, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status, financial_requirement_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, alumni_previous_cohort, alumni_previous_email, alumni_previous_phone, alumni_student_id, screening_status, screening_answers, funding_route, scholarship_status, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, admission_email_sent, admission_email_sent_at";
+const sharedRegistrationFields = "id, created_at, cohort_code, deleted_at, deleted_by, deletion_reason, deletion_note, superseded_by_application_id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, consent, fee_policy_consent, computer_access_confirmed, amount, amount_paid, payment_expected_amount, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status, financial_requirement_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, alumni_previous_cohort, alumni_previous_email, alumni_previous_phone, alumni_student_id, screening_status, screening_answers, funding_route, scholarship_status, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, admission_email_sent, admission_email_sent_at";
 
 export const adminRegistrationListFields = sharedRegistrationFields;
 export const adminRegistrationFields = `${sharedRegistrationFields}, alumni_review_note, alumni_reviewed_at, alumni_reviewed_by, theological_institution, theological_programme, theological_duration, theological_year_completed, theological_qualification, screening_objective_score, screening_objective_max, screening_short_answer_1_score, screening_short_answer_2_score, screening_short_answer_score, screening_total_score, screening_percentage, screening_review_note, screening_reviewed_at, screening_reviewed_by, advanced_entry_applicant_message, advanced_entry_decision_email_sent, advanced_entry_decision_email_sent_at, advanced_entry_decision_email_type, advanced_entry_decision_email_error, advanced_entry_decision_email_last_attempted_at, advanced_entry_decision_email_last_attempt_type, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, scholarship_approved_amount, scholarship_applicant_message, scholarship_review_note, scholarship_reviewed_at, scholarship_reviewed_by, scholarship_confirmation_email_sent, scholarship_confirmation_email_sent_at, scholarship_admin_email_sent, scholarship_admin_email_sent_at, scholarship_decision_email_sent, scholarship_decision_email_sent_at, scholarship_decision_email_type, scholarship_decision_email_error, scholarship_decision_email_last_attempted_at, admin_note_updated_at, admin_note_updated_by`;
@@ -29,6 +30,13 @@ export const adminRegistrationFields = `${sharedRegistrationFields}, alumni_revi
 export type AdminRegistration = {
   id: string;
   created_at: string;
+  cohort_code: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  deletion_reason: ApplicationDeletionReason | null;
+  deletion_note: string | null;
+  superseded_by_application_id: string | null;
+  potential_duplicate_count?: number;
   full_name: string;
   email: string;
   whatsapp: string;
@@ -160,6 +168,7 @@ export type RegistrationFilters = {
   advancedEntryStatus?: string;
   scholarshipStatus?: string;
   fundingRoute?: string;
+  recordScope?: ApplicationRecordScope;
   from?: string;
   to?: string;
 };
@@ -179,6 +188,7 @@ export function readRegistrationFilters(searchParams: URLSearchParams): Registra
     advancedEntryStatus: value("advancedEntryStatus"),
     scholarshipStatus: value("scholarshipStatus"),
     fundingRoute: value("fundingRoute"),
+    recordScope: isApplicationRecordScope(value("recordScope")) ? value("recordScope") as ApplicationRecordScope : "active",
     from: value("from"),
     to: value("to"),
   };
@@ -191,6 +201,8 @@ function validDate(value?: string) {
 
 export async function fetchAdminRegistrations(supabase: SupabaseClient, filters: RegistrationFilters) {
   let query = supabase.from("registrations").select(adminRegistrationListFields).order("created_at", { ascending: false }).limit(5000);
+  if (filters.recordScope === "deleted") query = query.not("deleted_at", "is", null);
+  else if (filters.recordScope !== "all") query = query.is("deleted_at", null);
   const search = filters.search?.replace(/[^\p{L}\p{N}@+._\-\s]/gu, "").trim();
   if (search) query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%,whatsapp.ilike.%${search}%`);
   if ((learningModes as readonly string[]).includes(filters.learningMode ?? "")) query = query.eq("learning_mode", filters.learningMode!);
@@ -211,7 +223,23 @@ export async function fetchAdminRegistrations(supabase: SupabaseClient, filters:
   if (to) query = query.lt("created_at", `${to}T23:59:59.999Z`);
   const { data, error } = await query;
   if (error) throw new Error(`Could not load registrations: ${error.message}`);
-  return (data ?? []) as AdminRegistration[];
+  const registrations = (data ?? []) as AdminRegistration[];
+  if (!registrations.length || filters.recordScope === "deleted") return registrations;
+  const duplicateResult = await supabase
+    .from("registrations")
+    .select("id, email, cohort_code")
+    .is("deleted_at", null)
+    .limit(5000);
+  if (duplicateResult.error) throw new Error(`Could not check potential duplicate applications: ${duplicateResult.error.message}`);
+  const counts = new Map<string, number>();
+  for (const item of duplicateResult.data ?? []) {
+    const key = `${String(item.cohort_code)}:${String(item.email).trim().toLowerCase()}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return registrations.map((registration) => ({
+    ...registration,
+    potential_duplicate_count: registration.deleted_at ? 0 : counts.get(`${registration.cohort_code}:${registration.email.trim().toLowerCase()}`) ?? 0,
+  }));
 }
 
 export function summarizeRegistrations(registrations: AdminRegistration[]): RegistrationSummary {

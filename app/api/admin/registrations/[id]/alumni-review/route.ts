@@ -19,7 +19,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const reviewNote = typeof payload.reviewNote === "string" ? payload.reviewNote.trim().slice(0, 5000) : "";
   if (!(actions as readonly string[]).includes(action)) return NextResponse.json({ message: "A valid alumni review action is required." }, { status: 400 });
 
-  const { data: current, error: currentError } = await supabase.from("registrations").select(adminRegistrationFields).eq("id", id).maybeSingle();
+  const { data: current, error: currentError } = await supabase.from("registrations").select(adminRegistrationFields).eq("id", id).is("deleted_at", null).maybeSingle();
   if (currentError?.code === "42703") return NextResponse.json({ message: "Apply the latest supabase/schema.sql migration before using advanced-entry review." }, { status: 503 });
   if (currentError) return NextResponse.json({ message: "Registration could not be loaded." }, { status: 500 });
   if (!current) return NextResponse.json({ message: "Registration not found." }, { status: 404 });
@@ -35,7 +35,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (action === "unable_to_verify") Object.assign(updates, { alumni_verification_status: "not_verified" });
   if (action === "request_more_information") Object.assign(updates, { alumni_verification_status: "more_information_required", advanced_entry_status: "more_information_required" });
 
-  const { data, error } = await supabase.from("registrations").update(updates).eq("id", id).eq("applicant_type", "realms_alumnus").select(adminRegistrationFields).maybeSingle();
+  const { data, error } = await supabase.from("registrations").update(updates).eq("id", id).eq("applicant_type", "realms_alumnus").is("deleted_at", null).select(adminRegistrationFields).maybeSingle();
   if (error) {
     console.error("Alumni review update failed", error);
     return NextResponse.json({ message: "Alumni review could not be saved." }, { status: 500 });

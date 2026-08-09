@@ -5,6 +5,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import { AdminMessage } from "@/components/admin/DashboardStats";
 import { applicationStatusLabels, applicationStatuses } from "@/lib/applicationStatus";
+import type { ApplicationRecordScope } from "@/lib/applicationLifecycle";
 import type { AdminRegistration, RegistrationSummary } from "@/lib/adminRegistrations";
 import {
   advancedEntryStatusLabels,
@@ -24,11 +25,12 @@ const assignedRouteOptions = [...Object.entries(assignedRouteLabels).map(([value
 const advancedEntryOptions = ["pending_alumni_verification", "pending_screening_review", "advanced_approved", "foundation_required", "more_information_required"].map((value) => ({ value, label: advancedEntryStatusLabels[value as keyof typeof advancedEntryStatusLabels] }));
 const scholarshipOptions = Object.entries(scholarshipStatusLabels).map(([value, label]) => ({ value, label }));
 
-export function RegistrationsManager() {
+export function RegistrationsManager({ initialRecordScope = "active" }: { initialRecordScope?: ApplicationRecordScope }) {
   const [result, setResult] = useState<Result | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
+  const initialQuery = initialRecordScope === "active" ? "" : `recordScope=${initialRecordScope}`;
+  const [query, setQuery] = useState(initialQuery);
 
   async function load(nextQuery = query) {
     setLoading(true);
@@ -47,7 +49,7 @@ export function RegistrationsManager() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/admin/registrations", { cache: "no-store" })
+    fetch(`/api/admin/registrations${initialQuery ? `?${initialQuery}` : ""}`, { cache: "no-store" })
       .then(async (response) => ({ response, body: await response.json() }))
       .then(({ response, body }) => {
         if (!active) return;
@@ -57,7 +59,7 @@ export function RegistrationsManager() {
       .catch(() => { if (active) setMessage("Registrations could not be loaded."); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [initialQuery]);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -73,6 +75,7 @@ export function RegistrationsManager() {
   return (
     <div className="space-y-6">
       <form onSubmit={applyFilters} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-2 xl:grid-cols-4">
+        <FilterSelect name="recordScope" label="Records" options={[{ value: "active", label: "Active" }, { value: "deleted", label: "Deleted / Archived" }, { value: "all", label: "All"}]} defaultValue={initialRecordScope} />
         <FilterInput name="search" label="Search" placeholder="Name, email or WhatsApp" />
         <FilterSelect name="applicantType" label="Applicant Type" options={applicantTypeOptions} />
         <FilterSelect name="requestedRoute" label="Requested Route" options={requestedRouteOptions} />
@@ -88,7 +91,7 @@ export function RegistrationsManager() {
         <FilterInput name="to" label="Submitted To" type="date" />
         <div className="flex items-end gap-2">
           <button className="rounded-lg bg-[#071327] px-4 py-2.5 text-sm font-semibold text-white">Apply Filters</button>
-          <button type="button" onClick={() => { setQuery(""); window.location.reload(); }} className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700">Clear</button>
+          <button type="button" onClick={() => { window.location.href = "/admin/applications"; }} className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700">Clear</button>
         </div>
       </form>
 
@@ -112,7 +115,7 @@ function RegistrationList({ registrations }: { registrations: AdminRegistration[
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600"><tr>{["Applicant", "Programme", "Applicant Type", "Requested Route", "Advanced Entry", "Scholarship", "Payment", "Admission", "Submitted", "Actions"].map((label) => <th key={label} className="px-4 py-3 font-semibold">{label}</th>)}</tr></thead>
           <tbody className="divide-y divide-slate-100">
             {registrations.map((registration) => <tr key={registration.id} className="align-top">
-              <Cell><span className="font-semibold text-[#071327]">{registration.full_name}</span><span className="mt-1 block break-all text-xs">{registration.email}</span><span className="mt-1 block text-xs">{registration.whatsapp} · {registration.country}</span></Cell>
+              <Cell><span className="font-semibold text-[#071327]">{registration.full_name}</span><span className="mt-1 block break-all text-xs">{registration.email}</span><span className="mt-1 block text-xs">{registration.whatsapp} · {registration.country}</span><span className="mt-1 block text-xs">{registration.cohort_code}</span>{registration.deleted_at ? <span className="mt-2 block"><Badge tone="red">Deleted</Badge></span> : (registration.potential_duplicate_count ?? 0) > 1 ? <span className="mt-2 block"><Badge tone="amber">Potential duplicate · {registration.potential_duplicate_count} applications</Badge></span> : null}</Cell>
               <Cell><span className="font-medium">{registration.skill_pathway}</span><span className="mt-1 block text-xs">{registration.learning_mode}</span></Cell>
               <Cell><Badge tone="navy">{applicantTypeLabels[registration.applicant_type]}</Badge></Cell>
               <Cell><Badge tone="blue">{requestedRouteLabels[registration.requested_discipleship_route]}</Badge><span className="mt-2 block text-xs">Assigned: {registration.assigned_discipleship_route ? assignedRouteLabels[registration.assigned_discipleship_route] : "Not Yet Assigned"}</span></Cell>
@@ -121,7 +124,7 @@ function RegistrationList({ registrations }: { registrations: AdminRegistration[
               <Cell><Badge tone={registration.payment_status === "success" ? "green" : "slate"}>{labelOrValue(paymentStatusLabels, registration.payment_status)}</Badge><span className="mt-2 block text-xs">{formatAmountPaid(registration)}</span></Cell>
               <Cell><Badge tone={registration.application_status === "admitted" ? "green" : registration.application_status === "not_admitted" ? "red" : "amber"}>{applicationStatusLabels[registration.application_status]}</Badge></Cell>
               <Cell>{formatDate(registration.created_at)}</Cell>
-              <Cell><Link className="font-semibold text-amber-800 hover:underline" href={`/admin/registrations/${registration.id}`}>Review application</Link></Cell>
+              <Cell><Link className="font-semibold text-amber-800 hover:underline" href={`/admin/applications/${registration.id}`}>{registration.deleted_at ? "View archived record" : "Review application"}</Link></Cell>
             </tr>)}
           </tbody>
         </table>
@@ -129,10 +132,10 @@ function RegistrationList({ registrations }: { registrations: AdminRegistration[
 
       <div className="grid gap-4 lg:hidden">
         {registrations.map((registration) => <article key={registration.id} className="rounded-2xl border border-slate-200 bg-white p-5">
-          <h2 className="font-semibold text-[#071327]">{registration.full_name}</h2><p className="mt-1 break-all text-sm text-slate-600">{registration.email}</p>
-          <div className="mt-4 flex flex-wrap gap-2"><Badge tone="navy">{applicantTypeLabels[registration.applicant_type]}</Badge><Badge tone="blue">{requestedRouteLabels[registration.requested_discipleship_route]}</Badge><Badge tone="slate">{advancedEntryStatusLabels[registration.advanced_entry_status]}</Badge><Badge tone={registration.scholarship_status === "pending" ? "amber" : "slate"}>{scholarshipStatusLabels[registration.scholarship_status]}</Badge><Badge tone={registration.payment_status === "success" ? "green" : "slate"}>{labelOrValue(paymentStatusLabels, registration.payment_status)}</Badge></div>
+          <h2 className="font-semibold text-[#071327]">{registration.full_name}</h2><p className="mt-1 break-all text-sm text-slate-600">{registration.email}</p><p className="mt-1 text-xs text-slate-500">{registration.cohort_code}</p>
+          <div className="mt-4 flex flex-wrap gap-2">{registration.deleted_at ? <Badge tone="red">Deleted</Badge> : null}{!registration.deleted_at && (registration.potential_duplicate_count ?? 0) > 1 ? <Badge tone="amber">Potential duplicate · {registration.potential_duplicate_count} applications</Badge> : null}<Badge tone="navy">{applicantTypeLabels[registration.applicant_type]}</Badge><Badge tone="blue">{requestedRouteLabels[registration.requested_discipleship_route]}</Badge><Badge tone="slate">{advancedEntryStatusLabels[registration.advanced_entry_status]}</Badge><Badge tone={registration.scholarship_status === "pending" ? "amber" : "slate"}>{scholarshipStatusLabels[registration.scholarship_status]}</Badge><Badge tone={registration.payment_status === "success" ? "green" : "slate"}>{labelOrValue(paymentStatusLabels, registration.payment_status)}</Badge></div>
           <dl className="mt-4 grid grid-cols-2 gap-3 text-sm"><MobileDetail label="Pathway" value={registration.skill_pathway} /><MobileDetail label="Mode" value={registration.learning_mode} /><MobileDetail label="Assigned route" value={registration.assigned_discipleship_route ? assignedRouteLabels[registration.assigned_discipleship_route] : "Not Yet Assigned"} /><MobileDetail label="Admission" value={applicationStatusLabels[registration.application_status]} /></dl>
-          <Link className="mt-5 inline-block font-semibold text-amber-800 hover:underline" href={`/admin/registrations/${registration.id}`}>Review application</Link>
+          <Link className="mt-5 inline-block font-semibold text-amber-800 hover:underline" href={`/admin/applications/${registration.id}`}>{registration.deleted_at ? "View archived record" : "Review application"}</Link>
         </article>)}
       </div>
     </>
@@ -145,7 +148,7 @@ export function Badge({ children, tone = "slate" }: { children: ReactNode; tone?
 }
 
 function FilterInput({ name, label, placeholder, type = "text" }: { name: string; label: string; placeholder?: string; type?: string }) { return <label className="grid gap-1 text-sm font-semibold text-slate-700"><span>{label}</span><input name={name} type={type} placeholder={placeholder} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-950 outline-none focus:border-amber-600" /></label>; }
-function FilterSelect({ name, label, options }: { name: string; label: string; options: Array<string | { value: string; label: string }> }) { return <label className="grid gap-1 text-sm font-semibold text-slate-700"><span>{label}</span><select name={name} defaultValue="" className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-950 outline-none focus:border-amber-600"><option value="">All</option>{options.map((option) => { const value = typeof option === "string" ? option : option.value; const display = typeof option === "string" ? option : option.label; return <option key={value} value={value}>{display}</option>; })}</select></label>; }
+function FilterSelect({ name, label, options, defaultValue = "" }: { name: string; label: string; options: Array<string | { value: string; label: string }>; defaultValue?: string }) { return <label className="grid gap-1 text-sm font-semibold text-slate-700"><span>{label}</span><select name={name} defaultValue={defaultValue} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-950 outline-none focus:border-amber-600">{defaultValue ? null : <option value="">All</option>}{options.map((option) => { const value = typeof option === "string" ? option : option.value; const display = typeof option === "string" ? option : option.label; return <option key={value} value={value}>{display}</option>; })}</select></label>; }
 function Cell({ children }: { children: ReactNode }) { return <td className="px-4 py-4 text-slate-700">{children}</td>; }
 function MobileDetail({ label, value }: { label: string; value: string }) { return <div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</dt><dd className="mt-1 text-slate-900">{value}</dd></div>; }
 function formatDate(value: string | null) { return value ? new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(value)) : "Not recorded"; }

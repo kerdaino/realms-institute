@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { duplicateApplicationMessage, DuplicateActiveApplicationError } from "@/lib/applicationLifecycle";
 import { consumePublicRateLimits, hashPublicSubmissionIdentifier, publicRequestSource } from "@/lib/publicRateLimit.server";
 import { PUBLIC_RATE_LIMIT_MESSAGE } from "@/lib/publicRateLimitPolicy";
 import { calculateCohortFee, validateRegistrationPayload } from "@/lib/registration";
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
     const emailStatus = await sendScholarshipApplicationEmailsIfNeeded(application.id);
     return NextResponse.json({ success: true, applicationId: application.id, applicationReference: application.applicationReference, emailStatus, reused: application.reused, message: "Your application and scholarship request have been received." });
   } catch (error) {
+    if (error instanceof DuplicateActiveApplicationError) return NextResponse.json({ success: false, message: duplicateApplicationMessage }, { status: 409 });
     console.error("Scholarship application save failed", error);
     return NextResponse.json({ success: false, message: "Your scholarship request could not be saved. No payment was started. Please try again or contact REALMS Institute." }, { status: 503 });
   }

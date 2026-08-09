@@ -41,6 +41,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from("registrations")
     .update(update)
     .eq("id", id)
+    .is("deleted_at", null)
     .select(adminRegistrationListFields)
     .maybeSingle();
 
@@ -56,6 +57,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from("registrations")
     .select(adminRegistrationListFields)
     .eq("id", id)
+    .is("deleted_at", null)
     .maybeSingle();
 
   if (refreshError) {
