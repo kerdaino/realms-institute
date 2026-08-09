@@ -6,7 +6,7 @@ import { initializePaystackTransaction, type PaystackVerificationData } from "@/
 import { paymentReferenceMatchesApplication, scholarshipPaystackMetadataSource, type PaymentReconciliation } from "@/lib/paymentReconciliation";
 import { recordPaymentVerificationEvent } from "@/lib/paymentVerificationAudit";
 import { generatePaymentReference } from "@/lib/registration";
-import { buildVerifiedPaymentColumns, PaymentRegistrationConflictError, savedRegistrationSelect, type RegistrationSaveResult, type SavedRegistration } from "@/lib/saveRegistration";
+import { buildVerifiedPaymentColumns, PaymentRegistrationConflictError, savedRegistrationSelect, type PaymentPersistenceContext, type RegistrationSaveResult, type SavedRegistration } from "@/lib/saveRegistration";
 import { scholarshipFinancialSummary, type ScholarshipFinancialSummary } from "@/lib/scholarshipFinance";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -286,7 +286,7 @@ export async function recordUnconfirmedScholarshipPayment(paystackData: Paystack
   if (saved.error) throw new Error("UNCONFIRMED_SCHOLARSHIP_PAYMENT_RECONCILIATION_FAILED");
 }
 
-export async function saveVerifiedScholarshipPayment(paystackData: PaystackVerificationData, resolved: ScholarshipPaymentResolution, reconciliation: PaymentReconciliation): Promise<RegistrationSaveResult> {
+export async function saveVerifiedScholarshipPayment(paystackData: PaystackVerificationData, resolved: ScholarshipPaymentResolution, reconciliation: PaymentReconciliation, context?: PaymentPersistenceContext): Promise<RegistrationSaveResult> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { saved: false, reason: "Supabase is not configured." };
   const existing = await loadRegistration(resolved.applicationId, { includeDeleted: true });
@@ -294,11 +294,11 @@ export async function saveVerifiedScholarshipPayment(paystackData: PaystackVerif
   await assertTransactionOwnership(paystackData, resolved.applicationId);
   if (existing.payment_status === "success") {
     if (Number(existing.amount_paid) !== paystackData.amount / 100 || existing.currency.toUpperCase() !== paystackData.currency.toUpperCase()) throw new PaymentRegistrationConflictError();
-    const audit = await recordPaymentVerificationEvent(supabase, { registrationId: existing.id, reference: paystackData.reference, previousStatus: "success", reconciliation });
+    const audit = await recordPaymentVerificationEvent(supabase, { registrationId: existing.id, reference: paystackData.reference, previousStatus: "success", reconciliation, source: context?.source, actor: context?.actor, transactionId: paystackData.id ?? null, paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null, channel: paystackData.channel ?? null, gatewayStatus: paystackData.gateway_response ?? paystackData.status, reconciledAt: context?.reconciledAt });
     return { saved: true, id: existing.id, registration: existing, paymentVerificationAuditStatus: audit };
   }
   const { data, error } = await supabase.from("registrations").update({
-    ...buildVerifiedPaymentColumns(paystackData, reconciliation),
+    ...buildVerifiedPaymentColumns(paystackData, reconciliation, context),
     financial_requirement_status: "satisfied_by_payment",
     payment_expected_amount: resolved.financials.amountDue,
   }).eq("id", resolved.applicationId).eq("funding_route", "scholarship_request").eq("payment_reference", paystackData.reference).neq("payment_status", "success").select(scholarshipPaymentSelect).maybeSingle();
@@ -306,10 +306,10 @@ export async function saveVerifiedScholarshipPayment(paystackData: PaystackVerif
   if (!data) {
     const concurrent = await loadRegistration(resolved.applicationId, { includeDeleted: true });
     if (!concurrent || concurrent.payment_status !== "success" || concurrent.payment_reference !== paystackData.reference || Number(concurrent.amount_paid) !== paystackData.amount / 100) throw new PaymentRegistrationConflictError();
-    const audit = await recordPaymentVerificationEvent(supabase, { registrationId: concurrent.id, reference: paystackData.reference, previousStatus: "success", reconciliation });
+    const audit = await recordPaymentVerificationEvent(supabase, { registrationId: concurrent.id, reference: paystackData.reference, previousStatus: "success", reconciliation, source: context?.source, actor: context?.actor, transactionId: paystackData.id ?? null, paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null, channel: paystackData.channel ?? null, gatewayStatus: paystackData.gateway_response ?? paystackData.status, reconciledAt: context?.reconciledAt });
     return { saved: true, id: concurrent.id, registration: concurrent, paymentVerificationAuditStatus: audit };
   }
   const registration = data as ScholarshipPaymentRow;
-  const audit = await recordPaymentVerificationEvent(supabase, { registrationId: registration.id, reference: paystackData.reference, previousStatus: existing.payment_status, reconciliation });
+  const audit = await recordPaymentVerificationEvent(supabase, { registrationId: registration.id, reference: paystackData.reference, previousStatus: existing.payment_status, reconciliation, source: context?.source, actor: context?.actor, transactionId: paystackData.id ?? null, paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null, channel: paystackData.channel ?? null, gatewayStatus: paystackData.gateway_response ?? paystackData.status, reconciledAt: context?.reconciledAt });
   return { saved: true, id: registration.id, registration, paymentVerificationAuditStatus: audit };
 }

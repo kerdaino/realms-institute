@@ -9,6 +9,13 @@ export type PaymentVerificationAuditInput = {
   reference: string;
   previousStatus: string;
   reconciliation: PaymentReconciliation;
+  source?: "automatic_callback" | "paystack_webhook" | "manual_admin_gateway_verification";
+  actor?: string;
+  transactionId?: number | string | null;
+  paidAt?: string | null;
+  channel?: string | null;
+  gatewayStatus?: string | null;
+  reconciledAt?: string;
 };
 
 type DatabaseError = {
@@ -39,6 +46,8 @@ export function databaseErrorForServerLog(error: DatabaseError, privateValues: s
 }
 
 export function buildPaymentVerificationAuditPayload(input: PaymentVerificationAuditInput) {
+  const source = input.source ?? "automatic_callback";
+  const reconciledAt = input.reconciledAt ?? new Date().toISOString();
   return {
     registration_id: input.registrationId,
     event_type: "payment_verified",
@@ -51,9 +60,16 @@ export function buildPaymentVerificationAuditPayload(input: PaymentVerificationA
       payment_variance_type: input.reconciliation.varianceType,
       payment_variance_kobo: input.reconciliation.varianceKobo,
       currency: input.reconciliation.receivedCurrency,
+      paystack_transaction_id: input.transactionId ?? null,
+      paid_at: input.paidAt ?? null,
+      payment_channel: input.channel ?? null,
+      gateway_status: input.gatewayStatus ?? null,
+      reconciliation_source: source,
+      reconciled_at: reconciledAt,
+      reconciled_by: input.actor ?? (source === "manual_admin_gateway_verification" ? "REALMS Admin" : "Paystack verification"),
     },
     note: input.reconciliation.varianceType === "overpayment" ? "Excess payment recorded for reconciliation." : null,
-    actor: "Paystack verification",
+    actor: input.actor ?? (source === "manual_admin_gateway_verification" ? "REALMS Admin" : "Paystack verification"),
   };
 }
 

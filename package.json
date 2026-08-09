@@ -15,6 +15,7 @@
     "test:facilitator-live": "node --env-file=.env.local scripts/test-facilitator-portal-live.mjs",
     "test:sessions-live": "node --env-file=.env.local scripts/test-session-ui-live.mjs",
     "test:scholarship": "node --experimental-strip-types scripts/test-scholarship-decision-payment.mjs",
+    "test:payment-reconciliation": "node --experimental-strip-types scripts/test-admin-payment-reconciliation.mjs",
     "test:private-storage": "node --experimental-strip-types scripts/test-private-storage.mjs",
     "test:learning-resources": "node --experimental-strip-types scripts/test-learning-resources.mjs",
     "audit:private-storage": "node --env-file=.env.local scripts/audit-private-storage-orphans.mjs",

@@ -29,6 +29,25 @@ type ScreeningReview = {
 type StudentProvisioning = { id: string; student_number: string; profile_id: string | null; student_status: string; onboarding_status: string };
 type CanonicalCandidate = Pick<AdminRegistration, "id" | "full_name" | "email" | "created_at" | "payment_status" | "scholarship_status" | "advanced_entry_status" | "application_status">;
 type SupersedingApplication = Pick<AdminRegistration, "id" | "full_name" | "email" | "created_at">;
+type PaymentReconciliationPreview = {
+  outcome: "ready" | "already_reconciled" | "rejected";
+  message: string;
+  canApply: boolean;
+  reference: string;
+  transactionStatus: string;
+  transactionId: string | null;
+  amountReceived: number;
+  currency: string;
+  paidAt: string | null;
+  customerEmail: string | null;
+  paymentChannel: string | null;
+  gatewayStatus: string | null;
+  currentRealmsAmountDue: number | null;
+  excessAmount: number;
+  shortfallAmount: number;
+  applicationReference: string | null;
+  binding: string | null;
+};
 
 const advancedEntryDecisionEmailLabels: Record<string, string> = {
   advanced_approved: "Approved Advanced",
@@ -47,6 +66,10 @@ export function RegistrationDetail({ id }: { id: string }) {
   const [resendMessage, setResendMessage] = useState("");
   const [resendingScholarship, setResendingScholarship] = useState(false);
   const [resendingAdvancedEntry, setResendingAdvancedEntry] = useState(false);
+  const [paystackReference, setPaystackReference] = useState("");
+  const [reconciliationPreview, setReconciliationPreview] = useState<PaymentReconciliationPreview | null>(null);
+  const [reconcilingPayment, setReconcilingPayment] = useState<"preview" | "apply" | "">("");
+  const [reconciliationMessage, setReconciliationMessage] = useState("");
   const [alumniNote, setAlumniNote] = useState("");
   const [screeningNote, setScreeningNote] = useState("");
   const [advancedEntryApplicantMessage, setAdvancedEntryApplicantMessage] = useState("");
@@ -213,6 +236,51 @@ export function RegistrationDetail({ id }: { id: string }) {
     }
   }
 
+  async function verifyPaymentForReconciliation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setReconcilingPayment("preview");
+    setReconciliationMessage("");
+    setReconciliationPreview(null);
+    try {
+      const response = await fetch(`/api/admin/registrations/${encodeURIComponent(id)}/payment-reconciliation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "preview", reference: paystackReference }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.message || "The Paystack transaction could not be verified.");
+      setReconciliationPreview(body.preview);
+      setReconciliationMessage(body.preview?.message || "Paystack verification completed.");
+    } catch (error) {
+      setReconciliationMessage(error instanceof Error ? error.message : "The Paystack transaction could not be verified.");
+    } finally {
+      setReconcilingPayment("");
+    }
+  }
+
+  async function applyPaymentReconciliation() {
+    if (!reconciliationPreview?.canApply || !window.confirm("Apply this independently verified Paystack payment to this application? This will not change admission status or the scholarship decision.")) return;
+    setReconcilingPayment("apply");
+    setReconciliationMessage("");
+    try {
+      const response = await fetch(`/api/admin/registrations/${encodeURIComponent(id)}/payment-reconciliation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "apply", reference: paystackReference }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.message || "The payment reconciliation could not be applied.");
+      setReconciliationPreview(body.preview);
+      const applicantEmail = body.emailStatus?.applicant?.sent ? " Applicant confirmation sent." : body.emailStatus?.applicant?.reason === "Already sent." ? " Applicant confirmation was already sent." : "";
+      setReconciliationMessage(`${body.message || "Payment reconciliation completed."}${applicantEmail}`);
+      await loadRegistration();
+    } catch (error) {
+      setReconciliationMessage(error instanceof Error ? error.message : "The payment reconciliation could not be applied.");
+    } finally {
+      setReconcilingPayment("");
+    }
+  }
+
   async function provisionStudent() {
     if (!window.confirm("Provision this admitted applicant as a student and create the approved cohort and course enrolments?")) return;
     setProvisioning(true);
@@ -369,7 +437,7 @@ export function RegistrationDetail({ id }: { id: string }) {
       {registration.funding_route === "scholarship_request" ? <><Details items={[["Reason", registration.scholarship_reason || "Not provided"], ["Financial Situation", registration.scholarship_financial_situation || "Not provided"], ["Applicant Said They Can Contribute", registration.scholarship_can_contribute === null || registration.scholarship_can_contribute === undefined ? "Not provided" : registration.scholarship_can_contribute ? "Yes" : "No"], ["Applicant-Proposed Contribution", registration.scholarship_contribution_amount === null || registration.scholarship_contribution_amount === undefined ? "None" : formatMoneyValue(registration.scholarship_contribution_amount, registration.currency)]]} /><label className="mt-5 grid gap-2 text-sm font-semibold text-slate-800"><span>Approved Scholarship Support / Fee Waiver (required for partial approval)</span><span className="text-xs font-normal leading-5 text-slate-500">This is the amount REALMS waives. Applicant amount due is the normal fee minus this support.</span><input type="number" min="1" max={Math.max(1, Number(registration.amount) - 1)} value={approvedAmount} onChange={(event) => setApprovedAmount(event.target.value)} className="min-h-12 rounded-xl border border-slate-300 px-4 font-normal" /></label><ReviewNote label="Internal Scholarship Review Note (never emailed)" value={scholarshipNote} onChange={setScholarshipNote} /><ReviewNote label="Applicant Message (required only when requesting more information; included in email)" value={scholarshipApplicantMessage} onChange={setScholarshipApplicantMessage} /><div className="mt-4 flex flex-wrap gap-3"><ActionButton disabled={Boolean(saving)} onClick={() => void patchReview("scholarship-review", { action: "approve_full", reviewNote: scholarshipNote }, "scholarship")}>Approve Full Scholarship</ActionButton><ActionButton tone="secondary" disabled={Boolean(saving)} onClick={() => void patchReview("scholarship-review", { action: "approve_partial", approvedAmount, reviewNote: scholarshipNote }, "scholarship")}>Approve Partial Scholarship</ActionButton><ActionButton tone="danger" disabled={Boolean(saving)} onClick={() => void patchReview("scholarship-review", { action: "decline", reviewNote: scholarshipNote }, "scholarship")}>Decline Scholarship</ActionButton><ActionButton tone="secondary" disabled={Boolean(saving)} onClick={() => void patchReview("scholarship-review", { action: "request_more_information", reviewNote: scholarshipNote, applicantMessage: scholarshipApplicantMessage }, "scholarship")}>Request More Information</ActionButton></div><div className="mt-5 border-t border-slate-200 pt-5"><ActionButton tone="secondary" disabled={resendingScholarship || !["approved_full", "approved_partial", "declined", "more_information_required"].includes(registration.scholarship_status)} onClick={() => void resendScholarshipDecisionEmail()}>{resendingScholarship ? "Sending..." : registration.scholarship_decision_email_sent ? "Resend Scholarship Decision Email" : "Send Scholarship Decision Email"}</ActionButton><p className="mt-2 text-xs leading-5 text-slate-500">Uses the current saved decision. It does not create or change a scholarship or admission decision.</p></div><SeparationNotice /></> : <p className="mt-5 text-sm text-slate-600">This applicant did not request scholarship support.</p>}
     </Section>
 
-    <Section title="F. Payment"><Details items={[["Normal Registration Fee", formatMoneyValue(registration.amount, registration.currency)], ["Current Payment Expected", registration.payment_expected_amount === null ? "Not currently payable" : formatMoneyValue(registration.payment_expected_amount, registration.currency)], ["Amount Paid", formatAmountPaid(registration)], ["Currency", registration.currency], ["Payment Reference", registration.payment_reference || "Not created"], ["Payment Status", labelOrValue(paymentStatusLabels, registration.payment_status)], ["Financial Requirement", financialSatisfied ? "Satisfied" : "Payment required"], ["Paid At", formatDate(registration.paid_at)]]} /></Section>
+    <Section title="F. Payment"><Details items={[["Normal Registration Fee", formatMoneyValue(registration.amount, registration.currency)], ["Current Payment Expected", registration.payment_expected_amount === null ? "Not currently payable" : formatMoneyValue(registration.payment_expected_amount, registration.currency)], ["Amount Paid", formatAmountPaid(registration)], ["Currency", registration.currency], ["Payment Reference", registration.payment_reference || "Not created"], ["Payment Status", labelOrValue(paymentStatusLabels, registration.payment_status)], ["Financial Requirement", financialSatisfied ? "Satisfied" : "Payment required"], ["Paid At", formatDate(registration.paid_at)]]} /><div className="mt-7 border-t border-slate-200 pt-6"><h3 className="font-semibold text-[#071327]">Reconcile Paystack Payment</h3><p className="mt-2 text-sm leading-6 text-slate-600">Use this only when Paystack received a legitimate payment that REALMS did not record. REALMS will verify the reference directly with Paystack and require the transaction’s immutable application binding, stored payment reference, currency, and current amount due to match.</p><form onSubmit={verifyPaymentForReconciliation} className="mt-5 grid gap-4"><label className="grid gap-2 text-sm font-semibold text-slate-800"><span>Paystack Reference</span><input required autoComplete="off" maxLength={160} value={paystackReference} onChange={(event) => { setPaystackReference(event.target.value); setReconciliationPreview(null); setReconciliationMessage(""); }} className="min-h-12 rounded-xl border border-slate-300 bg-white px-4 font-normal text-slate-950" /></label><ActionButton submit disabled={Boolean(reconcilingPayment)}>{reconcilingPayment === "preview" ? "Verifying..." : "Verify Transaction"}</ActionButton></form>{reconciliationMessage ? <p className={`mt-4 rounded-xl border p-4 text-sm leading-6 ${reconciliationPreview?.outcome === "ready" ? "border-emerald-300 bg-emerald-50 text-emerald-950" : reconciliationPreview?.outcome === "already_reconciled" ? "border-slate-300 bg-slate-50 text-slate-800" : "border-amber-300 bg-amber-50 text-amber-950"}`}>{reconciliationMessage}</p> : null}{reconciliationPreview ? <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4"><Details items={[["Paystack Status", labelOrValue({}, reconciliationPreview.transactionStatus)], ["Amount Received", formatMoneyValue(reconciliationPreview.amountReceived, reconciliationPreview.currency)], ["Currency", reconciliationPreview.currency || "Not returned"], ["Paid At", formatDate(reconciliationPreview.paidAt)], ["Customer Email", reconciliationPreview.customerEmail || "Not returned"], ["Current REALMS Amount Due", reconciliationPreview.currentRealmsAmountDue === null ? "Could not establish safely" : formatMoneyValue(reconciliationPreview.currentRealmsAmountDue, reconciliationPreview.currency)], ["Application Reference", reconciliationPreview.applicationReference || "Not safely matched"], ["Paystack Transaction ID", reconciliationPreview.transactionId || "Not returned"], ["Payment Channel", reconciliationPreview.paymentChannel || "Not returned"], ["Gateway Status", reconciliationPreview.gatewayStatus || "Not returned"], ["Binding Evidence", reconciliationPreview.binding || "Not established"], ["Excess Received", reconciliationPreview.excessAmount > 0 ? formatMoneyValue(reconciliationPreview.excessAmount, reconciliationPreview.currency) : "None"]]} />{reconciliationPreview.canApply ? <div className="mt-5"><ActionButton disabled={Boolean(reconcilingPayment)} onClick={() => void applyPaymentReconciliation()}>{reconcilingPayment === "apply" ? "Applying..." : "Apply Reconciliation"}</ActionButton></div> : null}</div> : null}<p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">Reconciliation records verified payment only. It does not change scholarship support, admit the applicant, or provision a student account.</p></div></Section>
 
     <Section title="G. Admission Review"><Details items={[["Admission Status", applicationStatusLabels[registration.application_status]], ["Reviewed At", formatDate(registration.reviewed_at)], ["Reviewed By", registration.reviewed_by || "Not reviewed"]]} /><p className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">Admission remains separately controlled. Advanced-route or scholarship approval does not admit this applicant.</p><form onSubmit={updateAdmissionStatus} className="mt-6 grid gap-4"><label className="grid gap-2 text-sm font-semibold text-slate-800"><span>Admission Status</span><select name="applicationStatus" defaultValue={registration.application_status} className="min-h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm font-normal text-slate-950">{applicationStatuses.map((status) => <option key={status} value={status}>{applicationStatusLabels[status]}</option>)}</select></label><label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-[#f7f5ef] p-4 text-sm leading-6 text-slate-700"><input name="sendEmail" type="checkbox" className="mt-1 size-4 accent-[#a47720]" /><span>Send existing admission/status update email to applicant</span></label><ActionButton submit disabled={Boolean(saving)}>{saving === "admission" ? "Saving..." : "Save Admission Status"}</ActionButton></form></Section>
 

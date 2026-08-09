@@ -16,6 +16,7 @@ type PaystackEnvelope<T> = {
 
 export type PaystackVerificationData = {
   id?: number | string;
+  domain?: string;
   status: string;
   reference: string;
   amount: number;
@@ -23,6 +24,8 @@ export type PaystackVerificationData = {
   fees?: number | null;
   paid_at?: string | null;
   paidAt?: string | null;
+  channel?: string | null;
+  gateway_response?: string | null;
   customer?: unknown;
   metadata?: Record<string, unknown> | null;
 };

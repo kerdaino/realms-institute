@@ -10,6 +10,7 @@ const input = {
   registrationId: "ee9c6937-7432-4480-acff-e0e82b11283a",
   reference: "REALMS-private-payment-reference",
   previousStatus: "pending",
+  reconciledAt: "2026-08-09T12:00:00.000Z",
   reconciliation: {
     accepted: true,
     expectedKobo: 1_500_000,
@@ -62,6 +63,8 @@ assert.equal(payload.event_type, "payment_verified");
 assert.equal(payload.new_state.expected_amount_kobo, 1_500_000);
 assert.equal(payload.new_state.amount_paid_kobo, 1_532_995);
 assert.equal(payload.new_state.payment_variance_kobo, 32_995);
+assert.equal(payload.new_state.reconciliation_source, "automatic_callback");
+assert.equal(payload.new_state.reconciled_at, input.reconciledAt);
 assert.equal(payload.note, "Excess payment recorded for reconciliation.");
 
 const existingAudit = auditClient({ lookups: [{ data: { id: "existing" }, error: null }], inserts: [] });
