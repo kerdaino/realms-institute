@@ -2,9 +2,9 @@ import { createClient } from "@supabase/supabase-js";
 
 import {
   august2026AdditionalFacilitatorAssignments,
+  august2026CohortEvents,
   august2026CohortCode,
   august2026CohortDates,
-  august2026Orientation,
   august2026ScheduleConflicts,
   august2026SessionCounts,
   august2026Sessions,
@@ -30,6 +30,19 @@ function matchesSession(current, desired) {
     && current.timezone === desired.timezone
     && (current.physical_location ?? null) === desired.physicalLocation;
 }
+function managedSessionDetailsMatch(current, desired) {
+  return current.title === desired.title
+    && current.session_type === desired.sessionType
+    && current.delivery_mode === desired.deliveryMode
+    && current.timezone === desired.timezone
+    && (current.physical_location ?? null) === desired.physicalLocation;
+}
+function isExactlySevenDaysLater(current, desired) {
+  const week = 7 * 24 * 60 * 60 * 1000;
+  return managedSessionDetailsMatch(current, desired)
+    && Date.parse(current.scheduled_start_at) - Date.parse(desired.scheduledStartAt) === week
+    && Date.parse(current.scheduled_end_at) - Date.parse(desired.scheduledEndAt) === week;
+}
 
 const cohortResult = await supabase.from("cohorts").select("*").eq("code", august2026CohortCode);
 if (cohortResult.error) throw new Error(`Cohort lookup: ${cohortResult.error.message}`);
@@ -45,7 +58,7 @@ const [offeringResult, facilitatorResult, assignmentResult, sessionResult, event
 ]);
 for (const [label, result] of [["Offerings", offeringResult], ["Facilitators", facilitatorResult], ["Assignments", assignmentResult], ["Sessions", sessionResult]]) if (result.error) throw new Error(`${label}: ${result.error.message}`);
 
-const eventTableMissing = Boolean(eventProbe.error && (["42P01", "PGRST205"].includes(eventProbe.error.code ?? "") || /cohort_events/i.test(eventProbe.error.message)));
+const eventTableMissing = Boolean(eventProbe.error && (["42P01", "42703", "PGRST204", "PGRST205"].includes(eventProbe.error.code ?? "") || /cohort_events|event_date/i.test(eventProbe.error.message)));
 if (eventProbe.error && !eventTableMissing) throw new Error(`Cohort events: ${eventProbe.error.message}`);
 
 const offeringByCode = new Map(offeringResult.data.map((item) => [relation(item.courses).code, item]));
@@ -74,7 +87,8 @@ const desiredRows = august2026Sessions.map((item) => {
   const offering = offeringByCode.get(item.courseCode);
   return { desired: item, offering, current: existingByKey.get(sessionKey(offering.id, item.sessionNumber)) ?? null };
 });
-const conflictingSessions = desiredRows.filter((item) => item.current && !matchesSession(item.current, item.desired)).map((item) => ({ id: item.current.id, courseCode: item.desired.courseCode, sessionNumber: item.desired.sessionNumber, existingTitle: item.current.title, desiredTitle: item.desired.title, hasSchedule: Boolean(item.current.scheduled_start_at) }));
+const movableSessions = desiredRows.filter((item) => item.current && isExactlySevenDaysLater(item.current, item.desired));
+const conflictingSessions = desiredRows.filter((item) => item.current && !matchesSession(item.current, item.desired) && !isExactlySevenDaysLater(item.current, item.desired)).map((item) => ({ id: item.current.id, courseCode: item.desired.courseCode, sessionNumber: item.desired.sessionNumber, existingTitle: item.current.title, desiredTitle: item.desired.title, existingStartAt: item.current.scheduled_start_at, desiredStartAt: item.desired.scheduledStartAt }));
 for (const conflict of conflictingSessions) {
   conflict.dependencies = {};
   for (const [table, column] of [["session_attendance", "class_session_id"], ["class_summaries", "class_session_id"], ["class_recordings", "class_session_id"], ["session_resources", "class_session_id"], ["session_recording_requirements", "class_session_id"]]) {
@@ -86,24 +100,35 @@ for (const conflict of conflictingSessions) {
 const missingSessions = desiredRows.filter((item) => !item.current);
 const matchingSessions = desiredRows.filter((item) => item.current && matchesSession(item.current, item.desired));
 
-const existingEvent = eventTableMissing ? null : eventProbe.data.find((item) => item.event_key === august2026Orientation.eventKey) ?? null;
-const eventConflict = existingEvent && !(existingEvent.title === august2026Orientation.title && sameTimestamp(existingEvent.scheduled_start_at, august2026Orientation.scheduledStartAt) && existingEvent.delivery_mode === august2026Orientation.deliveryMode);
+const legacyCombinedEventKey = "orientation-matriculation-2026-08-21";
+const cohortEventChanges = eventTableMissing ? [] : august2026CohortEvents.map((desired, index) => {
+  const exact = eventProbe.data.find((item) => item.event_key === desired.eventKey) ?? null;
+  const legacy = index === 0 ? eventProbe.data.find((item) => item.event_key === legacyCombinedEventKey) ?? null : null;
+  const current = exact || legacy;
+  const matches = current
+    && current.event_key === desired.eventKey
+    && current.event_type === desired.eventType
+    && current.title === desired.title
+    && current.event_date === desired.eventDate
+    && (desired.scheduledStartAt ? sameTimestamp(current.scheduled_start_at, desired.scheduledStartAt) : current.scheduled_start_at === null);
+  return { desired, current, action: matches ? "matches" : current ? "update" : "create" };
+});
 const calendarConflicts = august2026ScheduleConflicts();
 const report = {
   mode: apply ? "apply" : "dry-run",
   cohort: { id: cohort.id, code: cohort.code, currentDates: { startDate: cohort.start_date, endDate: cohort.end_date, orientationDate: cohort.orientation_date, matriculationDate: cohort.matriculation_date, graduationDate: cohort.graduation_date }, desiredDates: august2026CohortDates },
-  counts: { ...august2026SessionCounts(), totalCoreTeachingSessions: august2026Sessions.length, orientationEvents: 1 },
+  counts: { ...august2026SessionCounts(), totalCoreTeachingSessions: august2026Sessions.length, cohortEvents: august2026CohortEvents.length },
   catalogue: { requiredCourses: requiredCourseCodes.length, existingOfferings: offeringResult.data.length, coursesOrOfferingsCreated: 0, missingCoursesOrOfferings, missingFacilitators },
-  preparation: { matchingSessions: matchingSessions.length, missingSessions: missingSessions.length, conflictingSessions, missingFacilitatorAssignments: missingAssignments.length, cohortEventMigrationRequired: eventTableMissing, orientationStatus: eventTableMissing ? "migration_required" : eventConflict ? "conflict" : existingEvent ? "already_prepared" : "missing" },
+  preparation: { matchingSessions: matchingSessions.length, sessionsRequiringMove: movableSessions.length, missingSessions: missingSessions.length, unexpectedConflicts: conflictingSessions, missingFacilitatorAssignments: missingAssignments.length, cohortEventMigrationRequired: eventTableMissing, cohortEventChanges: cohortEventChanges.map((item) => ({ eventKey: item.desired.eventKey, action: item.action, preservesApprovedTime: Boolean(item.current?.scheduled_start_at && item.desired.scheduledStartAt), timeRequiresAdminConfiguration: !item.desired.scheduledStartAt })) },
   scheduleReview: calendarConflicts,
 };
 
 if (!apply) {
   console.log(JSON.stringify(report, null, 2));
-  if (conflictingSessions.length || eventConflict) process.exitCode = 2;
+  if (conflictingSessions.length) process.exitCode = 2;
 } else {
   if (eventTableMissing) throw new Error("Apply supabase/lms_next_5_august_calendar.sql before running the calendar setup.");
-  if (conflictingSessions.length || eventConflict) throw new Error(`Existing calendar records require manual review before setup: ${JSON.stringify({ conflictingSessions, eventConflict: Boolean(eventConflict) })}`);
+  if (conflictingSessions.length) throw new Error(`Existing calendar records require manual review before setup: ${JSON.stringify({ conflictingSessions })}`);
   const cohortUpdate = await supabase.from("cohorts").update({ start_date: august2026CohortDates.startDate, end_date: august2026CohortDates.endDate, orientation_date: august2026CohortDates.orientationDate, matriculation_date: august2026CohortDates.matriculationDate, graduation_date: august2026CohortDates.graduationDate, updated_at: new Date().toISOString() }).eq("id", cohort.id);
   if (cohortUpdate.error) throw new Error(`Cohort dates: ${cohortUpdate.error.message}`);
 
@@ -112,6 +137,13 @@ if (!apply) {
     if (assignmentInsert.error) throw new Error(`Facilitator assignments: ${assignmentInsert.error.message}`);
     const audit = await supabase.from("audit_logs").insert(assignmentInsert.data.map((item) => ({ action: "facilitator_assigned_to_course", entity_type: "facilitator", entity_id: item.facilitator_id, metadata: { assignment_id: item.id, cohort_course_id: item.cohort_course_id, assignment_role: item.assignment_role, source: "next_5_august_2026_calendar" } })));
     if (audit.error) throw new Error(`Facilitator assignment audit: ${audit.error.message}`);
+  }
+
+  for (const item of movableSessions) {
+    const updated = await supabase.from("class_sessions").update({ scheduled_start_at: item.desired.scheduledStartAt, scheduled_end_at: item.desired.scheduledEndAt }).eq("id", item.current.id).eq("scheduled_start_at", item.current.scheduled_start_at).select("id").maybeSingle();
+    if (updated.error || !updated.data) throw new Error(`${item.desired.courseCode} session ${item.desired.sessionNumber} changed during the safe apply.`);
+    const audit = await supabase.from("audit_logs").insert({ action: "class_session_rescheduled", entity_type: "class_session", entity_id: item.current.id, metadata: { previous_start_at: item.current.scheduled_start_at, scheduled_start_at: item.desired.scheduledStartAt, shift_days: -7, source: "august_2026_operational_update" } });
+    if (audit.error) throw new Error(`Session reschedule audit: ${audit.error.message}`);
   }
 
   const createdSessionIds = [];
@@ -125,13 +157,16 @@ if (!apply) {
     if (audit.error) throw new Error(`Session audit: ${audit.error.message}`);
   }
 
-  let orientationCreated = false;
-  if (!existingEvent) {
-    const inserted = await supabase.from("cohort_events").insert({ cohort_id: cohort.id, event_key: august2026Orientation.eventKey, event_type: august2026Orientation.eventType, title: august2026Orientation.title, description: august2026Orientation.description, scheduled_start_at: august2026Orientation.scheduledStartAt, scheduled_end_at: august2026Orientation.scheduledEndAt, timezone: august2026Orientation.timezone, delivery_mode: august2026Orientation.deliveryMode, live_join_url: null, physical_location: null, event_status: august2026Orientation.eventStatus, visibility_status: august2026Orientation.visibilityStatus, is_required: august2026Orientation.isRequired }).select("id").single();
-    if (inserted.error) throw new Error(`Orientation event: ${inserted.error.message}`);
-    orientationCreated = true;
-    const audit = await supabase.from("audit_logs").insert({ action: "cohort_event_created", entity_type: "cohort_event", entity_id: inserted.data.id, metadata: { cohort_id: cohort.id, event_key: august2026Orientation.eventKey, source: "next_5_august_2026_calendar" } });
-    if (audit.error) throw new Error(`Orientation audit: ${audit.error.message}`);
+  const changedEventIds = [];
+  for (const item of cohortEventChanges.filter((event) => event.action !== "matches")) {
+    const values = { cohort_id: cohort.id, event_key: item.desired.eventKey, event_type: item.desired.eventType, title: item.desired.title, description: item.desired.description, event_date: item.desired.eventDate, scheduled_start_at: item.desired.scheduledStartAt, scheduled_end_at: item.desired.scheduledEndAt, timezone: item.desired.timezone, delivery_mode: item.desired.deliveryMode, live_join_url: null, physical_location: null, event_status: item.desired.eventStatus, visibility_status: item.desired.visibilityStatus, is_required: item.desired.isRequired };
+    const saved = item.current
+      ? await supabase.from("cohort_events").update(values).eq("id", item.current.id).select("id").single()
+      : await supabase.from("cohort_events").insert(values).select("id").single();
+    if (saved.error) throw new Error(`${item.desired.title}: ${saved.error.message}`);
+    changedEventIds.push(saved.data.id);
+    const audit = await supabase.from("audit_logs").insert({ action: item.current ? "cohort_event_rescheduled" : "cohort_event_created", entity_type: "cohort_event", entity_id: saved.data.id, metadata: { cohort_id: cohort.id, event_key: item.desired.eventKey, source: "august_2026_operational_update" } });
+    if (audit.error) throw new Error(`Cohort event audit: ${audit.error.message}`);
   }
-  console.log(JSON.stringify({ ...report, applied: { sessionsCreated: createdSessionIds.length, facilitatorAssignmentsCreated: missingAssignments.length, orientationCreated } }, null, 2));
+  console.log(JSON.stringify({ ...report, applied: { sessionsMoved: movableSessions.length, sessionsCreated: createdSessionIds.length, facilitatorAssignmentsCreated: missingAssignments.length, cohortEventsChanged: changedEventIds.length } }, null, 2));
 }

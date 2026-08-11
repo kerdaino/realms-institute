@@ -16,6 +16,9 @@ import { fetchStudentGraduationTracker, fetchStudentResultData } from "@/lib/lms
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireStudentHandbookAcknowledgement } from "@/lib/lms/studentHandbookGate";
 import { deriveStudentLifecycle } from "@/lib/lms/studentLifecycle";
+import { InstitutionalAnnouncements } from "@/components/portal/InstitutionalAnnouncements";
+import { fetchStudentInstitutionalAnnouncements } from "@/lib/lms/institutionalAnnouncementService.server";
+import { fetchStudentLateEntryCatchup } from "@/lib/lms/lateEntryService.server";
 
 export const metadata: Metadata = { title: "Student Dashboard | REALMS Institute" };
 
@@ -35,7 +38,7 @@ export default async function StudentDashboardPage() {
   const handbookState = await requireStudentHandbookAcknowledgement(user.id);
   const assessmentClient = requireLmsAdminClient();
   const studentClient = await createSupabaseServerClient();
-  const [data, attendance, recordedLearning, assignments, quizzes, absenceRequests, standaloneMakeups, publishedResult, completionTracker] = await Promise.all([getStudentDashboardData(user.id), getStudentAttendanceData(user.id), getStudentRecordingAssignments(user.id), fetchStudentAssignments(assessmentClient, user.id), fetchStudentQuizzes(assessmentClient, user.id), getStudentAbsenceRequests(user.id), getStudentStandaloneMakeups(user.id), fetchStudentResultData(studentClient, user.id), fetchStudentGraduationTracker(studentClient, user.id)]);
+  const [data, attendance, recordedLearning, assignments, quizzes, absenceRequests, standaloneMakeups, publishedResult, completionTracker, announcements, lateEntryCatchup] = await Promise.all([getStudentDashboardData(user.id), getStudentAttendanceData(user.id), getStudentRecordingAssignments(user.id), fetchStudentAssignments(assessmentClient, user.id), fetchStudentQuizzes(assessmentClient, user.id), getStudentAbsenceRequests(user.id), getStudentStandaloneMakeups(user.id), fetchStudentResultData(studentClient, user.id), fetchStudentGraduationTracker(studentClient, user.id), fetchStudentInstitutionalAnnouncements(assessmentClient, user.id), fetchStudentLateEntryCatchup(assessmentClient, user.id)]);
   if (!data.student || !data.enrollment) return null;
   const routeName = data.enrollment.discipleship_route === "advanced" ? "Advanced Discipleship Programme" : "Foundational Discipleship Programme";
   const pathwayName = data.enrollment.skill_pathway === "web_development" ? "Web Development" : "Cybersecurity Foundations";
@@ -72,6 +75,7 @@ export default async function StudentDashboardPage() {
   const standaloneMakeupActions = standaloneMakeups.filter((item) => !["completed", "late_complete", "waived", "cancelled"].includes(item.status)).map((item) => ({ label: item.status === "overdue" ? "Make-Up Overdue" : "Make-Up Required", href: item.recordingAssignmentId ? `/student/recordings/${item.recordingAssignmentId}` : "/student/absences" }));
   const upcomingClass = data.upcomingSessions.find((item) => item.kind === "class_session");
   const nextActions = [
+    lateEntryCatchup.some((item) => item.status !== "Completed") ? { label: "Open Late-Entry Catch-Up Plan", href: "/student/catch-up" } : null,
     ...absenceActions,
     ...standaloneMakeupActions,
     upcomingClass ? { label: "Report Upcoming Absence", href: "/student/absences/new" } : null,
@@ -96,6 +100,10 @@ export default async function StudentDashboardPage() {
           <div><dt className="text-xs font-semibold uppercase tracking-[0.14em] text-white/60">Academic Status</dt><dd className="mt-1 font-semibold">{lifecycle.academicStatus}</dd></div>
         </dl>
       </header>
+
+      <InstitutionalAnnouncements announcements={announcements} />
+
+      {lateEntryCatchup.length ? <StudentPanel title="Late-Entry Catch-Up" description="Required learning from before your effective enrolment is kept separate from ordinary attendance." action={<Link href="/student/catch-up" className="rounded-lg text-sm font-semibold text-amber-800 underline-offset-4 hover:underline">Open Catch-Up Plan</Link>}><div className="grid gap-3 sm:grid-cols-3"><DataCard label="Required Sessions" value={String(lateEntryCatchup.length)} /><DataCard label="Completed" value={String(lateEntryCatchup.filter((item) => item.status === "Completed").length)} /><DataCard label="Outstanding" value={String(lateEntryCatchup.filter((item) => item.status !== "Completed").length)} detail="Overdue items are flagged for support; they do not trigger automatic withdrawal." /></div></StudentPanel> : null}
 
       {handbookState.requiredDocument && handbookState.acknowledgement ? <StudentPanel title="Student Handbook" description={`${handbookState.requiredDocument.cohortLabel} — Version ${handbookState.requiredDocument.version}`} action={<div className="flex flex-wrap gap-3"><a href={handbookState.requiredDocument.fileHref} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-amber-800 underline underline-offset-4">View Handbook</a><a href={handbookState.requiredDocument.fileHref} download className="text-sm font-semibold text-amber-800 underline underline-offset-4">Download PDF</a></div>}><DataCard label="Acknowledged" value={formatStudentDate(handbookState.acknowledgement.acknowledged_at)} detail={`Version ${handbookState.acknowledgement.document_version} acknowledgement is permanently preserved.`} /></StudentPanel> : null}
 

@@ -2,6 +2,7 @@ import "server-only";
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
+import { confirmConditionalAdmissionAfterPayment } from "@/lib/conditionalAdmissionLifecycle.server";
 import { initializePaystackTransaction, type PaystackVerificationData } from "@/lib/paystack";
 import { paymentReferenceMatchesApplication, scholarshipPaystackMetadataSource, type PaymentReconciliation } from "@/lib/paymentReconciliation";
 import { recordPaymentVerificationEvent } from "@/lib/paymentVerificationAudit";
@@ -295,6 +296,7 @@ export async function saveVerifiedScholarshipPayment(paystackData: PaystackVerif
   if (existing.payment_status === "success") {
     if (Number(existing.amount_paid) !== paystackData.amount / 100 || existing.currency.toUpperCase() !== paystackData.currency.toUpperCase()) throw new PaymentRegistrationConflictError();
     const audit = await recordPaymentVerificationEvent(supabase, { registrationId: existing.id, reference: paystackData.reference, previousStatus: "success", reconciliation, source: context?.source, actor: context?.actor, transactionId: paystackData.id ?? null, paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null, channel: paystackData.channel ?? null, gatewayStatus: paystackData.gateway_response ?? paystackData.status, reconciledAt: context?.reconciledAt });
+    await confirmConditionalAdmissionAfterPayment(supabase, existing.id, { actor: context?.actor || "Paystack verification", paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null });
     return { saved: true, id: existing.id, registration: existing, paymentVerificationAuditStatus: audit };
   }
   const { data, error } = await supabase.from("registrations").update({
@@ -307,9 +309,11 @@ export async function saveVerifiedScholarshipPayment(paystackData: PaystackVerif
     const concurrent = await loadRegistration(resolved.applicationId, { includeDeleted: true });
     if (!concurrent || concurrent.payment_status !== "success" || concurrent.payment_reference !== paystackData.reference || Number(concurrent.amount_paid) !== paystackData.amount / 100) throw new PaymentRegistrationConflictError();
     const audit = await recordPaymentVerificationEvent(supabase, { registrationId: concurrent.id, reference: paystackData.reference, previousStatus: "success", reconciliation, source: context?.source, actor: context?.actor, transactionId: paystackData.id ?? null, paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null, channel: paystackData.channel ?? null, gatewayStatus: paystackData.gateway_response ?? paystackData.status, reconciledAt: context?.reconciledAt });
+    await confirmConditionalAdmissionAfterPayment(supabase, concurrent.id, { actor: context?.actor || "Paystack verification", paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null });
     return { saved: true, id: concurrent.id, registration: concurrent, paymentVerificationAuditStatus: audit };
   }
   const registration = data as ScholarshipPaymentRow;
   const audit = await recordPaymentVerificationEvent(supabase, { registrationId: registration.id, reference: paystackData.reference, previousStatus: existing.payment_status, reconciliation, source: context?.source, actor: context?.actor, transactionId: paystackData.id ?? null, paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null, channel: paystackData.channel ?? null, gatewayStatus: paystackData.gateway_response ?? paystackData.status, reconciledAt: context?.reconciledAt });
+  await confirmConditionalAdmissionAfterPayment(supabase, registration.id, { actor: context?.actor || "Paystack verification", paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null });
   return { saved: true, id: registration.id, registration, paymentVerificationAuditStatus: audit };
 }

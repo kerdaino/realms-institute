@@ -38,7 +38,7 @@ create table if not exists public.registrations (
   paystack_customer_email text,
   paystack_raw jsonb,
   metadata jsonb,
-  application_status text not null default 'pending_review' check (application_status in ('pending_review', 'admitted', 'contacted', 'waitlisted', 'not_admitted')),
+  application_status text not null default 'pending_review' check (application_status in ('pending_review', 'conditional_admission_payment_outstanding', 'admitted', 'admission_offer_lapsed_payment_outstanding', 'contacted', 'waitlisted', 'not_admitted')),
   admin_note text,
   reviewed_at timestamptz,
   reviewed_by text,
@@ -106,7 +106,17 @@ create table if not exists public.registrations (
   scholarship_decision_email_error text,
   scholarship_decision_email_last_attempted_at timestamptz,
   admission_email_sent boolean not null default false,
-  admission_email_sent_at timestamptz
+  admission_email_sent_at timestamptz,
+  admission_offer_at timestamptz,
+  admission_payment_deadline timestamptz,
+  admission_outstanding_amount numeric,
+  admission_confirmed_at timestamptz,
+  admission_offer_lapsed_at timestamptz,
+  payment_deadline_extended_at timestamptz,
+  payment_deadline_extended_by text,
+  payment_deadline_extension_reason text,
+  late_entry_required boolean not null default false,
+  late_entry_flagged_at timestamptz
 );
 
 -- Required migration for projects where registrations already exists.
@@ -221,7 +231,17 @@ alter table public.registrations
   add column if not exists scholarship_decision_email_error text,
   add column if not exists scholarship_decision_email_last_attempted_at timestamptz,
   add column if not exists admission_email_sent boolean not null default false,
-  add column if not exists admission_email_sent_at timestamptz;
+  add column if not exists admission_email_sent_at timestamptz,
+  add column if not exists admission_offer_at timestamptz,
+  add column if not exists admission_payment_deadline timestamptz,
+  add column if not exists admission_outstanding_amount numeric,
+  add column if not exists admission_confirmed_at timestamptz,
+  add column if not exists admission_offer_lapsed_at timestamptz,
+  add column if not exists payment_deadline_extended_at timestamptz,
+  add column if not exists payment_deadline_extended_by text,
+  add column if not exists payment_deadline_extension_reason text,
+  add column if not exists late_entry_required boolean not null default false,
+  add column if not exists late_entry_flagged_at timestamptz;
 
 update public.registrations
 set

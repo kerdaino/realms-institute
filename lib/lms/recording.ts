@@ -1,4 +1,4 @@
-export const recordingPurposeCodes = ["REV", "RP", "DR-E", "MU-E", "MU-U"] as const;
+export const recordingPurposeCodes = ["REV", "RP", "DR-E", "MU-E", "MU-U", "LE-C"] as const;
 export type RecordingPurposeCode = (typeof recordingPurposeCodes)[number];
 
 export const recordingPurposeLabels: Record<RecordingPurposeCode, string> = {
@@ -7,6 +7,7 @@ export const recordingPurposeLabels: Record<RecordingPurposeCode, string> = {
   "DR-E": "Recorded Discipleship Exception",
   "MU-E": "Excused Make-Up",
   "MU-U": "Unapproved Make-Up",
+  "LE-C": "Late Entry Catch-Up",
 };
 
 export const recordingRequirementTypes = ["watch", "checkpoints", "quiz", "practical", "reflection", "oral_verification"] as const;
@@ -127,6 +128,7 @@ type SessionRequirementRow = {
   requires_reflection?: boolean | null;
   requires_oral_verification?: boolean | null;
   allow_late_completion?: boolean | null;
+  practical_assignment_id?: string | null;
 };
 
 export function resolveEffectiveRecordingRequirements(input: {
@@ -139,13 +141,14 @@ export function resolveEffectiveRecordingRequirements(input: {
   const override = input.sessionOverride;
   const skillPrimary = input.courseCategory === "skill" && input.purpose === "RP";
   const discipleshipException = input.courseCategory === "discipleship" && input.purpose === "DR-E";
+  const lateEntrySkill = input.courseCategory === "skill" && input.purpose === "LE-C";
   return {
     minWatchPercentage: Number(override?.min_watch_percentage ?? policy.min_watch_percentage ?? 85),
     deadlineHours: Number(override?.deadline_hours ?? policy.default_deadline_hours ?? 72),
     requiredCheckpointCount: Number(override?.required_checkpoint_count ?? policy.default_required_checkpoints ?? 2),
     requiresCheckpoints: override?.requires_checkpoints ?? true,
     requiresQuiz: override?.requires_quiz ?? (skillPrimary || discipleshipException),
-    requiresPractical: override?.requires_practical ?? skillPrimary,
+    requiresPractical: override?.requires_practical ?? (skillPrimary || lateEntrySkill),
     requiresReflection: override?.requires_reflection ?? discipleshipException,
     requiresOralVerification: override?.requires_oral_verification ?? false,
     allowLateCompletion: override?.allow_late_completion ?? true,
@@ -176,6 +179,7 @@ export function evaluateRecordedRequirements(input: {
   if (input.requirements.oral_verification.required && input.requirements.oral_verification.status !== "satisfied") return { learningStatus: overdue ? "incomplete" : "under_review", progressStatus: "under_review", complete: false };
   if (input.purpose === "MU-E") return { learningStatus: "verified_complete", progressStatus: "watch_complete", complete: true };
   if (input.purpose === "MU-U") return { learningStatus: "late_complete", progressStatus: "watch_complete", complete: true };
+  if (input.purpose === "LE-C") return { learningStatus: overdue ? "late_complete" : "verified_complete", progressStatus: "watch_complete", complete: true };
   if (overdue && !input.allowLateCompletion) return { learningStatus: "incomplete", progressStatus: "watch_complete", complete: false };
   return { learningStatus: overdue ? "late_complete" : "verified_complete", progressStatus: "watch_complete", complete: true };
 }

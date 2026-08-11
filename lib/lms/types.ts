@@ -191,6 +191,7 @@ export type ClassSession = {
   actual_start_at: string | null;
   actual_end_at: string | null;
   live_join_url: string | null;
+  live_access_note: string | null;
   physical_location: string | null;
   session_status: string;
   is_required: boolean;

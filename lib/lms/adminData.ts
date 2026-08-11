@@ -129,7 +129,7 @@ export async function fetchAdminCohort(supabase: SupabaseClient, id: string) {
     supabase.from("cohorts").select("*").eq("id", id).maybeSingle(),
     supabase.from("cohort_courses").select("*, courses(*), facilitator_course_assignments(*, facilitators(id, display_name, title, facilitator_status))").eq("cohort_id", id).order("created_at"),
     supabase.from("class_sessions").select("id, title, session_number, session_type, delivery_mode, scheduled_start_at, session_status, facilitator_id, facilitators(id, display_name), cohort_courses!inner(cohort_id, courses(id, code, title))").eq("cohort_courses.cohort_id", id).order("scheduled_start_at", { ascending: true, nullsFirst: false }),
-    supabase.from("cohort_events").select("id, event_key, event_type, title, scheduled_start_at, scheduled_end_at, timezone, delivery_mode, event_status, visibility_status, is_required").eq("cohort_id", id).order("scheduled_start_at", { ascending: true }),
+    supabase.from("cohort_events").select("id, event_key, event_type, title, event_date, scheduled_start_at, scheduled_end_at, timezone, delivery_mode, event_status, visibility_status, is_required").eq("cohort_id", id).order("event_date", { ascending: true }).order("scheduled_start_at", { ascending: true, nullsFirst: false }),
   ]);
   throwQueryError("Cohort", cohort.error);
   throwQueryError("Cohort courses", offerings.error);

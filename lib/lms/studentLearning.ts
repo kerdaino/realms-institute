@@ -136,6 +136,7 @@ export type LiveClassAccess = {
   state: "not_applicable" | "missing" | "not_scheduled" | "too_early" | "available" | "ended" | "unavailable";
   message: string | null;
   href: string | null;
+  note: string | null;
 };
 
 export type StudentSessionDetail = {
@@ -446,7 +447,7 @@ function mapRecording(row: Record<string, unknown>, sessionById: Map<string, Lea
 async function loadStudentSessionDetail(sessionId: string): Promise<StudentSessionDetail | null> {
   if (!isUuid(sessionId)) return null;
   const context = await resolveStudentLearningContext();
-  const sessionResult = await context.supabase.from("class_sessions").select("id, cohort_course_id, title, description, session_number, session_type, delivery_mode, scheduled_start_at, scheduled_end_at, timezone, live_join_url, physical_location, session_status, visibility_status, facilitator_id, facilitators(id, display_name, title)").eq("id", sessionId).eq("visibility_status", "enrolled_only").maybeSingle();
+  const sessionResult = await context.supabase.from("class_sessions").select("id, cohort_course_id, title, description, session_number, session_type, delivery_mode, scheduled_start_at, scheduled_end_at, timezone, live_join_url, live_access_note, physical_location, session_status, visibility_status, facilitator_id, facilitators(id, display_name, title)").eq("id", sessionId).eq("visibility_status", "enrolled_only").maybeSingle();
   fail("session access lookup", sessionResult.error);
   if (!sessionResult.data) return null;
   const offeringId = sessionResult.data.cohort_course_id;
@@ -488,27 +489,28 @@ async function loadStudentSessionDetail(sessionId: string): Promise<StudentSessi
     recordings,
     previousSession: currentIndex > 0 ? { id: siblings[currentIndex - 1].id, title: siblings[currentIndex - 1].title } : null,
     nextSession: currentIndex >= 0 && currentIndex < siblings.length - 1 ? { id: siblings[currentIndex + 1].id, title: siblings[currentIndex + 1].title } : null,
-    liveAccess: ["PL", "RP", "DR-E"].includes(course.deliveryRoute ?? "") ? { state: "not_applicable", message: null, href: null } : liveClassState(object(sessionResult.data), now, sessionId),
+    liveAccess: ["PL", "RP", "DR-E"].includes(course.deliveryRoute ?? "") ? { state: "not_applicable", message: null, href: null, note: null } : liveClassState(object(sessionResult.data), now, sessionId),
   };
 }
 
 export const getStudentSessionDetail = cache(loadStudentSessionDetail);
 
 function liveClassState(row: Record<string, unknown>, now: Date, sessionId: string): LiveClassAccess {
+  const note = text(row.live_access_note);
   const delivery = text(row.delivery_mode);
-  if (delivery !== "online" && delivery !== "hybrid") return { state: "not_applicable", message: null, href: null };
+  if (delivery !== "online" && delivery !== "hybrid") return { state: "not_applicable", message: null, href: null, note };
   const status = text(row.session_status);
-  if (status !== "scheduled" && status !== "live") return { state: "unavailable", message: "Live class access is not available for this session.", href: null };
-  if (!safeHttpUrl(row.live_join_url)) return { state: "missing", message: "Live class access has not yet been published.", href: null };
-  if (status === "live") return { state: "available", message: null, href: `/api/student/sessions/${sessionId}/join` };
+  if (status !== "scheduled" && status !== "live") return { state: "unavailable", message: "Live class access is not available for this session.", href: null, note };
+  if (!safeHttpUrl(row.live_join_url)) return { state: "missing", message: "Live class access has not yet been published.", href: null, note };
+  if (status === "live") return { state: "available", message: null, href: `/api/student/sessions/${sessionId}/join`, note };
   const start = text(row.scheduled_start_at);
-  if (!start) return { state: "not_scheduled", message: "Live access will become available after the class time is published.", href: null };
+  if (!start) return { state: "not_scheduled", message: "Live access will become available after the class time is published.", href: null, note };
   const startTime = Date.parse(start);
   const end = text(row.scheduled_end_at);
   const endTime = end ? Date.parse(end) : startTime + 3 * 60 * 60 * 1000;
-  if (now.valueOf() < startTime - 30 * 60 * 1000) return { state: "too_early", message: "Live access will become available shortly before class.", href: null };
-  if (now.valueOf() > endTime + 30 * 60 * 1000) return { state: "ended", message: "The live access window for this class has ended.", href: null };
-  return { state: "available", message: null, href: `/api/student/sessions/${sessionId}/join` };
+  if (now.valueOf() < startTime - 30 * 60 * 1000) return { state: "too_early", message: "Live access will become available shortly before class.", href: null, note };
+  if (now.valueOf() > endTime + 30 * 60 * 1000) return { state: "ended", message: "The live access window for this class has ended.", href: null, note };
+  return { state: "available", message: null, href: `/api/student/sessions/${sessionId}/join`, note };
 }
 
 export async function getStudentLiveClassTarget(sessionId: string) {

@@ -41,6 +41,7 @@ function purposeMethod(purpose: RecordingPurposeCode) {
   if (purpose === "DR-E") return "recorded_exception";
   if (purpose === "MU-E") return "approved_makeup";
   if (purpose === "MU-U") return "unapproved_makeup";
+  if (purpose === "LE-C") return "late_entry_catchup";
   return null;
 }
 
@@ -100,7 +101,7 @@ async function createAssignmentParts(supabase: SupabaseClient, input: {
 export async function ensureMakeupRecordingAssignment(supabase: SupabaseClient, input: {
   courseEnrollmentId: string;
   sessionId: string;
-  purpose: "MU-E" | "MU-U";
+  purpose: "MU-E" | "MU-U" | "LE-C";
   dueAt?: string | null;
 }) {
   const sessionResult = await supabase.from("class_sessions").select("id, cohort_course_id, cohort_courses(cohort_id, courses(course_category))").eq("id", input.sessionId).maybeSingle();
@@ -116,7 +117,7 @@ export async function ensureMakeupRecordingAssignment(supabase: SupabaseClient, 
   const result = await createAssignmentParts(supabase, { courseEnrollmentId: input.courseEnrollmentId, sessionId: input.sessionId, recording, purpose: input.purpose, requirements, assignmentAvailableAt: availableAt, assignmentDueAt: input.dueAt === undefined ? undefined : input.dueAt });
   const links = await supabase.from("session_recording_requirements").select("quiz_id, practical_assignment_id, reflection_assignment_id, requires_oral_verification").eq("class_session_id", input.sessionId).eq("requirement_status", "active").maybeSingle();
   if (links.error) throw new LmsAdminDataError("Linked make-up requirements could not be loaded.");
-  return { state: "assigned" as const, assignment: result.assignment, created: result.created, recording, requirements, links: links.data };
+  return { state: "assigned" as const, assignment: result.assignment, created: result.created, recording, requirements, links: links.data, courseCategory: String(course.course_category) };
 }
 
 export async function initializeRecordedLearningForSession(supabase: SupabaseClient, sessionId: string, actor: Actor) {
@@ -150,7 +151,7 @@ export async function ensureRevisionAssignmentForRecording(supabase: SupabaseCli
   const session = relation(recording.data.class_sessions);
   const enrollment = await supabase.from("course_enrollments").select("id, delivery_route, student_enrollments!inner(student_id)").eq("cohort_course_id", session.cohort_course_id).eq("student_enrollments.student_id", student.data.id).in("enrollment_status", ["active", "enrolled"]).maybeSingle();
   if (enrollment.error || !enrollment.data) throw new LmsAdminDataError("This recording is not in your enrolled learning route.", 403);
-  const existingPrimary = await supabase.from("recording_learning_assignments").select("*").eq("course_enrollment_id", enrollment.data.id).eq("class_recording_id", recordingId).in("purpose_code", ["RP", "DR-E", "MU-E", "MU-U"]).maybeSingle();
+  const existingPrimary = await supabase.from("recording_learning_assignments").select("*").eq("course_enrollment_id", enrollment.data.id).eq("class_recording_id", recordingId).in("purpose_code", ["RP", "DR-E", "MU-E", "MU-U", "LE-C"]).maybeSingle();
   if (existingPrimary.error) throw new LmsAdminDataError("Recording assignment could not be checked.");
   if (existingPrimary.data) return existingPrimary.data;
   const offering = relation(session.cohort_courses); const course = relation(offering.courses);
@@ -186,9 +187,9 @@ export async function startRecordingPlayback(supabase: SupabaseClient, profileId
     const updated = await supabase.from("recording_progress").update({ first_access_at: progress.data.first_access_at ?? now, last_access_at: now, progress_status: "under_review", updated_at: now }).eq("id", progress.data.id);
     if (updated.error) throw new LmsAdminDataError("Recording progress could not be started.");
     if (!progress.data.first_access_at) await recordLmsAudit(supabase, { action: "recording_started", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: profileId, metadata: { provider: recording.provider, purpose: assignment.purpose_code, tracking_mode: mode } });
-    if ((assignment.purpose_code === "MU-E" || assignment.purpose_code === "MU-U") && !progress.data.first_access_at) {
+    if (["MU-E", "MU-U", "LE-C"].includes(assignment.purpose_code) && !progress.data.first_access_at) {
       const makeup = await supabase.from("makeup_requirements").select("id, makeup_status").eq("recording_learning_assignment_id", assignmentId).maybeSingle();
-      if (!makeup.error && makeup.data && !["in_progress", "completed", "late_complete"].includes(makeup.data.makeup_status)) {
+      if (!makeup.error && makeup.data && !["alternative_required", "in_progress", "completed", "late_complete"].includes(makeup.data.makeup_status)) {
         const event = await supabase.from("makeup_requirement_events").insert({ makeup_requirement_id: makeup.data.id, event_type: "makeup_started", previous_state: { makeup_status: makeup.data.makeup_status }, new_state: { makeup_status: "in_progress" }, actor_type: "student", actor_identifier: profileId });
         if (!event.error) { await supabase.from("makeup_requirements").update({ makeup_status: "in_progress", updated_by: profileId, updated_at: now }).eq("id", makeup.data.id); await recordLmsAudit(supabase, { action: "makeup_started", entityType: "makeup_requirement", entityId: makeup.data.id, actorUserId: profileId, metadata: {} }); }
       }
@@ -200,9 +201,9 @@ export async function startRecordingPlayback(supabase: SupabaseClient, profileId
   const updated = await supabase.from("recording_progress").update({ first_access_at: progress.data.first_access_at ?? now, last_access_at: now, progress_status: "in_progress", playback_session_count: Number(progress.data.playback_session_count ?? 0) + 1, updated_at: now }).eq("id", progress.data.id);
   if (updated.error) throw new LmsAdminDataError("Recording progress could not be started.");
   await recordLmsAudit(supabase, { action: "recording_started", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: profileId, metadata: { provider: recording.provider, purpose: assignment.purpose_code } });
-  if (assignment.purpose_code === "MU-E" || assignment.purpose_code === "MU-U") {
+  if (["MU-E", "MU-U", "LE-C"].includes(assignment.purpose_code)) {
     const makeup = await supabase.from("makeup_requirements").select("id, makeup_status").eq("recording_learning_assignment_id", assignmentId).maybeSingle();
-    if (!makeup.error && makeup.data && !["in_progress", "completed", "late_complete"].includes(makeup.data.makeup_status)) {
+    if (!makeup.error && makeup.data && !["alternative_required", "in_progress", "completed", "late_complete"].includes(makeup.data.makeup_status)) {
       const event = await supabase.from("makeup_requirement_events").insert({ makeup_requirement_id: makeup.data.id, event_type: "makeup_started", previous_state: { makeup_status: makeup.data.makeup_status }, new_state: { makeup_status: "in_progress" }, actor_type: "student", actor_identifier: profileId });
       if (!event.error) { await supabase.from("makeup_requirements").update({ makeup_status: "in_progress", updated_by: profileId, updated_at: now }).eq("id", makeup.data.id); await recordLmsAudit(supabase, { action: "makeup_started", entityType: "makeup_requirement", entityId: makeup.data.id, actorUserId: profileId, metadata: {} }); }
     }
@@ -336,14 +337,14 @@ export async function evaluateRecordedLearningAssignment(supabase: SupabaseClien
       }
       if (!wasComplete) await supabase.from("recording_learning_assignments").update({ assignment_status: "completed", completed_at: new Date().toISOString(), verified_at: new Date().toISOString(), verified_by: actorReference(actor), updated_at: new Date().toISOString() }).eq("id", assignmentId);
       if (!wasComplete || attendanceNeedsUpdate) await recordLmsAudit(supabase, { action: evaluation.learningStatus === "late_complete" ? "recorded_learning_late_completed" : "recorded_learning_verified", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: actor.actorUserId, metadata: { purpose, attendance_id: attendance.data.id, learning_status: evaluation.learningStatus } });
-    } else if (purpose === "MU-E" || purpose === "MU-U") {
+    } else if (purpose === "MU-E" || purpose === "MU-U" || purpose === "LE-C") {
       const makeupResult = await supabase.from("makeup_requirements").select("*").eq("recording_learning_assignment_id", assignmentId).maybeSingle();
       if (makeupResult.error || !makeupResult.data) throw new LmsAdminDataError("The linked make-up requirement could not be loaded.", 409);
       const derivedStatus = makeupStatusFromLearning(evaluation.learningStatus, evaluation.complete, assignment.due_at);
       const nextStatus = derivedStatus === "under_review" && requirements.requiresOralVerification && evidence.oral_verification.status !== "satisfied" ? "awaiting_oral_verification" : derivedStatus;
       const now = new Date().toISOString();
       const previousStatus = String(makeupResult.data.makeup_status);
-      const completionOutcome = evaluation.complete ? (purpose === "MU-E" ? "approved_makeup_complete" : "unapproved_makeup_complete") : makeupResult.data.completion_outcome;
+      const completionOutcome = evaluation.complete ? (purpose === "MU-E" ? "approved_makeup_complete" : purpose === "LE-C" ? "late_entry_catchup_complete" : "unapproved_makeup_complete") : makeupResult.data.completion_outcome;
       const makeupUpdate = {
         makeup_status: nextStatus,
         completed_at: evaluation.complete ? makeupResult.data.completed_at ?? now : makeupResult.data.completed_at,
@@ -354,7 +355,7 @@ export async function evaluateRecordedLearningAssignment(supabase: SupabaseClien
         updated_at: now,
       };
       if (previousStatus !== nextStatus || (evaluation.complete && !makeupResult.data.completed_at)) {
-        const eventType = evaluation.complete ? (purpose === "MU-U" ? "makeup_late_completed" : "makeup_verified") : nextStatus === "in_progress" ? "makeup_started" : nextStatus === "under_review" ? "makeup_submitted" : "makeup_status_updated";
+        const eventType = evaluation.complete ? (purpose === "MU-U" ? "makeup_late_completed" : purpose === "LE-C" ? "late_entry_catchup_completed" : "makeup_verified") : nextStatus === "in_progress" ? "makeup_started" : nextStatus === "under_review" ? "makeup_submitted" : "makeup_status_updated";
         const event = await supabase.from("makeup_requirement_events").insert({ makeup_requirement_id: makeupResult.data.id, event_type: eventType, previous_state: { makeup_status: previousStatus }, new_state: { makeup_status: nextStatus, completion_outcome: completionOutcome }, actor_type: actor.actorLabel.toLowerCase().replaceAll(" ", "_"), actor_identifier: actorReference(actor) });
         if (event.error) throw new LmsAdminDataError("Make-up history could not be preserved.");
         const savedMakeup = await supabase.from("makeup_requirements").update(makeupUpdate).eq("id", makeupResult.data.id);
@@ -366,8 +367,8 @@ export async function evaluateRecordedLearningAssignment(supabase: SupabaseClien
       if (evaluation.complete && !wasComplete) {
         const assignmentSaved = await supabase.from("recording_learning_assignments").update({ assignment_status: "completed", completed_at: now, verified_at: now, verified_by: actorReference(actor), updated_at: now }).eq("id", assignmentId);
         if (assignmentSaved.error) throw new LmsAdminDataError("Completed make-up assignment could not be saved.");
-        await recordLmsAudit(supabase, { action: purpose === "MU-U" ? "makeup_late_completed" : "makeup_verified", entityType: "makeup_requirement", entityId: makeupResult.data.id, actorUserId: actor.actorUserId, metadata: { purpose, learning_status: evaluation.learningStatus, attendance_unchanged: true } });
-        await sendMakeupEmail(supabase, makeupResult.data.id, "makeup_completed");
+        await recordLmsAudit(supabase, { action: purpose === "MU-U" ? "makeup_late_completed" : purpose === "LE-C" ? "late_entry_catchup_completed" : "makeup_verified", entityType: "makeup_requirement", entityId: makeupResult.data.id, actorUserId: actor.actorUserId, metadata: { purpose, learning_status: evaluation.learningStatus, attendance_unchanged: true } });
+        if (purpose !== "LE-C") await sendMakeupEmail(supabase, makeupResult.data.id, "makeup_completed");
       }
     } else if (evaluation.learningStatus === "incomplete" && completion.data.completion_status !== "incomplete") {
       await recordLmsAudit(supabase, { action: "recorded_learning_marked_incomplete", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: actor.actorUserId, metadata: { due_at: assignment.due_at } });

@@ -5,6 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getCurrentUser, getCurrentUserRoles } from "@/lib/lms/auth";
 import { LmsAdminDataError, requireLmsAdminClient } from "@/lib/lms/adminData";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { readHttpUrl, readText } from "@/lib/lms/adminConstants";
+import { recordLmsAudit } from "@/lib/lms/adminAudit";
 
 export type FacilitatorSessionContext = { userId: string; facilitatorId: string; displayName: string; supabase: SupabaseClient };
 
@@ -52,4 +54,16 @@ export async function fetchFacilitatorSession(context: FacilitatorSessionContext
   ]);
   for (const result of [session, summary, resources, recordings]) if (result.error) throw new LmsAdminDataError("Assigned class session details could not be loaded.");
   return { session: session.data, summary: summary.data, resources: resources.data ?? [], recordings: recordings.data ?? [] };
+}
+
+export async function updateFacilitatorSessionLiveAccess(context: FacilitatorSessionContext, sessionId: string, body: Record<string, unknown>) {
+  await requireFacilitatorSessionAccess(context, sessionId);
+  const liveJoinUrl = readHttpUrl(body.live_join_url);
+  if (liveJoinUrl === undefined) throw new LmsAdminDataError("The live class link must be a secure web URL.", 400);
+  const liveAccessNote = readText(body.live_access_note, 1000);
+  const admin = requireLmsAdminClient(); const now = new Date().toISOString();
+  const saved = await admin.from("class_sessions").update({ live_join_url: liveJoinUrl, live_access_note: liveAccessNote, updated_by: context.userId, updated_at: now }).eq("id", sessionId).select("id, live_join_url, live_access_note, updated_at").single();
+  if (saved.error) throw new LmsAdminDataError("Live class access could not be saved.");
+  await recordLmsAudit(admin, { action: "facilitator_live_access_updated", entityType: "class_session", entityId: sessionId, actorUserId: context.userId, metadata: { link_configured: Boolean(liveJoinUrl), note_configured: Boolean(liveAccessNote) } });
+  return saved.data;
 }

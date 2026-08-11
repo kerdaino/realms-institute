@@ -3,13 +3,13 @@ export const august2026Timezone = "Africa/Lagos";
 export const august2026PhysicalLocation = "No. 3 Shina Olaogun Street, Agbado, Ogun State.";
 
 export const august2026CohortDates = {
-  startDate: "2026-08-24",
-  endDate: "2026-10-25",
-  orientationDate: "2026-08-21",
-  matriculationDate: "2026-08-21",
-  finalCompletionStartDate: "2026-10-19",
-  finalCompletionEndDate: "2026-10-24",
-  graduationDate: "2026-10-25",
+  startDate: "2026-08-17",
+  endDate: "2026-10-18",
+  orientationDate: "2026-08-14",
+  matriculationDate: "2026-08-16",
+  finalCompletionStartDate: "2026-10-12",
+  finalCompletionEndDate: "2026-10-17",
+  graduationDate: "2026-10-18",
   graduationTime: null,
 } as const;
 
@@ -42,14 +42,14 @@ function session(input: Omit<August2026Session, "timezone" | "liveJoinUrl" | "se
 }
 
 const foundational = [
-  { code: "RSD-DIS 101", week: 1, short: "Soteriology I", dates: ["2026-08-28", "2026-08-29", "2026-08-30"], facilitator: "Pastor Arome Iduh" },
-  { code: "RSD-DIS 102", week: 2, short: "Soteriology II", dates: ["2026-09-04", "2026-09-05", "2026-09-06"], facilitator: "Pastor Arome Iduh" },
-  { code: "RSD-DIS 103", week: 3, short: "Spiritual Formation", dates: ["2026-09-11", "2026-09-12", "2026-09-13"], facilitator: "Otache Imanche" },
-  { code: "RSD-DIS 104", week: 4, short: "Purpose and Calling", dates: ["2026-09-18", "2026-09-19", "2026-09-20"], facilitator: "Pastor Onyeka" },
-  { code: "RSD-DIS 105", week: 5, short: "Kingdom Leadership and Character", dates: ["2026-09-25", "2026-09-26", "2026-09-27"], facilitator: "Minister Daniel" },
-  { code: "RSD-DIS 106", week: 6, short: "Kingdom Finance and Stewardship", dates: ["2026-10-02", "2026-10-03", "2026-10-04"], facilitator: "Minister Daniel" },
-  { code: "RSD-DIS 107", week: 7, short: "Missions and Evangelism", dates: ["2026-10-09", "2026-10-10", "2026-10-11"], facilitator: "Oluwatobi Adekunle" },
-  { code: "RSD-DIS 108", week: 8, short: "Integration, Assessment and Commissioning", dates: ["2026-10-16", "2026-10-17", "2026-10-18"], facilitator: "REALMS Faculty Team" },
+  { code: "RSD-DIS 101", week: 1, short: "Soteriology I", dates: ["2026-08-21", "2026-08-22", "2026-08-23"], facilitator: "Pastor Arome Iduh" },
+  { code: "RSD-DIS 102", week: 2, short: "Soteriology II", dates: ["2026-08-28", "2026-08-29", "2026-08-30"], facilitator: "Pastor Arome Iduh" },
+  { code: "RSD-DIS 103", week: 3, short: "Spiritual Formation", dates: ["2026-09-04", "2026-09-05", "2026-09-06"], facilitator: "Otache Imanche" },
+  { code: "RSD-DIS 104", week: 4, short: "Purpose and Calling", dates: ["2026-09-11", "2026-09-12", "2026-09-13"], facilitator: "Pastor Onyeka" },
+  { code: "RSD-DIS 105", week: 5, short: "Kingdom Leadership and Character", dates: ["2026-09-18", "2026-09-19", "2026-09-20"], facilitator: "Minister Daniel" },
+  { code: "RSD-DIS 106", week: 6, short: "Kingdom Finance and Stewardship", dates: ["2026-09-25", "2026-09-26", "2026-09-27"], facilitator: "Minister Daniel" },
+  { code: "RSD-DIS 107", week: 7, short: "Missions and Evangelism", dates: ["2026-10-02", "2026-10-03", "2026-10-04"], facilitator: "Oluwatobi Adekunle" },
+  { code: "RSD-DIS 108", week: 8, short: "Integration, Assessment and Commissioning", dates: ["2026-10-09", "2026-10-10", "2026-10-11"], facilitator: "REALMS Faculty Team" },
 ] as const;
 
 const foundationalSessions = foundational.flatMap((item) => [
@@ -59,11 +59,11 @@ const foundationalSessions = foundational.flatMap((item) => [
 ]);
 
 const advancedBlocks = [
-  { code: "RSD-ADV 201", title: "Marriage, Relationships and Family Life", facilitator: "Pastor Arome Iduh", dates: [[1, "2026-08-24"], [1, "2026-08-25"], [1, "2026-08-26"], [2, "2026-08-31"], [2, "2026-09-01"], [2, "2026-09-02"]] },
-  { code: "RSD-ADV 202", title: "Marketplace Ministry and Kingdom Influence", facilitator: "Pastor Arome Iduh", dates: [[3, "2026-09-07"], [3, "2026-09-08"], [3, "2026-09-09"]] },
-  { code: "RSD-ADV 203", title: "Ministry, Priesthood and Church Service", facilitator: "Pastor Arome Iduh", dates: [[4, "2026-09-14"], [4, "2026-09-15"], [4, "2026-09-16"], [5, "2026-09-21"], [5, "2026-09-22"], [5, "2026-09-23"]] },
-  { code: "RSD-ADV 204", title: "Biblical Principles of Counselling", facilitator: "Minister Daniel", dates: [[6, "2026-09-28"], [6, "2026-09-29"], [6, "2026-09-30"]] },
-  { code: "RSD-ADV 205", title: "Christian Philosophy and Critical Thinking", facilitator: "Oluwatobi Adekunle", dates: [[7, "2026-10-05"], [7, "2026-10-06"], [7, "2026-10-07"]] },
+  { code: "RSD-ADV 201", title: "Marriage, Relationships and Family Life", facilitator: "Pastor Arome Iduh", dates: [[1, "2026-08-17"], [1, "2026-08-18"], [1, "2026-08-19"], [2, "2026-08-24"], [2, "2026-08-25"], [2, "2026-08-26"]] },
+  { code: "RSD-ADV 202", title: "Marketplace Ministry and Kingdom Influence", facilitator: "Pastor Arome Iduh", dates: [[3, "2026-08-31"], [3, "2026-09-01"], [3, "2026-09-02"]] },
+  { code: "RSD-ADV 203", title: "Ministry, Priesthood and Church Service", facilitator: "Pastor Arome Iduh", dates: [[4, "2026-09-07"], [4, "2026-09-08"], [4, "2026-09-09"], [5, "2026-09-14"], [5, "2026-09-15"], [5, "2026-09-16"]] },
+  { code: "RSD-ADV 204", title: "Biblical Principles of Counselling", facilitator: "Minister Daniel", dates: [[6, "2026-09-21"], [6, "2026-09-22"], [6, "2026-09-23"]] },
+  { code: "RSD-ADV 205", title: "Christian Philosophy and Critical Thinking", facilitator: "Oluwatobi Adekunle", dates: [[7, "2026-09-28"], [7, "2026-09-29"], [7, "2026-09-30"]] },
 ] as const;
 
 const advancedSessions: August2026Session[] = advancedBlocks.flatMap((block) => block.dates.map(([week, date], index) => session({
@@ -82,33 +82,33 @@ const advancedSessions: August2026Session[] = advancedBlocks.flatMap((block) => 
 })));
 
 [
-  { date: "2026-10-12", title: "Week 8 — Advanced Integration — Session 1", type: "review" as const },
-  { date: "2026-10-13", title: "Week 8 — Advanced Application — Session 2", type: "practical" as const },
-  { date: "2026-10-14", title: "Week 8 — Advanced Final Assessment — Session 3", type: "assessment" as const },
+  { date: "2026-10-05", title: "Week 8 — Advanced Integration — Session 1", type: "review" as const },
+  { date: "2026-10-06", title: "Week 8 — Advanced Application — Session 2", type: "practical" as const },
+  { date: "2026-10-07", title: "Week 8 — Advanced Final Assessment — Session 3", type: "assessment" as const },
 ].forEach((item, index) => advancedSessions.push(session({ courseCode: "RSD-ADV 205", route: "advanced", week: 8, title: item.title, description: "Programme-wide Advanced integration activity. This is not a sixth Advanced course; the direct session facilitator remains pending approved assignment.", sessionNumber: index + 4, sessionType: item.type, deliveryMode: "online", scheduledStartAt: wat(item.date, "19:00"), scheduledEndAt: wat(item.date, "21:00"), facilitatorName: null, physicalLocation: null })));
 
 const web = [
-  ["RSD-WEB 101", "Digital Foundations", ["2026-08-24", "2026-08-25"]],
-  ["RSD-WEB 102", "HTML and Semantic Web", ["2026-08-31", "2026-09-01"]],
-  ["RSD-WEB 103", "CSS, Box Model and Layout", ["2026-09-07", "2026-09-08"]],
-  ["RSD-WEB 104", "Responsive Design and UI/UX Foundations", ["2026-09-14", "2026-09-15"]],
-  ["RSD-WEB 105", "JavaScript Fundamentals", ["2026-09-21", "2026-09-22"]],
-  ["RSD-WEB 106", "DOM, Events, Forms and Validation", ["2026-09-28", "2026-09-29"]],
-  ["RSD-WEB 107", "Git, GitHub, Deployment and Client Workflow", ["2026-10-05", "2026-10-06"]],
-  ["RSD-WEB 108", "Time Management, Focus and Kingdom Stewardship", ["2026-10-12", "2026-10-13"]],
+  ["RSD-WEB 101", "Digital Foundations", ["2026-08-17", "2026-08-18"]],
+  ["RSD-WEB 102", "HTML and Semantic Web", ["2026-08-24", "2026-08-25"]],
+  ["RSD-WEB 103", "CSS, Box Model and Layout", ["2026-08-31", "2026-09-01"]],
+  ["RSD-WEB 104", "Responsive Design and UI/UX Foundations", ["2026-09-07", "2026-09-08"]],
+  ["RSD-WEB 105", "JavaScript Fundamentals", ["2026-09-14", "2026-09-15"]],
+  ["RSD-WEB 106", "DOM, Events, Forms and Validation", ["2026-09-21", "2026-09-22"]],
+  ["RSD-WEB 107", "Git, GitHub, Deployment and Client Workflow", ["2026-09-28", "2026-09-29"]],
+  ["RSD-WEB 108", "Time Management, Focus and Kingdom Stewardship", ["2026-10-05", "2026-10-06"]],
 ] as const;
 
 const webSessions = web.flatMap(([courseCode, title, dates], index) => dates.map((date, sessionIndex) => session({ courseCode, route: "web", week: index + 1, title: `Week ${index + 1} — ${title} — Session ${sessionIndex + 1}`, description: "Web Development teaching session using the student's approved physical or online delivery route.", sessionNumber: sessionIndex + 1, sessionType: "teaching", deliveryMode: "hybrid", scheduledStartAt: wat(date, "15:30"), scheduledEndAt: wat(date, "18:00"), facilitatorName: "Oluwatobi Adekunle", physicalLocation: august2026PhysicalLocation })));
 
 const cyber = [
-  ["RSD-CYB 101", "Cybersecurity, Ethics and Laboratory Setup", ["2026-08-26", "2026-08-28"]],
-  ["RSD-CYB 102", "Computer Systems and Command-Line Foundations", ["2026-09-02", "2026-09-04"]],
-  ["RSD-CYB 103", "Networking Fundamentals", ["2026-09-09", "2026-09-11"]],
-  ["RSD-CYB 104", "Threats, Vulnerabilities, Risk and Controls", ["2026-09-16", "2026-09-18"]],
-  ["RSD-CYB 105", "System Hardening and Network Security", ["2026-09-23", "2026-09-25"]],
-  ["RSD-CYB 106", "Approved-Lab Reconnaissance and Vulnerability Assessment", ["2026-09-30", "2026-10-02"]],
-  ["RSD-CYB 107", "Incident Response and Security Reporting", ["2026-10-07", "2026-10-09"]],
-  ["RSD-CYB 108", "Time Management, Focus and Professional Discipline", ["2026-10-14", "2026-10-16"]],
+  ["RSD-CYB 101", "Cybersecurity, Ethics and Laboratory Setup", ["2026-08-19", "2026-08-21"]],
+  ["RSD-CYB 102", "Computer Systems and Command-Line Foundations", ["2026-08-26", "2026-08-28"]],
+  ["RSD-CYB 103", "Networking Fundamentals", ["2026-09-02", "2026-09-04"]],
+  ["RSD-CYB 104", "Threats, Vulnerabilities, Risk and Controls", ["2026-09-09", "2026-09-11"]],
+  ["RSD-CYB 105", "System Hardening and Network Security", ["2026-09-16", "2026-09-18"]],
+  ["RSD-CYB 106", "Approved-Lab Reconnaissance and Vulnerability Assessment", ["2026-09-23", "2026-09-25"]],
+  ["RSD-CYB 107", "Incident Response and Security Reporting", ["2026-09-30", "2026-10-02"]],
+  ["RSD-CYB 108", "Time Management, Focus and Professional Discipline", ["2026-10-07", "2026-10-09"]],
 ] as const;
 
 const cyberSessions = cyber.flatMap(([courseCode, title, dates], index) => dates.map((date, sessionIndex) => session({ courseCode, route: "cyber", week: index + 1, title: `Week ${index + 1} — ${title} — Session ${sessionIndex + 1}`, description: "Cybersecurity Foundations teaching session. Practical work remains restricted to authorised laboratory systems and published scopes.", sessionNumber: sessionIndex + 1, sessionType: "teaching", deliveryMode: "hybrid", scheduledStartAt: wat(date, "15:30"), scheduledEndAt: wat(date, "18:00"), facilitatorName: "Oluwatobi Adekunle", physicalLocation: august2026PhysicalLocation })));
@@ -116,11 +116,12 @@ const cyberSessions = cyber.flatMap(([courseCode, title, dates], index) => dates
 export const august2026Sessions: readonly August2026Session[] = [...foundationalSessions, ...advancedSessions, ...webSessions, ...cyberSessions];
 
 export const august2026Orientation = {
-  eventKey: "orientation-matriculation-2026-08-21",
-  eventType: "orientation_matriculation",
-  title: "REALMS School of Discovery August 2026 Orientation & Matriculation",
-  description: "Required online orientation and matriculation event for admitted and enrolled August 2026 cohort students. This event carries no academic mark.",
-  scheduledStartAt: wat("2026-08-21", "19:00"),
+  eventKey: "orientation-2026-08-14",
+  eventType: "orientation",
+  title: "REALMS School of Discovery August 2026 Orientation",
+  description: "Required online orientation for admitted and enrolled August 2026 cohort students. This event carries no academic mark.",
+  eventDate: "2026-08-14",
+  scheduledStartAt: wat("2026-08-14", "19:00"),
   scheduledEndAt: null,
   timezone: august2026Timezone,
   deliveryMode: "online",
@@ -130,6 +131,25 @@ export const august2026Orientation = {
   visibilityStatus: "enrolled_only",
   isRequired: true,
 } as const;
+
+export const august2026PrayerAndMatriculation = {
+  eventKey: "prayer-matriculation-2026-08-16",
+  eventType: "prayer_matriculation",
+  title: "REALMS School of Discovery August 2026 Prayer & Matriculation",
+  description: "Required Prayer & Matriculation event for admitted and enrolled August 2026 cohort students. The exact clock time still requires approved admin configuration.",
+  eventDate: "2026-08-16",
+  scheduledStartAt: null,
+  scheduledEndAt: null,
+  timezone: august2026Timezone,
+  deliveryMode: "online",
+  liveJoinUrl: null,
+  physicalLocation: null,
+  eventStatus: "scheduled",
+  visibilityStatus: "enrolled_only",
+  isRequired: true,
+} as const;
+
+export const august2026CohortEvents = [august2026Orientation, august2026PrayerAndMatriculation] as const;
 
 export const august2026AdditionalFacilitatorAssignments = [
   { courseCode: "RSD-DIS 108", facilitatorName: "Oluwatobi Adekunle", assignmentRole: "co_facilitator" },

@@ -3,8 +3,10 @@ import { readFile } from "node:fs/promises";
 
 import {
   august2026AdditionalFacilitatorAssignments,
+  august2026CohortEvents,
   august2026CohortDates,
   august2026Orientation,
+  august2026PrayerAndMatriculation,
   august2026PhysicalLocation,
   august2026ScheduleConflicts,
   august2026SessionCounts,
@@ -29,7 +31,7 @@ check("exact route counts", () => assert.deepEqual(august2026SessionCounts(), { 
 check("exact total core sessions", () => assert.equal(august2026Sessions.length, 80));
 check("session keys are unique", () => assert.equal(new Set(august2026Sessions.map((item) => `${item.courseCode}:${item.sessionNumber}`)).size, 80));
 check("no new or capstone teaching codes", () => { assert.equal(august2026Sessions.some((item) => item.courseCode === "RSD-ADV 206"), false); assert.equal(august2026Sessions.some((item) => item.courseCode.endsWith("190")), false); });
-check("master dates remain exact", () => assert.deepEqual(august2026CohortDates, { startDate: "2026-08-24", endDate: "2026-10-25", orientationDate: "2026-08-21", matriculationDate: "2026-08-21", finalCompletionStartDate: "2026-10-19", finalCompletionEndDate: "2026-10-24", graduationDate: "2026-10-25", graduationTime: null }));
+check("master dates remain exact", () => assert.deepEqual(august2026CohortDates, { startDate: "2026-08-17", endDate: "2026-10-18", orientationDate: "2026-08-14", matriculationDate: "2026-08-16", finalCompletionStartDate: "2026-10-12", finalCompletionEndDate: "2026-10-17", graduationDate: "2026-10-18", graduationTime: null }));
 check("all timestamps use the institutional timezone", () => assert.ok(august2026Sessions.every((item) => item.timezone === "Africa/Lagos")));
 check("foundational WAT times are correct", () => { const sessions = august2026Sessions.filter((item) => item.route === "foundational"); assert.equal(sessions.filter((item) => lagosParts(item.scheduledStartAt).hour === "18" && lagosParts(item.scheduledStartAt).minute === "30").length, 16); assert.equal(sessions.filter((item) => lagosParts(item.scheduledStartAt).hour === "20" && lagosParts(item.scheduledStartAt).minute === "00").length, 8); });
 check("advanced WAT times are correct", () => assert.ok(august2026Sessions.filter((item) => item.route === "advanced").every((item) => lagosParts(item.scheduledStartAt).hour === "19" && lagosParts(item.scheduledEndAt).hour === "21")));
@@ -41,13 +43,13 @@ check("foundational facilitators match the register", () => { const expected = {
 check("week eight coordination reuses the approved co-facilitator", () => assert.deepEqual(august2026AdditionalFacilitatorAssignments, [{ courseCode: "RSD-DIS 108", facilitatorName: "Oluwatobi Adekunle", assignmentRole: "co_facilitator" }]));
 check("advanced primary facilitators match and week eight stays pending", () => { assert.ok(august2026Sessions.filter((item) => item.route === "advanced" && item.week < 8).every((item) => item.facilitatorName === ({ "RSD-ADV 201": "Pastor Arome Iduh", "RSD-ADV 202": "Pastor Arome Iduh", "RSD-ADV 203": "Pastor Arome Iduh", "RSD-ADV 204": "Minister Daniel", "RSD-ADV 205": "Oluwatobi Adekunle" })[item.courseCode])); assert.ok(august2026Sessions.filter((item) => item.route === "advanced" && item.week === 8).every((item) => item.courseCode === "RSD-ADV 205" && item.facilitatorName === null)); });
 check("all skill sessions use the approved facilitator", () => assert.ok(august2026Sessions.filter((item) => item.route === "web" || item.route === "cyber").every((item) => item.facilitatorName === "Oluwatobi Adekunle")));
-check("final week and graduation have no invented sessions", () => assert.ok(august2026Sessions.every((item) => Date.parse(item.scheduledStartAt) < Date.parse("2026-10-19T00:00:00+01:00"))));
-check("orientation is one non-course cohort event", () => { assert.equal(lagosParts(august2026Orientation.scheduledStartAt).hour, "19"); assert.equal(august2026Orientation.scheduledEndAt, null); assert.equal(august2026Orientation.isRequired, true); assert.match(august2026Orientation.description, /no academic mark/); });
+check("week eight ends before final reconciliation", () => assert.ok(august2026Sessions.every((item) => Date.parse(item.scheduledStartAt) < Date.parse("2026-10-12T00:00:00+01:00"))));
+check("orientation and matriculation are separate cohort events", () => { assert.equal(august2026CohortEvents.length, 2); assert.equal(august2026Orientation.eventDate, "2026-08-14"); assert.equal(lagosParts(august2026Orientation.scheduledStartAt).hour, "19"); assert.equal(august2026PrayerAndMatriculation.eventDate, "2026-08-16"); assert.equal(august2026PrayerAndMatriculation.scheduledStartAt, null); assert.match(august2026PrayerAndMatriculation.description, /time still requires approved admin configuration/i); });
 check("the schedule has no facilitator overlaps", () => assert.deepEqual(august2026ScheduleConflicts().overlaps, []));
 check("tight transitions are surfaced", () => assert.ok(august2026ScheduleConflicts().tightTransitions.some((item) => item.minutes === 30 && item.facilitator === "Oluwatobi Adekunle")));
 check("seed is dry-run first and double-confirmed for apply", () => { assert.match(seed, /process\.argv\.includes\("--apply"\)/); assert.match(seed, /NEXT_5_APPLY/); assert.match(seed, /mode: apply \? "apply" : "dry-run"/); });
 check("seed never creates courses, offerings or identities", () => { assert.doesNotMatch(seed, /from\("courses"\)\.insert/); assert.doesNotMatch(seed, /from\("cohort_courses"\)\.insert/); assert.doesNotMatch(seed, /from\("facilitators"\)\.insert/); });
-check("seed blocks conflicting existing session keys", () => { assert.match(seed, /conflictingSessions/); assert.match(seed, /manual review before setup/); });
+check("seed moves only exact seven-day source sessions and blocks unexpected conflicts", () => { assert.match(seed, /isExactlySevenDaysLater/); assert.match(seed, /movableSessions/); assert.match(seed, /unexpectedConflicts/); assert.match(seed, /manual review before setup/); });
 check("cohort events use timestamptz and student-owned RLS", () => { assert.match(migration, /scheduled_start_at timestamptz/); assert.match(migration, /students read enrolled cohort events/); assert.match(migration, /students\.profile_id = auth\.uid\(\)/); });
 check("students see only enrolled offerings and their cohort events", () => { assert.match(dashboard, /course_enrollments/); assert.match(dashboard, /cohort_events/); assert.match(dashboard, /eq\("cohort_id", enrollment\.cohort_id\)/); });
 check("approved delivery route controls skill presentation", () => { assert.match(dashboard, /deliveryRoute === "PL"/); assert.match(learning, /course\.deliveryRoute === "PL"/); });

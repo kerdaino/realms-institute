@@ -12,6 +12,7 @@ import {
 } from "@/lib/schoolOfDiscoveryCurriculum";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { ensurePortalProfile, ensurePortalRole, findOrCreatePortalAuthUser, normalizePortalEmail, PortalIdentityError } from "@/lib/lms/portalIdentity";
+import { ensureLateEntryCatchupPlan, type LateEntryCatchupPlanResult } from "@/lib/lms/lateEntryService.server";
 
 const currentCohortCode = "RSD-AUG-2026";
 const registrationSelect = "id, application_status, assigned_discipleship_route, skill_pathway, learning_mode, full_name, email, whatsapp, country, city, funding_route, scholarship_status, scholarship_approved_amount, amount, amount_paid, payment_status, financial_requirement_status, deleted_at";
@@ -60,6 +61,7 @@ export type StudentProvisioningResult = {
   profileStatus: "created" | "updated";
   roleStatus: "assigned";
   cohort: Pick<Cohort, "id" | "code" | "name">;
+  catchup: LateEntryCatchupPlanResult;
 };
 
 function normalizeSkillPathway(value: string): NormalizedSkill | null {
@@ -263,6 +265,7 @@ export async function provisionStudentFromRegistration(input: { registrationId: 
     : advancedDiscipleshipCourses.map((course) => course.code);
   const requiredCodes = [...discipleshipCodes, ...skill.courseCodes];
   const courseEnrollmentCount = await enrollRequiredCourses(supabase, studentEnrollment.id, cohort.id, requiredCodes, skillLearningMode);
+  const catchup = await ensureLateEntryCatchupPlan(supabase, { studentEnrollmentId: studentEnrollment.id, actorUserId: auth.user.id });
   await recordProvisioningAudit(supabase, { registrationId: registration.id, student, cohort, route: registration.assigned_discipleship_route, skillPathway: skill.value });
 
   return {
@@ -274,5 +277,6 @@ export async function provisionStudentFromRegistration(input: { registrationId: 
     profileStatus,
     roleStatus: "assigned",
     cohort,
+    catchup,
   };
 }

@@ -12,6 +12,7 @@ import { triggerEngagementEvaluationForCourseEnrollment } from "@/lib/lms/engage
 
 type Actor = { actorUserId?: string | null; actorLabel: "REALMS Admin" | "Facilitator" | "Student" | "System" };
 type StudentContext = { profileId: string; studentId: string; courseEnrollmentIds: string[] };
+type MakeupPurpose = "MU-E" | "MU-U" | "LE-C";
 
 function invalid(message: string): never { throw new LmsAdminDataError(message, 400); }
 function object(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -148,35 +149,47 @@ async function ensureLearningCompletion(supabase: SupabaseClient, courseEnrollme
 }
 
 async function attachMakeupMaterials(supabase: SupabaseClient, makeup: Record<string, unknown>, actor: Actor, requestedDueAt?: string | null) {
-  if (makeup.makeup_status !== "awaiting_materials" && makeup.recording_learning_assignment_id) return { makeup, assigned: false, warning: null as string | null };
+  if (!["awaiting_materials", "alternative_required"].includes(String(makeup.makeup_status)) && makeup.recording_learning_assignment_id) return { makeup, assigned: false, warning: null as string | null };
   try {
-    const material = await ensureMakeupRecordingAssignment(supabase, { courseEnrollmentId: String(makeup.course_enrollment_id), sessionId: String(makeup.class_session_id), purpose: makeup.purpose_code as "MU-E" | "MU-U", dueAt: requestedDueAt });
-    if (material.state === "awaiting_materials") return { makeup, assigned: false, warning: "The required recording is not available yet. The student deadline has not started." };
+    const purpose = makeup.purpose_code as MakeupPurpose;
+    const material = await ensureMakeupRecordingAssignment(supabase, { courseEnrollmentId: String(makeup.course_enrollment_id), sessionId: String(makeup.class_session_id), purpose, dueAt: requestedDueAt });
+    if (material.state === "awaiting_materials") {
+      if (purpose !== "LE-C") return { makeup, assigned: false, warning: "The required recording is not available yet. The student deadline has not started." };
+      const dueAt = requestedDueAt ?? (typeof makeup.due_at === "string" ? makeup.due_at : null);
+      const changed = makeup.makeup_status !== "alternative_required" || makeup.due_at !== dueAt;
+      if (!changed) return { makeup, assigned: false, warning: "No recording is available. An authorised alternative catch-up activity is required." };
+      await addMakeupEvent(supabase, String(makeup.id), "late_entry_alternative_required", { makeup_status: makeup.makeup_status }, { makeup_status: "alternative_required", due_at: dueAt }, actor, "No approved recording is currently available for this missed session.");
+      const saved = await supabase.from("makeup_requirements").update({ makeup_status: "alternative_required", due_at: dueAt, updated_by: actorReference(actor), updated_at: new Date().toISOString() }).eq("id", makeup.id).select("*").single();
+      if (saved.error) throw new LmsAdminDataError("The alternative catch-up requirement could not be saved.");
+      return { makeup: saved.data, assigned: false, warning: "No recording is available. An authorised alternative catch-up activity is required." };
+    }
     const now = new Date().toISOString();
-    const updates = { makeup_status: "assigned", available_at: material.assignment.available_at, due_at: material.assignment.due_at, class_recording_id: material.recording.id, recording_learning_assignment_id: material.assignment.id, linked_quiz_id: material.links?.quiz_id ?? null, linked_practical_assignment_id: material.links?.practical_assignment_id ?? null, linked_reflection_assignment_id: material.links?.reflection_assignment_id ?? null, requires_oral_verification: material.links?.requires_oral_verification ?? material.requirements.requiresOralVerification, updated_by: actorReference(actor), updated_at: now };
-    await addMakeupEvent(supabase, String(makeup.id), "makeup_materials_available", { makeup_status: makeup.makeup_status }, { makeup_status: "assigned", due_at: material.assignment.due_at }, actor);
+    const requiresAlternative = purpose === "LE-C" && material.courseCategory === "skill" && !material.links?.practical_assignment_id;
+    const nextStatus = requiresAlternative ? "alternative_required" : "assigned";
+    const updates = { makeup_status: nextStatus, available_at: material.assignment.available_at, due_at: material.assignment.due_at, class_recording_id: material.recording.id, recording_learning_assignment_id: material.assignment.id, linked_quiz_id: material.links?.quiz_id ?? null, linked_practical_assignment_id: material.links?.practical_assignment_id ?? null, linked_reflection_assignment_id: material.links?.reflection_assignment_id ?? null, requires_oral_verification: material.links?.requires_oral_verification ?? material.requirements.requiresOralVerification, updated_by: actorReference(actor), updated_at: now };
+    await addMakeupEvent(supabase, String(makeup.id), requiresAlternative ? "late_entry_alternative_required" : "makeup_materials_available", { makeup_status: makeup.makeup_status }, { makeup_status: nextStatus, due_at: material.assignment.due_at }, actor, requiresAlternative ? "A recording is available, but practical competence still requires approved evidence or an alternative activity." : null);
     const saved = await supabase.from("makeup_requirements").update(updates).eq("id", makeup.id).select("*").single();
     if (saved.error) throw new LmsAdminDataError("Available make-up materials could not be linked.");
     await recordLmsAudit(supabase, { action: "makeup_materials_available", entityType: "makeup_requirement", entityId: String(makeup.id), actorUserId: actor.actorUserId, metadata: { recording_assignment_id: material.assignment.id, due_at: material.assignment.due_at } });
-    await sendMakeupEmail(supabase, String(makeup.id), "makeup_assigned");
-    return { makeup: saved.data, assigned: true, warning: null };
+    if (purpose !== "LE-C") await sendMakeupEmail(supabase, String(makeup.id), "makeup_assigned");
+    return { makeup: saved.data, assigned: true, warning: requiresAlternative ? "Practical evidence or an authorised alternative activity is still required." : null };
   } catch (error) {
     if (error instanceof LmsAdminDataError && error.status === 503) return { makeup, assigned: false, warning: error.message };
     throw error;
   }
 }
 
-export async function ensureMakeupRequirement(supabase: SupabaseClient, input: { absenceRequestId?: string | null; courseEnrollmentId: string; sessionId: string; attendanceId?: string | null; purpose: "MU-E" | "MU-U"; instructions: string; dueAt?: string | null; actor: Actor }) {
+export async function ensureMakeupRequirement(supabase: SupabaseClient, input: { absenceRequestId?: string | null; courseEnrollmentId: string; sessionId: string; attendanceId?: string | null; purpose: MakeupPurpose; instructions: string; dueAt?: string | null; actor: Actor }) {
   const existing = await supabase.from("makeup_requirements").select("*").eq("course_enrollment_id", input.courseEnrollmentId).eq("class_session_id", input.sessionId).eq("purpose_code", input.purpose).maybeSingle();
   if (existing.error) throw new LmsAdminDataError("An existing make-up requirement could not be checked.");
   let makeup = existing.data; let created = false;
   if (!makeup) {
-    const inserted = await supabase.from("makeup_requirements").insert({ absence_request_id: input.absenceRequestId ?? null, course_enrollment_id: input.courseEnrollmentId, class_session_id: input.sessionId, session_attendance_id: input.attendanceId ?? null, purpose_code: input.purpose, makeup_status: "awaiting_materials", instructions: input.instructions, created_by: actorReference(input.actor), updated_by: actorReference(input.actor) }).select("*").single();
+    const inserted = await supabase.from("makeup_requirements").insert({ absence_request_id: input.absenceRequestId ?? null, course_enrollment_id: input.courseEnrollmentId, class_session_id: input.sessionId, session_attendance_id: input.attendanceId ?? null, purpose_code: input.purpose, makeup_status: "awaiting_materials", instructions: input.instructions, due_at: input.purpose === "LE-C" ? input.dueAt ?? null : null, created_by: actorReference(input.actor), updated_by: actorReference(input.actor) }).select("*").single();
     if (inserted.error) {
       if (inserted.error.code !== "23505") throw new LmsAdminDataError("Make-up requirement could not be created.");
       const raced = await supabase.from("makeup_requirements").select("*").eq("course_enrollment_id", input.courseEnrollmentId).eq("class_session_id", input.sessionId).eq("purpose_code", input.purpose).single();
       if (raced.error) throw new LmsAdminDataError("Make-up requirement could not be loaded after initialization."); makeup = raced.data;
-    } else { makeup = inserted.data; created = true; await addMakeupEvent(supabase, makeup.id, input.purpose === "MU-E" ? "approved_makeup_assigned" : "unapproved_makeup_assigned", {}, { makeup_status: "awaiting_materials", purpose_code: input.purpose }, input.actor); }
+    } else { makeup = inserted.data; created = true; await addMakeupEvent(supabase, makeup.id, input.purpose === "MU-E" ? "approved_makeup_assigned" : input.purpose === "LE-C" ? "late_entry_catchup_created" : "unapproved_makeup_assigned", {}, { makeup_status: "awaiting_materials", purpose_code: input.purpose, due_at: input.purpose === "LE-C" ? input.dueAt ?? null : null }, input.actor); }
   } else if ((!makeup.absence_request_id && input.absenceRequestId) || (!makeup.session_attendance_id && input.attendanceId)) {
     const linked = await supabase.from("makeup_requirements").update({ absence_request_id: makeup.absence_request_id ?? input.absenceRequestId ?? null, session_attendance_id: makeup.session_attendance_id ?? input.attendanceId ?? null, updated_at: new Date().toISOString() }).eq("id", makeup.id).select("*").single();
     if (!linked.error) makeup = linked.data;
@@ -189,13 +202,13 @@ export async function ensureMakeupRequirement(supabase: SupabaseClient, input: {
   if (completionLink.error) throw new LmsAdminDataError("Make-up learning linkage could not be saved.");
   if (created) {
     await recordLmsAudit(supabase, { action: "makeup_requirement_created", entityType: "makeup_requirement", entityId: makeup.id, actorUserId: input.actor.actorUserId, metadata: { purpose: input.purpose, class_session_id: input.sessionId } });
-    await recordLmsAudit(supabase, { action: input.purpose === "MU-E" ? "approved_makeup_assigned" : "unapproved_makeup_assigned", entityType: "makeup_requirement", entityId: makeup.id, actorUserId: input.actor.actorUserId, metadata: { purpose: input.purpose, class_session_id: input.sessionId } });
+    await recordLmsAudit(supabase, { action: input.purpose === "MU-E" ? "approved_makeup_assigned" : input.purpose === "LE-C" ? "late_entry_catchup_created" : "unapproved_makeup_assigned", entityType: "makeup_requirement", entityId: makeup.id, actorUserId: input.actor.actorUserId, metadata: { purpose: input.purpose, class_session_id: input.sessionId, due_at: input.dueAt ?? null } });
   }
   return { makeup, created, materialsAssigned: material.assigned, warning: material.warning };
 }
 
 export async function initializeAwaitingMakeupsForSession(supabase: SupabaseClient, sessionId: string, actor: Actor) {
-  const result = await supabase.from("makeup_requirements").select("*").eq("class_session_id", sessionId).eq("makeup_status", "awaiting_materials");
+  const result = await supabase.from("makeup_requirements").select("*").eq("class_session_id", sessionId).in("makeup_status", ["awaiting_materials", "alternative_required"]);
   if (result.error) throw new LmsAdminDataError("Awaiting make-up requirements could not be loaded.");
   let assigned = 0; const warnings: string[] = [];
   for (const makeup of result.data ?? []) { const material = await attachMakeupMaterials(supabase, makeup, actor); if (material.assigned) assigned += 1; if (material.warning) warnings.push(material.warning); }
@@ -281,6 +294,16 @@ export async function updateMakeupRequirement(supabase: SupabaseClient, makeupId
     if (current.recording_learning_assignment_id) await supabase.from("recording_learning_assignments").update({ due_at: dueAt, exception_note: reason, updated_at: new Date().toISOString() }).eq("id", current.recording_learning_assignment_id);
     await recordLmsAudit(supabase, { action: "makeup_deadline_extended", entityType: "makeup_requirement", entityId: makeupId, actorUserId: actor.actorUserId, metadata: { due_at: dueAt } }); return { makeup: saved.data };
   }
+  if (action === "set_alternative") {
+    if (current.purpose_code !== "LE-C") throw new LmsAdminDataError("Alternative catch-up instructions are available only for late-entry learning.", 409);
+    const instructions = requiredText(body.instructions, "Clear alternative catch-up instructions are required.", 4000);
+    const reason = requiredText(body.reason, "A reason for assigning alternative catch-up work is required.", 2000);
+    await addMakeupEvent(supabase, makeupId, "late_entry_alternative_assigned", { makeup_status: current.makeup_status, instructions: current.instructions }, { makeup_status: "alternative_required", instructions }, actor, reason);
+    const saved = await supabase.from("makeup_requirements").update({ makeup_status: "alternative_required", instructions, exception_note: reason, updated_by: actorReference(actor), updated_at: new Date().toISOString() }).eq("id", makeupId).select("*").single();
+    if (saved.error) throw new LmsAdminDataError("Alternative catch-up instructions could not be saved.");
+    await recordLmsAudit(supabase, { action: "late_entry_alternative_assigned", entityType: "makeup_requirement", entityId: makeupId, actorUserId: actor.actorUserId, metadata: { class_session_id: current.class_session_id, reason } });
+    return { makeup: saved.data };
+  }
   if (action === "waive" || action === "cancel") {
     const reason = requiredText(body.reason, "A reason is required.", 2000); const status = action === "waive" ? "waived" : "cancelled";
     await addMakeupEvent(supabase, makeupId, `makeup_${status}`, { makeup_status: current.makeup_status }, { makeup_status: status }, actor, reason);
@@ -292,16 +315,31 @@ export async function updateMakeupRequirement(supabase: SupabaseClient, makeupId
 export async function verifyExternalMakeupEvidence(supabase: SupabaseClient, makeupId: string, body: Record<string, unknown>, actor: Actor) {
   const reason = requiredText(body.reason, "A verification reason is required.", 2000); requiredText(body.evidence_description, "A concise evidence description is required.", 2000);
   const currentResult = await supabase.from("makeup_requirements").select("*").eq("id", makeupId).maybeSingle(); if (currentResult.error || !currentResult.data) throw new LmsAdminDataError("Make-up requirement not found.", 404); const current = currentResult.data;
-  if (!["MU-E", "MU-U"].includes(current.purpose_code)) throw new LmsAdminDataError("Only a make-up requirement can use this verification workflow.", 409);
+  if (!["MU-E", "MU-U", "LE-C"].includes(current.purpose_code)) throw new LmsAdminDataError("Only a make-up or late-entry catch-up requirement can use this verification workflow.", 409);
   if (["completed", "late_complete"].includes(current.makeup_status)) return { makeup: current, changed: false };
+  if (current.purpose_code === "LE-C" && current.recording_learning_assignment_id) {
+    const requirementRows = await supabase.from("recording_requirement_statuses").select("requirement_type, is_required").eq("recording_assignment_id", current.recording_learning_assignment_id);
+    if (requirementRows.error) throw new LmsAdminDataError("Catch-up evidence requirements could not be checked.");
+    const alternativeType = (requirementRows.data ?? []).find((row) => row.requirement_type === "practical" && row.is_required)?.requirement_type
+      ?? (requirementRows.data ?? []).find((row) => row.requirement_type === "reflection" && row.is_required)?.requirement_type;
+    if (!alternativeType) throw new LmsAdminDataError("This catch-up still requires its configured recording evidence; no alternative evidence requirement is awaiting verification.", 409);
+    const now = new Date().toISOString();
+    const evidence = await supabase.from("recording_requirement_statuses").update({ requirement_status: "satisfied", evidence_source: "alternative_activity_review", evidence_reference: String(body.evidence_description).trim().slice(0, 1000), completed_at: now, verified_at: now, verified_by: actorReference(actor), verification_note: reason, updated_at: now }).eq("recording_assignment_id", current.recording_learning_assignment_id).eq("requirement_type", alternativeType).eq("is_required", true);
+    if (evidence.error) throw new LmsAdminDataError("Alternative catch-up evidence could not be linked.");
+    await addMakeupEvent(supabase, makeupId, "late_entry_alternative_verified", { makeup_status: current.makeup_status }, { requirement_type: alternativeType, requirement_status: "satisfied" }, actor, reason);
+    const evaluation = await evaluateRecordedLearningAssignment(supabase, current.recording_learning_assignment_id, actor);
+    return { makeup: current, changed: true, evaluation };
+  }
   const now = new Date().toISOString(); const status = current.purpose_code === "MU-E" ? "completed" : "late_complete"; const outcome = current.purpose_code === "MU-E" ? "approved_makeup_complete" : "unapproved_makeup_complete";
-  await addMakeupEvent(supabase, makeupId, "external_makeup_evidence_verified", { makeup_status: current.makeup_status }, { makeup_status: status, completion_outcome: outcome }, actor, reason);
-  const saved = await supabase.from("makeup_requirements").update({ makeup_status: status, completed_at: now, verified_at: now, verified_by: actorReference(actor), completion_outcome: outcome, exception_note: reason, updated_by: actorReference(actor), updated_at: now }).eq("id", makeupId).select("*").single(); if (saved.error) throw new LmsAdminDataError("External make-up evidence could not be verified.");
-  const completion = await ensureLearningCompletion(supabase, current.course_enrollment_id, current.class_session_id); await setLearningCompletionState(supabase, { learningCompletionId: completion.id, status: current.purpose_code === "MU-E" ? "verified_complete" : "late_complete", method: current.purpose_code === "MU-E" ? "approved_makeup" : "unapproved_makeup", reason: "External make-up evidence verified by an authorised administrator.", actor });
+  const finalStatus = current.purpose_code === "LE-C" ? "completed" : status;
+  const finalOutcome = current.purpose_code === "LE-C" ? "late_entry_catchup_complete" : outcome;
+  await addMakeupEvent(supabase, makeupId, current.purpose_code === "LE-C" ? "late_entry_alternative_verified" : "external_makeup_evidence_verified", { makeup_status: current.makeup_status }, { makeup_status: finalStatus, completion_outcome: finalOutcome }, actor, reason);
+  const saved = await supabase.from("makeup_requirements").update({ makeup_status: finalStatus, completed_at: now, verified_at: now, verified_by: actorReference(actor), completion_outcome: finalOutcome, exception_note: reason, updated_by: actorReference(actor), updated_at: now }).eq("id", makeupId).select("*").single(); if (saved.error) throw new LmsAdminDataError("External catch-up evidence could not be verified.");
+  const completion = await ensureLearningCompletion(supabase, current.course_enrollment_id, current.class_session_id); await setLearningCompletionState(supabase, { learningCompletionId: completion.id, status: current.purpose_code === "MU-U" ? "late_complete" : "verified_complete", method: current.purpose_code === "MU-E" ? "approved_makeup" : current.purpose_code === "LE-C" ? "late_entry_catchup" : "unapproved_makeup", reason: current.purpose_code === "LE-C" ? "Alternative late-entry catch-up evidence verified by an authorised academic reviewer." : "External make-up evidence verified by an authorised administrator.", actor });
   await supabase.from("session_learning_completion").update({ makeup_requirement_id: makeupId, required_action: null, due_at: current.due_at, updated_at: now }).eq("id", completion.id);
   if (current.recording_learning_assignment_id) await supabase.from("recording_learning_assignments").update({ assignment_status: "completed", completed_at: now, verified_at: now, verified_by: actorReference(actor), exception_note: "Completed through authorised external evidence verification.", updated_at: now }).eq("id", current.recording_learning_assignment_id);
   await recordLmsAudit(supabase, { action: "external_makeup_evidence_verified", entityType: "makeup_requirement", entityId: makeupId, actorUserId: actor.actorUserId, metadata: { purpose: current.purpose_code, attendance_unchanged: true } });
-  await sendMakeupEmail(supabase, makeupId, "makeup_completed"); return { makeup: saved.data, changed: true };
+  if (current.purpose_code !== "LE-C") await sendMakeupEmail(supabase, makeupId, "makeup_completed"); return { makeup: saved.data, changed: true };
 }
 
 export async function recordMakeupOralVerification(supabase: SupabaseClient, makeupId: string, body: Record<string, unknown>, actor: Actor, allowedOfferingIds: readonly string[]) {

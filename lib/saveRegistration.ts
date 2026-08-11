@@ -1,5 +1,6 @@
 import "server-only";
 
+import { confirmConditionalAdmissionAfterPayment } from "@/lib/conditionalAdmissionLifecycle.server";
 import { currentAdmissionsCohortCode, DuplicateActiveApplicationError, escapePostgrestLikePattern, normalizeApplicantEmail } from "@/lib/applicationLifecycle";
 import { scoreFoundationalScreening, screeningObjectiveMax } from "@/lib/foundationalScreeningAnswers.server";
 import { paymentReferenceMatchesApplication, type PaymentReconciliation } from "@/lib/paymentReconciliation";
@@ -628,6 +629,7 @@ async function updateExistingApplication(paystackData: PaystackVerificationData,
   if (existing.payment_status === "success") {
     if (Number(existing.amount_paid) !== paystackData.amount / 100 || String(existing.currency).toUpperCase() !== paystackData.currency.toUpperCase()) throw new PaymentRegistrationConflictError();
     const paymentVerificationAuditStatus = await recordPaymentVerificationEvent(supabase, paymentAuditInput(paystackData, String(existing.id), "success", reconciliation, context));
+    await confirmConditionalAdmissionAfterPayment(supabase, String(existing.id), { actor: context?.actor || "Paystack verification", paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null });
     return { saved: true, id: String(existing.id), registration: existing as SavedRegistration, paymentVerificationAuditStatus };
   }
   const { data, error } = await supabase
@@ -646,9 +648,11 @@ async function updateExistingApplication(paystackData: PaystackVerificationData,
     const concurrent = await supabase.from("registrations").select(savedRegistrationSelect).eq("id", applicationId).eq("payment_reference", paystackData.reference).eq("payment_status", "success").maybeSingle();
     if (concurrent.error || !concurrent.data?.id || Number(concurrent.data.amount_paid) !== paystackData.amount / 100) throw new PaymentRegistrationConflictError();
     const paymentVerificationAuditStatus = await recordPaymentVerificationEvent(supabase, paymentAuditInput(paystackData, String(concurrent.data.id), "success", reconciliation, context));
+    await confirmConditionalAdmissionAfterPayment(supabase, String(concurrent.data.id), { actor: context?.actor || "Paystack verification", paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null });
     return { saved: true, id: String(concurrent.data.id), registration: concurrent.data as SavedRegistration, paymentVerificationAuditStatus };
   }
   const paymentVerificationAuditStatus = await recordPaymentVerificationEvent(supabase, paymentAuditInput(paystackData, String(data.id), String(existing.payment_status), reconciliation, context));
+  await confirmConditionalAdmissionAfterPayment(supabase, String(data.id), { actor: context?.actor || "Paystack verification", paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null });
   return { saved: true, id: String(data.id), registration: data as SavedRegistration, paymentVerificationAuditStatus };
 }
 
@@ -684,5 +688,6 @@ export async function saveVerifiedRegistrationFromPaystack(paystackData: Paystac
     throw new Error(`Supabase registration save failed: ${error?.message || "No saved record was returned."}`);
   }
   const paymentVerificationAuditStatus = await recordPaymentVerificationEvent(supabase, paymentAuditInput(paystackData, String(data.id), "not_created", reconciliation, context));
+  await confirmConditionalAdmissionAfterPayment(supabase, String(data.id), { actor: context?.actor || "Paystack verification", paidAt: paystackData.paid_at ?? paystackData.paidAt ?? null });
   return { saved: true, id: String(data.id), registration: data as SavedRegistration, paymentVerificationAuditStatus };
 }

@@ -60,6 +60,7 @@ function normalizeSessionInput(body: Record<string, unknown>, requireOffering: b
     timezone: readText(body.timezone, 100) || "Africa/Lagos",
     facilitator_id: facilitatorId,
     live_join_url: liveJoinUrl,
+    live_access_note: readText(body.live_access_note, 1000),
     physical_location: readText(body.physical_location, 500),
     session_status: body.session_status,
     is_required: body.is_required,

@@ -22,7 +22,7 @@ import {
   type ScreeningStatus,
 } from "@/lib/registration";
 
-const sharedRegistrationFields = "id, created_at, cohort_code, deleted_at, deleted_by, deletion_reason, deletion_note, superseded_by_application_id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, consent, fee_policy_consent, computer_access_confirmed, amount, amount_paid, payment_expected_amount, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status, financial_requirement_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, alumni_previous_cohort, alumni_previous_email, alumni_previous_phone, alumni_student_id, screening_status, screening_answers, funding_route, scholarship_status, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, admission_email_sent, admission_email_sent_at";
+const sharedRegistrationFields = "id, created_at, cohort_code, deleted_at, deleted_by, deletion_reason, deletion_note, superseded_by_application_id, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, consent, fee_policy_consent, computer_access_confirmed, amount, amount_paid, payment_expected_amount, currency, public_fee_display, amount_display, exchange_note, payment_reference, payment_status, financial_requirement_status, application_status, admission_offer_at, admission_payment_deadline, admission_outstanding_amount, admission_confirmed_at, admission_offer_lapsed_at, payment_deadline_extended_at, payment_deadline_extended_by, payment_deadline_extension_reason, late_entry_required, late_entry_flagged_at, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, alumni_previous_cohort, alumni_previous_email, alumni_previous_phone, alumni_student_id, screening_status, screening_answers, funding_route, scholarship_status, admin_note, reviewed_at, reviewed_by, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, admission_email_sent, admission_email_sent_at";
 
 export const adminRegistrationListFields = sharedRegistrationFields;
 export const adminRegistrationFields = `${sharedRegistrationFields}, alumni_review_note, alumni_reviewed_at, alumni_reviewed_by, theological_institution, theological_programme, theological_duration, theological_year_completed, theological_qualification, screening_objective_score, screening_objective_max, screening_short_answer_1_score, screening_short_answer_2_score, screening_short_answer_score, screening_total_score, screening_percentage, screening_review_note, screening_reviewed_at, screening_reviewed_by, advanced_entry_applicant_message, advanced_entry_decision_email_sent, advanced_entry_decision_email_sent_at, advanced_entry_decision_email_type, advanced_entry_decision_email_error, advanced_entry_decision_email_last_attempted_at, advanced_entry_decision_email_last_attempt_type, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, scholarship_approved_amount, scholarship_applicant_message, scholarship_review_note, scholarship_reviewed_at, scholarship_reviewed_by, scholarship_confirmation_email_sent, scholarship_confirmation_email_sent_at, scholarship_admin_email_sent, scholarship_admin_email_sent_at, scholarship_decision_email_sent, scholarship_decision_email_sent_at, scholarship_decision_email_type, scholarship_decision_email_error, scholarship_decision_email_last_attempted_at, admin_note_updated_at, admin_note_updated_by`;
@@ -63,6 +63,16 @@ export type AdminRegistration = {
   payment_status: string;
   financial_requirement_status: string;
   application_status: ApplicationStatus;
+  admission_offer_at: string | null;
+  admission_payment_deadline: string | null;
+  admission_outstanding_amount: number | null;
+  admission_confirmed_at: string | null;
+  admission_offer_lapsed_at: string | null;
+  payment_deadline_extended_at: string | null;
+  payment_deadline_extended_by: string | null;
+  payment_deadline_extension_reason: string | null;
+  late_entry_required: boolean;
+  late_entry_flagged_at: string | null;
   applicant_type: ApplicantType;
   requested_discipleship_route: RequestedDiscipleshipRoute;
   assigned_discipleship_route: AssignedDiscipleshipRoute;

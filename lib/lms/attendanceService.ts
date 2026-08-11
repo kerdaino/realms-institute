@@ -86,19 +86,25 @@ async function attendanceById(supabase: SupabaseClient, id: string) {
 }
 
 export async function ensureSessionAttendanceRoster(supabase: SupabaseClient, sessionId: string, actor: AttendanceActor) {
-  const sessionResult = await supabase.from("class_sessions").select("id, cohort_course_id, is_required, title").eq("id", sessionId).maybeSingle();
+  const sessionResult = await supabase.from("class_sessions").select("id, cohort_course_id, is_required, title, scheduled_start_at, scheduled_end_at").eq("id", sessionId).maybeSingle();
   if (sessionResult.error) throw new LmsAdminDataError("Class session could not be loaded.");
   if (!sessionResult.data) throw new LmsAdminDataError("Class session not found.", 404);
   if (!sessionResult.data.is_required) return { created: 0, eligible: 0, optionalSession: true };
 
   const enrollmentResult = await supabase
     .from("course_enrollments")
-    .select("id, delivery_route")
+    .select("id, delivery_route, student_enrollments(enrolled_at)")
     .eq("cohort_course_id", sessionResult.data.cohort_course_id)
     .in("enrollment_status", ["active", "enrolled"]);
   if (enrollmentResult.error) throw new LmsAdminDataError("Eligible session roster could not be loaded.");
-  const enrollments = enrollmentResult.data ?? [];
-  if (!enrollments.length) return { created: 0, eligible: 0, optionalSession: false };
+  const sessionCutoff = sessionResult.data.scheduled_end_at ?? sessionResult.data.scheduled_start_at;
+  const enrollments = (enrollmentResult.data ?? []).filter((enrollment) => {
+    if (!sessionCutoff) return true;
+    const effectiveEnrolledAt = relation(enrollment.student_enrollments).enrolled_at;
+    return typeof effectiveEnrolledAt !== "string" || Date.parse(sessionCutoff) >= Date.parse(effectiveEnrolledAt);
+  });
+  const lateEntryExcluded = (enrollmentResult.data?.length ?? 0) - enrollments.length;
+  if (!enrollments.length) return { created: 0, eligible: 0, lateEntryExcluded, optionalSession: false };
 
   const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
   const [approvedRequestsResult, makeupResult] = await Promise.all([
@@ -150,9 +156,9 @@ export async function ensureSessionAttendanceRoster(supabase: SupabaseClient, se
     entityType: "class_session",
     entityId: sessionId,
     actorUserId: actor.actorUserId,
-    metadata: { eligible: enrollments.length, created, actor: actor.actorLabel },
+    metadata: { eligible: enrollments.length, late_entry_excluded: lateEntryExcluded, created, actor: actor.actorLabel },
   });
-  return { created, eligible: enrollments.length, optionalSession: false };
+  return { created, eligible: enrollments.length, lateEntryExcluded, optionalSession: false };
 }
 
 export async function fetchSessionAttendance(supabase: SupabaseClient, sessionId: string) {

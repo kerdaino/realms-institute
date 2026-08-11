@@ -71,6 +71,12 @@ export type EmailRegistration = {
   advanced_entry_decision_email_last_attempt_type?: string | null;
   admission_email_sent?: boolean;
   admission_email_sent_at?: string | null;
+  admission_offer_at?: string | null;
+  admission_payment_deadline?: string | null;
+  admission_outstanding_amount?: number | null;
+  admission_confirmed_at?: string | null;
+  admission_offer_lapsed_at?: string | null;
+  late_entry_required?: boolean;
 };
 
 export type EmailTemplate = { subject: string; html: string; text: string };
@@ -78,6 +84,7 @@ export type EmailTemplate = { subject: string; html: string; text: string };
 export type AlumniVerificationOutcome = "verified" | "not_verified" | "more_information_required";
 export type AdvancedEntryOutcome = "advanced_approved" | "foundation_required" | "more_information_required";
 export type ScholarshipOutcome = "approved_full" | "approved_partial" | "declined" | "more_information_required";
+export type AdmissionCommunicationType = "conditional_admission_offer" | "admission_confirmed" | "admission_offer_lapsed" | "payment_deadline_extended";
 
 const motto = "Bringing the Will of the Father into the Earth Realm";
 
@@ -367,6 +374,62 @@ With joy in Christ,
 REALMS Institute`;
   const html = layout(content.title, `<p>Dear ${escapeHtml(registration.full_name)},</p><p>${escapeHtml(content.message)}</p><table style="border-collapse:collapse;width:100%;margin:20px 0">${rows([["Current Application Status", applicationStatus(registration)]])}</table>${whatsappCard("REALMS Institute WhatsApp Channel", "Please use the channel to stay connected to cohort updates, announcements, reminders, and future programme notices.", "Admission status is controlled separately from route and scholarship decisions.")}<p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
   return { subject: "REALMS Institute Admission Status Update", html, text };
+}
+
+function dateOnly(value: string | null | undefined) {
+  return value ? new Intl.DateTimeFormat("en-NG", { dateStyle: "full", timeZone: "Africa/Lagos" }).format(new Date(value)) : "Not recorded";
+}
+
+function securePaymentButton(url: string) {
+  return `<a href="${escapeHtml(url)}" style="display:inline-block;background:#d7aa45;color:#071327;text-decoration:none;font-weight:700;padding:13px 20px;border-radius:999px">Complete Registration Payment</a>`;
+}
+
+export function createAdmissionCommunicationEmail(
+  registration: EmailRegistration,
+  type: AdmissionCommunicationType,
+  options: { paymentUrl?: string | null } = {},
+): EmailTemplate {
+  const route = registration.assigned_discipleship_route ? humanize(registration.assigned_discipleship_route) : "Approved route on file";
+  const details: Array<[string, string | number | null | undefined]> = [
+    ["Discipleship Route", route],
+    ["Skill Pathway", registration.skill_pathway],
+    ["Learning Mode", registration.learning_mode],
+  ];
+  if (type === "admission_confirmed") {
+    details.push(["Admission Status", "Admitted / Confirmed"]);
+    const lateEntry = registration.late_entry_required ? " Classes have started, so REALMS will follow up about Late Entry / Catch-Up Required. No attendance will be created for sessions already missed." : "";
+    const text = `Dear ${registration.full_name},\n\nYour verified registration payment has satisfied the financial requirement for your conditional admission offer. Your admission is now confirmed.\n\n${textLines(details)}\n\nStudent account provisioning remains controlled by the existing REALMS onboarding process.${lateEntry}\n\nWith joy in Christ,\nREALMS Institute`;
+    const html = layout("Payment Satisfied — Admission Confirmed", `<p>Dear ${escapeHtml(registration.full_name)},</p><p>Your verified registration payment has satisfied the financial requirement for your conditional admission offer. Your admission is now confirmed.</p><table style="border-collapse:collapse;width:100%;margin:20px 0">${rows(details)}</table><p>Student account provisioning remains controlled by the existing REALMS onboarding process.</p>${registration.late_entry_required ? `<div style="border-left:4px solid #d7aa45;background:#fff8e6;padding:16px;margin:20px 0"><strong>Late Entry / Catch-Up Required</strong><p style="margin:8px 0 0">Classes have started. REALMS will follow up about missed learning; attendance will not be invented for sessions already missed.</p></div>` : ""}<p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+    return { subject: "REALMS Institute — Payment Satisfied, Admission Confirmed", html, text };
+  }
+  if (type === "admission_offer_lapsed") {
+    const text = `Dear ${registration.full_name},\n\nThe payment deadline for your conditional REALMS admission offer passed without a verified payment satisfying the outstanding registration requirement. The offer has therefore lapsed. You were not provisioned or enrolled as an active student.\n\nApplication, decision and communication history remain preserved. Please contact REALMS Admissions if you need the deadline reviewed.\n\nWith joy in Christ,\nREALMS Institute`;
+    const html = layout("Conditional Admission Offer Lapsed", `<p>Dear ${escapeHtml(registration.full_name)},</p><p>The payment deadline for your conditional REALMS admission offer passed without a verified payment satisfying the outstanding registration requirement. The offer has therefore lapsed.</p><p>You were not provisioned or enrolled as an active student. Application, decision and communication history remain preserved.</p><p>Please contact REALMS Admissions if you need the deadline reviewed.</p><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+    return { subject: "REALMS Institute — Conditional Admission Offer Lapsed", html, text };
+  }
+  const title = type === "payment_deadline_extended" ? "Conditional Admission Payment Deadline Extended" : "Conditional Admission — Payment Outstanding";
+  details.push(["Exact Registration Amount Outstanding", formatMoney(registration.admission_outstanding_amount, registration.currency)]);
+  details.push(["Payment Deadline", dateOnly(registration.admission_payment_deadline)]);
+  const paymentLine = options.paymentUrl ? `Complete payment securely:\n${options.paymentUrl}` : "Your secure payment link is temporarily unavailable. Please contact REALMS Admissions; do not send payment details by email.";
+  const text = `Dear ${registration.full_name},\n\n${type === "payment_deadline_extended" ? "Your conditional admission payment deadline has been extended." : "You have received a conditional admission offer from REALMS Institute."}\n\n${textLines(details)}\n\n${paymentLine}\n\nYour admission place is not fully confirmed until the registration payment requirement is satisfied by verified payment. Failure to meet the deadline may cause the offer to lapse.\n\nWith joy in Christ,\nREALMS Institute`;
+  const html = layout(title, `<p>Dear ${escapeHtml(registration.full_name)},</p><p>${type === "payment_deadline_extended" ? "Your conditional admission payment deadline has been extended." : "You have received a conditional admission offer from REALMS Institute."}</p><table style="border-collapse:collapse;width:100%;margin:20px 0">${rows(details)}</table>${options.paymentUrl ? `<p style="margin:24px 0">${securePaymentButton(options.paymentUrl)}</p>` : `<div style="border-left:4px solid #dc2626;background:#fef2f2;padding:16px;margin:20px 0">Your secure payment link is temporarily unavailable. Please contact REALMS Admissions; do not send payment details by email.</div>`}<div style="border-left:4px solid #d7aa45;background:#fff8e6;padding:16px;margin:20px 0"><p style="margin:0">Your admission place is not fully confirmed until the registration payment requirement is satisfied by verified payment. Failure to meet the deadline may cause the offer to lapse.</p></div><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+  return { subject: `REALMS Institute — ${title}`, html, text };
+}
+
+export function createInstitutionalAnnouncementEmail(input: {
+  title: string;
+  message: string;
+  recipientName: string;
+  call_to_action_label?: string | null;
+  call_to_action_url?: string | null;
+}): EmailTemplate {
+  const ctaText = input.call_to_action_label && input.call_to_action_url ? `\n\n${input.call_to_action_label}:\n${input.call_to_action_url}` : "";
+  const ctaHtml = input.call_to_action_label && input.call_to_action_url
+    ? `<p style="margin:24px 0"><a href="${escapeHtml(input.call_to_action_url)}" style="display:inline-block;background:#d7aa45;color:#071327;text-decoration:none;font-weight:700;padding:13px 20px;border-radius:999px">${escapeHtml(input.call_to_action_label)}</a></p>`
+    : "";
+  const text = `Dear ${input.recipientName},\n\n${input.title}\n\n${input.message}${ctaText}\n\nWith joy in Christ,\nREALMS Institute`;
+  const html = layout(input.title, `<p>Dear ${escapeHtml(input.recipientName)},</p><div style="white-space:pre-wrap;line-height:1.7">${escapeHtml(input.message)}</div>${ctaHtml}<p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+  return { subject: `REALMS Institute — ${input.title}`, html, text };
 }
 
 export function createAlumniVerificationOutcomeEmail(registration: EmailRegistration, outcome: AlumniVerificationOutcome): EmailTemplate {

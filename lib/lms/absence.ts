@@ -35,7 +35,7 @@ export const absenceRequestStatusLabels: Record<AbsenceRequestStatus, string> = 
   withdrawn: "Withdrawn",
 };
 
-export const makeupStatuses = ["awaiting_materials", "assigned", "not_started", "in_progress", "awaiting_checkpoint", "awaiting_quiz", "awaiting_practical", "awaiting_reflection", "awaiting_oral_verification", "under_review", "completed", "late_complete", "overdue", "incomplete", "waived", "cancelled", "integrity_review"] as const;
+export const makeupStatuses = ["awaiting_materials", "alternative_required", "assigned", "not_started", "in_progress", "awaiting_checkpoint", "awaiting_quiz", "awaiting_practical", "awaiting_reflection", "awaiting_oral_verification", "under_review", "completed", "late_complete", "overdue", "incomplete", "waived", "cancelled", "integrity_review"] as const;
 export type MakeupStatus = (typeof makeupStatuses)[number];
 
 export const oralVerificationStatuses = ["scheduled", "completed", "satisfactory", "not_satisfactory", "reschedule_required"] as const;
@@ -55,6 +55,7 @@ export function humanizeAbsenceValue(value: string | null | undefined) {
 export function makeupPurposeLabel(value: string | null | undefined) {
   if (value === "MU-E") return "Approved Make-Up";
   if (value === "MU-U") return "Unapproved Make-Up";
+  if (value === "LE-C") return "Late Entry Catch-Up";
   return humanizeAbsenceValue(value);
 }
 
