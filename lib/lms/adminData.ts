@@ -7,6 +7,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { resolveRequiredStudentHandbook } from "@/lib/lms/handbookConfig";
 import { currentStudentEnrollmentStatuses } from "@/lib/lms/currentEnrollment";
 import { fetchPortalAccountEvidence } from "@/lib/lms/portalInvite";
+import { listLateRegistrationInvites } from "@/lib/registrationControl.server";
 
 export class LmsAdminDataError extends Error {
   constructor(message: string, public readonly status = 500) {
@@ -125,11 +126,12 @@ export async function fetchAdminCohorts(supabase: SupabaseClient) {
 }
 
 export async function fetchAdminCohort(supabase: SupabaseClient, id: string) {
-  const [cohort, offerings, sessions, events] = await Promise.all([
+  const [cohort, offerings, sessions, events, invites] = await Promise.all([
     supabase.from("cohorts").select("*").eq("id", id).maybeSingle(),
     supabase.from("cohort_courses").select("*, courses(*), facilitator_course_assignments(*, facilitators(id, display_name, title, facilitator_status))").eq("cohort_id", id).order("created_at"),
     supabase.from("class_sessions").select("id, title, session_number, session_type, delivery_mode, scheduled_start_at, session_status, facilitator_id, facilitators(id, display_name), cohort_courses!inner(cohort_id, courses(id, code, title))").eq("cohort_courses.cohort_id", id).order("scheduled_start_at", { ascending: true, nullsFirst: false }),
     supabase.from("cohort_events").select("id, event_key, event_type, title, event_date, scheduled_start_at, scheduled_end_at, timezone, delivery_mode, event_status, visibility_status, is_required").eq("cohort_id", id).order("event_date", { ascending: true }).order("scheduled_start_at", { ascending: true, nullsFirst: false }),
+    listLateRegistrationInvites(supabase, id),
   ]);
   throwQueryError("Cohort", cohort.error);
   throwQueryError("Cohort courses", offerings.error);
@@ -138,7 +140,9 @@ export async function fetchAdminCohort(supabase: SupabaseClient, id: string) {
   if (!cohort.data) throw new LmsAdminDataError("Cohort not found.", 404);
   const count = await supabase.from("student_enrollments").select("id", { count: "exact", head: true }).eq("cohort_id", id);
   throwQueryError("Cohort student count", count.error);
-  return { cohort: cohort.data, offerings: offerings.data ?? [], studentCount: count.count ?? 0, sessions: sessions.data ?? [], events: events.error ? [] : events.data ?? [] };
+  const applications = await supabase.from("registrations").select("id", { count: "exact", head: true }).eq("cohort_code", cohort.data.code).is("deleted_at", null);
+  throwQueryError("Cohort application count", applications.error);
+  return { cohort: cohort.data, offerings: offerings.data ?? [], studentCount: count.count ?? 0, applicationCount: applications.count ?? 0, sessions: sessions.data ?? [], events: events.error ? [] : events.data ?? [], invites };
 }
 
 export async function fetchAdminCourses(supabase: SupabaseClient) {
@@ -187,9 +191,11 @@ export async function fetchAdminFacilitator(supabase: SupabaseClient, id: string
 }
 
 export async function fetchAdminDashboard(supabase: SupabaseClient) {
-  const registrationResult = await supabase.from("registrations").select("application_status, advanced_entry_status, scholarship_status").is("deleted_at", null);
+  const registrationResult = await supabase.from("registrations").select("cohort_code, application_status, advanced_entry_status, scholarship_status").is("deleted_at", null);
   throwQueryError("Applications", registrationResult.error);
   const registrations = registrationResult.data ?? [];
+  const publicRegistration = await supabase.from("cohorts").select("id, code, name, registration_status, registration_opens_at, registration_closes_at, is_public_registration_cohort").eq("is_public_registration_cohort", true).limit(1).maybeSingle();
+  throwQueryError("Public registration cohort", publicRegistration.error);
   const counts = await Promise.all([
     supabase.from("students").select("id", { count: "exact", head: true }),
     supabase.from("students").select("id", { count: "exact", head: true }).eq("student_status", "active"),
@@ -225,5 +231,7 @@ export async function fetchAdminDashboard(supabase: SupabaseClient) {
     activeMentorAssignments,
     activeRecoveryPlans,
     openStudentReviews,
+    publicRegistrationCohort: publicRegistration.data ?? null,
+    publicRegistrationApplications: publicRegistration.data ? registrations.filter((item) => item.cohort_code === publicRegistration.data?.code).length : 0,
   };
 }

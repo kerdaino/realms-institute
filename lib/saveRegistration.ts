@@ -1,7 +1,7 @@
 import "server-only";
 
 import { confirmConditionalAdmissionAfterPayment } from "@/lib/conditionalAdmissionLifecycle.server";
-import { currentAdmissionsCohortCode, DuplicateActiveApplicationError, escapePostgrestLikePattern, normalizeApplicantEmail } from "@/lib/applicationLifecycle";
+import { historicalAugust2026CohortCode, DuplicateActiveApplicationError, escapePostgrestLikePattern, normalizeApplicantEmail } from "@/lib/applicationLifecycle";
 import { scoreFoundationalScreening, screeningObjectiveMax } from "@/lib/foundationalScreeningAnswers.server";
 import { paymentReferenceMatchesApplication, type PaymentReconciliation } from "@/lib/paymentReconciliation";
 import { recordPaymentVerificationEvent, type PaymentVerificationAuditStatus } from "@/lib/paymentVerificationAudit";
@@ -19,6 +19,12 @@ export class PaymentRegistrationConflictError extends Error {
     this.name = "PaymentRegistrationConflictError";
   }
 }
+
+export type RegistrationCohortAssignment = {
+  id: string;
+  code: string;
+  lateRegistrationInviteId?: string | null;
+};
 
 export type PaymentPersistenceContext = {
   source: "automatic_callback" | "paystack_webhook" | "manual_admin_gateway_verification";
@@ -212,9 +218,11 @@ export function normalizeScreeningFields(registration: Pick<RegistrationPayload,
   };
 }
 
-export function buildRegistrationColumns(registration: RegistrationPayload, fee: CohortFee) {
+export function buildRegistrationColumns(registration: RegistrationPayload, fee: CohortFee, cohort: RegistrationCohortAssignment) {
   return {
-    cohort_code: currentAdmissionsCohortCode,
+    cohort_id: cohort.id,
+    cohort_code: cohort.code,
+    late_registration_invite_id: cohort.lateRegistrationInviteId ?? null,
     full_name: registration.fullName,
     email: registration.email,
     whatsapp: registration.whatsapp,
@@ -296,11 +304,17 @@ export function buildVerifiedPaymentColumns(paystackData: PaystackVerificationDa
   };
 }
 
-export async function createRegistrationApplication(registration: RegistrationPayload, fee: CohortFee, paymentReference: string | null, submissionKeyHash?: string | null) {
+export async function createRegistrationApplication(
+  registration: RegistrationPayload,
+  fee: CohortFee,
+  paymentReference: string | null,
+  options: { submissionKeyHash?: string | null; cohort: RegistrationCohortAssignment },
+) {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
+  const submissionKeyHash = options.submissionKeyHash;
   const payload = {
-    ...buildRegistrationColumns(registration, fee),
+    ...buildRegistrationColumns(registration, fee, options.cohort),
     payment_reference: paymentReference,
     payment_status: registration.fundingRoute === "scholarship_request" ? "not_paid" : "pending",
     paid_at: null,
@@ -339,7 +353,7 @@ export async function createRegistrationApplication(registration: RegistrationPa
   const duplicateCheck = await supabase
     .from("registrations")
     .select("id")
-    .eq("cohort_code", currentAdmissionsCohortCode)
+    .eq("cohort_code", options.cohort.code)
     .is("deleted_at", null)
     .ilike("email", escapePostgrestLikePattern(normalizeApplicantEmail(registration.email)))
     .limit(1)
@@ -669,10 +683,12 @@ export async function saveVerifiedRegistrationFromPaystack(paystackData: Paystac
   const registration = normalized.registration;
   const calculatedFee = normalized.calculatedFee ?? calculateCohortFee(registration);
   if (!calculatedFee) return { saved: false, reason: "Payment confirmed, but registration fee metadata was not found." };
+  const historicalCohort = await supabase.from("cohorts").select("id, code").eq("code", historicalAugust2026CohortCode).maybeSingle();
+  if (historicalCohort.error || !historicalCohort.data) return { saved: false, reason: "Payment confirmed, but the historical application cohort could not be resolved." };
   const { data, error } = await supabase
     .from("registrations")
     .insert({
-      ...buildRegistrationColumns(registration, calculatedFee as CohortFee),
+      ...buildRegistrationColumns(registration, calculatedFee as CohortFee, historicalCohort.data),
       ...buildVerifiedPaymentColumns(paystackData, reconciliation, context),
       metadata,
     })

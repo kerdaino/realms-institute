@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 
 import { PageHero } from "@/components/layout/PageHero";
 import { PageShell } from "@/components/layout/PageShell";
@@ -10,19 +11,24 @@ import { SectionHeading } from "@/components/ui/SectionHeading";
 import { programs } from "@/lib/constants";
 import { routeComparison, schoolOfDiscoveryStructureStatement } from "@/lib/schoolOfDiscoveryCurriculum";
 import { realmClasses } from "@/lib/theme";
+import { getPublicRegistrationState } from "@/lib/registrationControl.server";
 
 export const metadata: Metadata = {
   title: "REALMS Institute | Programs",
   description: "Explore the August 2026 School of Discovery programme: Foundational or Advanced Discipleship with Web Development or Cybersecurity Foundations.",
 };
 
-export default function ProgramsPage() {
+export default async function ProgramsPage() {
+  await connection();
+  const registration = await getPublicRegistrationState();
+  const registrationOpen = registration.kind === "open";
+  const cohortName = registration.cohort?.name ?? "Current Cohort";
   return (
     <PageShell>
-      <PageHero eyebrow="Registration Open · August 2026" title="Programs & Learning Pathways" subtitle={schoolOfDiscoveryStructureStatement} breadcrumbs={[{ label: "Home", href: "/" }, { label: "Programs" }]} />
+      <PageHero eyebrow={registrationOpen ? `Registration Open · ${cohortName}` : "Registration Closed"} title="Programs & Learning Pathways" subtitle={schoolOfDiscoveryStructureStatement} breadcrumbs={[{ label: "Home", href: "/" }, { label: "Programs" }]} />
       <SectionContainer labelledBy="current-program-title">
         <div className={realmClasses.container}>
-          <SectionHeading id="current-program-title" eyebrow="Current Programme" title="Available for August 2026" description="Applications are open for the August 2026 REALMS School of Discovery cohort." />
+          <SectionHeading id="current-program-title" eyebrow="Current Programme" title={`Available for ${cohortName}`} description={registrationOpen ? `Applications are open for ${cohortName}.` : `Public registration for ${cohortName} is currently closed.`} />
           <div className="mt-10 grid gap-5 md:grid-cols-3">
             {programs.current.map((program) => <ProgramCard key={program.title} {...program} />)}
           </div>
@@ -43,7 +49,7 @@ export default function ProgramsPage() {
       </SectionContainer>
       <SectionContainer labelledBy="programs-cta-title">
         <div className={realmClasses.container}>
-          <Callout eyebrow="Next Step" titleId="programs-cta-title" title="Find Your Formation Pathway" actions={<><PrimaryButton href="/register" showIcon>Apply Now</PrimaryButton><SecondaryButton href="/schools">Explore Schools</SecondaryButton></>}>
+          <Callout eyebrow="Next Step" titleId="programs-cta-title" title="Find Your Formation Pathway" actions={<><PrimaryButton href="/register" showIcon>{registrationOpen ? "Apply Now" : "Registration Information"}</PrimaryButton><SecondaryButton href="/schools">Explore Schools</SecondaryButton></>}>
             <p>Explore the approved curriculum and published August 2026 schedule, then apply with clear expectations about your discipleship route, skill pathway and completion requirements.</p>
           </Callout>
         </div>

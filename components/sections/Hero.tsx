@@ -11,12 +11,12 @@ const trustItems = [
   [ShieldCheck, "Cybersecurity Foundations"],
 ] as const;
 
-export function Hero() {
+export function Hero({ registrationOpen, cohortName }: { registrationOpen: boolean; cohortName?: string }) {
   return (
     <section id="home" aria-labelledby="hero-title" className="relative isolate overflow-hidden bg-[linear-gradient(125deg,#050d1c_0%,#0b2140_58%,#15345c_100%)] px-5 pb-0 pt-16 md:px-8 md:pt-24">
       <div className="mx-auto grid max-w-7xl gap-12 pb-16 lg:grid-cols-[1.2fr_0.8fr] lg:items-center lg:pb-24">
         <div>
-          <Badge>Registration Now Open · August 2026 Cohort</Badge>
+          <Badge>{registrationOpen ? `Registration Now Open · ${cohortName ?? "Current Cohort"}` : "Public Registration Currently Closed"}</Badge>
           <div className="mt-7 h-px w-20 bg-[var(--realm-gold)]" />
           <h1 id="hero-title" className="mt-7 max-w-4xl text-5xl font-semibold leading-[1.02] tracking-tight text-white sm:text-6xl lg:text-7xl">
             Be Formed in God. <span className="text-[var(--realm-gold-soft)]">Be Equipped for Your Field.</span>
@@ -25,7 +25,7 @@ export function Hero() {
             Every student completes one approved discipleship route—Foundational or Advanced—and one practical skill pathway: Web Development or Cybersecurity Foundations.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <PrimaryButton href="/register" showIcon>Apply Now</PrimaryButton>
+            <PrimaryButton href="/register" showIcon>{registrationOpen ? "Apply Now" : "Registration Information"}</PrimaryButton>
             <SecondaryButton href="/schools/discovery" showIcon>Explore School of Discovery</SecondaryButton>
           </div>
         </div>

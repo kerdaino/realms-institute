@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { CheckCircle2 } from "lucide-react";
 
 import { PageHero } from "@/components/layout/PageHero";
@@ -12,17 +13,20 @@ import { Timeline } from "@/components/ui/Timeline";
 import { admissionProcess, admissionRequirements, computerRequirementText, feeClarification, feeLabel, feePolicyNote, feePricingNote, physicalAddress, skillPathwayParticipationNote, whatsappChannelUrl } from "@/lib/constants";
 import { schoolOfDiscoveryApplicationPaths, schoolOfDiscoveryCertificateStatement, schoolOfDiscoveryLearningModeStatement, schoolOfDiscoveryStructureStatement } from "@/lib/schoolOfDiscoveryCurriculum";
 import { realmClasses } from "@/lib/theme";
+import { getPublicRegistrationState } from "@/lib/registrationControl.server";
 
 export const metadata: Metadata = {
   title: "REALMS Institute | Admissions",
   description: "Learn how new students, REALMS alumni and prior-theological-education applicants can apply for the August 2026 School of Discovery cohort.",
 };
 
-export default function AdmissionsPage() {
+export default async function AdmissionsPage() {
+  await connection();
+  const registrationOpen = (await getPublicRegistrationState()).kind === "open";
   return (
     <PageShell>
       <PageHero
-        eyebrow="Applications Open · August 2026"
+        eyebrow={registrationOpen ? "Applications Open" : "Registration Closed"}
         title="Admissions"
         subtitle="Apply through the path that truthfully reflects your background, choose one practical skill pathway and prepare for admission review."
         breadcrumbs={[{ label: "Home", href: "/" }, { label: "Admissions" }]}
@@ -69,7 +73,7 @@ export default function AdmissionsPage() {
             eyebrow="Important Note"
             titleId="admission-note-title"
             title="Understand the Learning Commitment"
-            actions={<div className="flex flex-wrap gap-3"><PrimaryButton href="/register" showIcon>Apply Now</PrimaryButton><SecondaryButton href="/schools/discovery#schedule-title">View Programme Schedule</SecondaryButton><SecondaryButton href={whatsappChannelUrl} target="_blank" rel="noopener noreferrer" showIcon>Join WhatsApp Channel</SecondaryButton></div>}
+            actions={<div className="flex flex-wrap gap-3"><PrimaryButton href="/register" showIcon>{registrationOpen ? "Apply Now" : "Registration Information"}</PrimaryButton><SecondaryButton href="/schools/discovery#schedule-title">View Programme Schedule</SecondaryButton><SecondaryButton href={whatsappChannelUrl} target="_blank" rel="noopener noreferrer" showIcon>Join WhatsApp Channel</SecondaryButton></div>}
           >
             <div className="grid gap-3">
               <p>REALMS Institute is designed for participants who desire Christian formation, disciplined learning, and practical equipping. {schoolOfDiscoveryCertificateStatement}</p>

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { humanize } from "@/lib/lms/adminConstants";
 
 export function StatusBadge({ value }: { value: string | null | undefined }) {
-  const positive = value === "active" || value === "completed" || value === "admitted" || value === "admissions_open";
+  const positive = value === "active" || value === "open" || value === "completed" || value === "admitted" || value === "admissions_open";
   const caution = value?.includes("pending") || value === "in_progress" || value === "planned";
   const tone = positive ? "border-emerald-200 bg-emerald-50 text-emerald-800" : caution ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-700";
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${tone}`}>{humanize(value)}</span>;

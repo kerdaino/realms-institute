@@ -25,11 +25,16 @@ import { advancedDiscipleshipCourses, advancedDiscipleshipSchedule } from "@/lib
 const inputClass = "min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base text-slate-950 outline-none placeholder:text-slate-400 focus:border-[#a47720] focus:ring-2 focus:ring-[#d7aa45]/20";
 
 type RegistrationFormProps = {
+  cohortId: string;
+  cohortName: string;
+  inviteToken?: string;
+  authorisedEmail?: string;
+  applicantName?: string | null;
   initialSkillPathway?: (typeof skillPathways)[number];
   advancedEntryRequested?: boolean;
 };
 
-export function RegistrationForm({ initialSkillPathway, advancedEntryRequested = false }: RegistrationFormProps) {
+export function RegistrationForm({ cohortId, cohortName, inviteToken, authorisedEmail, applicantName, initialSkillPathway, advancedEntryRequested = false }: RegistrationFormProps) {
   const submissionId = useRef("");
   const [applicantType, setApplicantType] = useState<ApplicantType | "">("");
   const [country, setCountry] = useState("");
@@ -57,6 +62,8 @@ export function RegistrationForm({ initialSkillPathway, advancedEntryRequested =
     const payload: Record<string, unknown> = Object.fromEntries(form.entries());
     if (!submissionId.current) submissionId.current = crypto.randomUUID();
     payload.submissionId = submissionId.current;
+    payload.cohortId = cohortId;
+    if (inviteToken) payload.inviteToken = inviteToken;
     payload.consent = form.get("consent") === "on";
     payload.feePolicyConsent = fundingRoute === "self_pay" && form.get("feePolicyConsent") === "on";
     payload.computerAccessConfirmed = form.get("computerAccessConfirmed") === "on";
@@ -137,8 +144,8 @@ export function RegistrationForm({ initialSkillPathway, advancedEntryRequested =
       <section className="grid gap-5">
         <SectionHeading title="Your Details and Skill Pathway" copy="Every student completes one approved discipleship route and one practical skill pathway." />
         <div className="grid gap-5 md:grid-cols-2">
-          <Field name="fullName" label="Full name" autoComplete="name" />
-          <Field name="email" label="Email address" type="email" autoComplete="email" />
+          <Field name="fullName" label="Full name" autoComplete="name" defaultValue={applicantName ?? undefined} />
+          <Field name="email" label="Email address" type="email" autoComplete="email" defaultValue={authorisedEmail} readOnly={Boolean(authorisedEmail)} />
           <Field name="whatsapp" label="WhatsApp number" type="tel" autoComplete="tel" />
           <label className="grid gap-2 text-sm font-semibold text-slate-800"><span>Country</span><input required name="country" id="country" autoComplete="country-name" value={country} onChange={(event) => setCountry(event.target.value)} className={inputClass} placeholder="e.g. Nigeria or Ghana" /></label>
           <Field name="city" label="State / City" autoComplete="address-level1" />
@@ -199,7 +206,7 @@ export function RegistrationForm({ initialSkillPathway, advancedEntryRequested =
         </>
       ) : <p className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950">Scholarship support is subject to review and availability. A scholarship request does not guarantee funding or admission.</p>}
 
-      <p id="registration-note" className="text-sm leading-6 text-slate-600">Registration is open for the August 2026 programme. REALMS will confirm each applicant&apos;s approved discipleship route after any required eligibility verification or screening review. For help, contact {contactEmail}.</p>
+      <p id="registration-note" className="text-sm leading-6 text-slate-600">Registration is open for {cohortName}. REALMS will confirm each applicant&apos;s approved discipleship route after any required eligibility verification or screening review. For help, contact {contactEmail}.</p>
       <p id="pricing-note" className="text-sm leading-6 text-slate-600">{feeLabel}: {feePricingNote} {feeClarification} {feePolicyNote}</p>
       {error ? <p id="registration-error" role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}</p> : <span id="registration-error" />}
       <PrimaryButton type="submit" disabled={loading || !fee || !applicantType} className="w-full sm:w-fit" showIcon>
@@ -219,7 +226,7 @@ function ScreeningSection() {
 }
 
 function SectionHeading({ title, copy }: { title: string; copy: string }) { return <div><h2 className="text-xl font-semibold text-[#071327]">{title}</h2><p className="mt-2 text-sm leading-6 text-slate-600">{copy}</p></div>; }
-function Field({ name, label, type = "text", autoComplete, required = true, placeholder, min, max }: { name: string; label: string; type?: string; autoComplete?: string; required?: boolean; placeholder?: string; min?: string; max?: string }) { return <label className="grid gap-2 text-sm font-semibold text-slate-800"><span>{label}</span><input required={required} name={name} id={name} type={type} autoComplete={autoComplete} placeholder={placeholder} min={min} max={max} className={inputClass} /></label>; }
+function Field({ name, label, type = "text", autoComplete, required = true, placeholder, min, max, defaultValue, readOnly = false }: { name: string; label: string; type?: string; autoComplete?: string; required?: boolean; placeholder?: string; min?: string; max?: string; defaultValue?: string; readOnly?: boolean }) { return <label className="grid gap-2 text-sm font-semibold text-slate-800"><span>{label}</span><input required={required} name={name} id={name} type={type} autoComplete={autoComplete} placeholder={placeholder} min={min} max={max} defaultValue={defaultValue} readOnly={readOnly} className={`${inputClass} ${readOnly ? "bg-slate-100 text-slate-700" : ""}`} /></label>; }
 function Select({ name, label, options }: { name: string; label: string; options: readonly string[] }) { return <label className="grid gap-2 text-sm font-semibold text-slate-800"><span>{label}</span><select required defaultValue="" name={name} id={name} className={inputClass}><option value="" disabled>Select an option</option>{options.map((option) => <option key={option}>{option}</option>)}</select></label>; }
 function GenderField() { return <fieldset className="grid gap-2"><legend className="text-sm font-semibold text-slate-800">Gender</legend><div className="flex min-h-12 items-center gap-6 rounded-xl border border-slate-300 bg-white px-4">{genderOptions.map((option) => <label key={option} className="flex items-center gap-2 text-sm font-medium text-slate-800"><input required name="gender" value={option} type="radio" className="size-4 accent-[#a47720]" />{option}</label>)}</div></fieldset>; }
 function ControlledSelect({ name, label, options, value, onChange }: { name: string; label: string; options: readonly string[]; value: string; onChange: (value: string) => void }) { return <label className="grid gap-2 text-sm font-semibold text-slate-800"><span>{label}</span><select required value={value} onChange={(event) => onChange(event.target.value)} name={name} id={name} className={inputClass}><option value="" disabled>Select an option</option>{options.map((option) => <option key={option}>{option}</option>)}</select></label>; }

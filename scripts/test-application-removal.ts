@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 // @ts-expect-error Node's type-stripping runner requires the explicit extension.
-import { applicationDeletionReasons, currentAdmissionsCohortCode, duplicateApplicationMessage, normalizeApplicantEmail, validateApplicationRemoval } from "../lib/applicationLifecycle.ts";
+import { applicationDeletionReasons, historicalAugust2026CohortCode, duplicateApplicationMessage, normalizeApplicantEmail, validateApplicationRemoval } from "../lib/applicationLifecycle.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const checks: Array<[string, () => void]> = [];
@@ -27,7 +27,7 @@ check("typed DELETE confirmation is required", () => assert.equal(validateApplic
 check("Other requires an administrative note", () => assert.equal(validateApplicationRemoval({ confirmation: "DELETE", reason: "other", note: "", supersededByApplicationId: null }).success, false));
 check("duplicate may reference a surviving application", () => assert.equal(validateApplicationRemoval({ confirmation: "DELETE", reason: "duplicate_application", note: "", supersededByApplicationId: "11111111-1111-4111-8111-111111111111" }).success, true));
 check("unrelated reasons cannot record a superseding application", () => assert.equal(validateApplicationRemoval({ confirmation: "DELETE", reason: "test_application", note: "", supersededByApplicationId: "11111111-1111-4111-8111-111111111111" }).success, false));
-check("current cohort identity is explicit", () => assert.equal(currentAdmissionsCohortCode, "RSD-AUG-2026"));
+check("historical August cohort identity remains explicit for legacy payment recovery", () => assert.equal(historicalAugust2026CohortCode, "RSD-AUG-2026"));
 check("applicant email normalization is deterministic", () => assert.equal(normalizeApplicantEmail(" John@Example.COM "), "john@example.com"));
 check("public duplicate response reveals no private application state", () => {
   assert.match(duplicateApplicationMessage, /application for this email already exists/i);
@@ -69,7 +69,7 @@ check("payment and student preservation warnings are present", () => {
 check("duplicate candidate must share cohort and normalized email", () => assert.match(migration, /survivor\.cohort_code <> target\.cohort_code[\s\S]*lower\(btrim\(survivor\.email\)\)/));
 check("database guard permits distinct cohorts", () => assert.match(migration, /existing\.cohort_code = new\.cohort_code/));
 check("submission path performs an active cohort-email duplicate check", () => {
-  assert.match(registrationSave, /\.eq\("cohort_code", currentAdmissionsCohortCode\)/);
+  assert.match(registrationSave, /\.eq\("cohort_code", options\.cohort\.code\)/);
   assert.match(registrationSave, /\.is\("deleted_at", null\)/);
 });
 check("restore does not send email or repeat a decision", () => {

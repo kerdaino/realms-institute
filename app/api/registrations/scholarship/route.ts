@@ -4,6 +4,7 @@ import { duplicateApplicationMessage, DuplicateActiveApplicationError } from "@/
 import { consumePublicRateLimits, hashPublicSubmissionIdentifier, publicRequestSource } from "@/lib/publicRateLimit.server";
 import { PUBLIC_RATE_LIMIT_MESSAGE } from "@/lib/publicRateLimitPolicy";
 import { calculateCohortFee, validateRegistrationPayload } from "@/lib/registration";
+import { authorizeRegistrationRequest, RegistrationAccessError } from "@/lib/registrationControl.server";
 import { sendScholarshipApplicationEmailsIfNeeded } from "@/lib/registrationEmails";
 import { createRegistrationApplication } from "@/lib/saveRegistration";
 
@@ -20,6 +21,18 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     return NextResponse.json({ success: false, message: "Please submit a valid registration form." }, { status: 400 });
+  }
+
+  const requestObject = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
+  const cohortId = typeof requestObject.cohortId === "string" ? requestObject.cohortId : "";
+  const inviteToken = typeof requestObject.inviteToken === "string" && requestObject.inviteToken.trim() ? requestObject.inviteToken.trim() : null;
+  let authorization: Awaited<ReturnType<typeof authorizeRegistrationRequest>>;
+  try {
+    authorization = await authorizeRegistrationRequest({ cohortId, inviteToken, applicantEmail: typeof requestObject.email === "string" ? requestObject.email : "" });
+  } catch (error) {
+    if (error instanceof RegistrationAccessError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
+    console.error("Scholarship registration availability check failed", error);
+    return NextResponse.json({ success: false, message: "Scholarship applications are temporarily unavailable. Please wait a little and try again." }, { status: 503 });
   }
 
   const validation = validateRegistrationPayload(body);
@@ -41,18 +54,22 @@ export async function POST(request: Request) {
   if (emailLimit.status === "blocked") return NextResponse.json({ success: false, message: PUBLIC_RATE_LIMIT_MESSAGE }, { status: 429, headers: { "Retry-After": String(emailLimit.retryAfterSeconds) } });
   if (emailLimit.status === "unavailable") return NextResponse.json({ success: false, message: "Scholarship applications are temporarily unavailable. Please wait a little and try again." }, { status: 503 });
 
-  const requestObject = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
   const submittedId = typeof requestObject.submissionId === "string" && /^[0-9a-f-]{36}$/i.test(requestObject.submissionId) ? requestObject.submissionId : null;
   const submissionKeyHash = submittedId
-    ? hashPublicSubmissionIdentifier("scholarship", JSON.stringify({ submittedId, registration: validation.data, fee: { amount: fee.amount, currency: fee.currency } }))
+    ? hashPublicSubmissionIdentifier("scholarship", JSON.stringify({ submittedId, cohortId: authorization.cohort.id, inviteId: authorization.inviteId, registration: validation.data, fee: { amount: fee.amount, currency: fee.currency } }))
     : null;
 
   try {
-    const application = await createRegistrationApplication(validation.data, fee, null, submissionKeyHash);
+    const application = await createRegistrationApplication(validation.data, fee, null, {
+      submissionKeyHash,
+      cohort: { id: authorization.cohort.id, code: authorization.cohort.code, lateRegistrationInviteId: authorization.inviteId },
+    });
     const emailStatus = await sendScholarshipApplicationEmailsIfNeeded(application.id);
     return NextResponse.json({ success: true, applicationId: application.id, applicationReference: application.applicationReference, emailStatus, reused: application.reused, message: "Your application and scholarship request have been received." });
   } catch (error) {
     if (error instanceof DuplicateActiveApplicationError) return NextResponse.json({ success: false, message: duplicateApplicationMessage }, { status: 409 });
+    if (error instanceof Error && /REGISTRATION_CLOSED|REGISTRATION_COHORT_INVALID/.test(error.message)) return NextResponse.json({ success: false, message: "Registration for this cohort is currently closed." }, { status: 403 });
+    if (error instanceof Error && /LATE_REGISTRATION_INVITE/.test(error.message)) return NextResponse.json({ success: false, message: "This private registration invitation is invalid, expired, revoked, or has already been used." }, { status: 403 });
     console.error("Scholarship application save failed", error);
     return NextResponse.json({ success: false, message: "Your scholarship request could not be saved. No payment was started. Please try again or contact REALMS Institute." }, { status: 503 });
   }

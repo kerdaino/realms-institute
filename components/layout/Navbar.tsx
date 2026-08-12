@@ -10,7 +10,7 @@ import { mobileNavLinks, navLinks, siteConfig } from "@/lib/constants";
 import { realmClasses } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
-export function Navbar() {
+export function Navbar({ registrationOpen }: { registrationOpen: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -55,7 +55,7 @@ export function Navbar() {
         </ul>
         <div className="hidden items-center gap-3 lg:flex">
           <PrimaryButton href="/register" className="min-h-10 px-4">
-            Apply Now
+            {registrationOpen ? "Apply Now" : "Registration Info"}
           </PrimaryButton>
         </div>
         <button
@@ -103,7 +103,7 @@ export function Navbar() {
               className="mt-2 w-full"
               showIcon
             >
-              Apply Now
+              {registrationOpen ? "Apply Now" : "Registration Information"}
             </PrimaryButton>
           </div>
         </div>

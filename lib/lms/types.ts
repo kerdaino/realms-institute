@@ -49,6 +49,10 @@ export type Cohort = {
   academic_year: string | null;
   application_open_date: string | null;
   application_close_date: string | null;
+  registration_status: "open" | "closed";
+  registration_opens_at: string | null;
+  registration_closes_at: string | null;
+  is_public_registration_cohort: boolean;
   orientation_date: string | null;
   matriculation_date: string | null;
   graduation_date: string | null;

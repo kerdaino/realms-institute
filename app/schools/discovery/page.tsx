@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import Link from "next/link";
 import { Award, BookOpenCheck, Check, Clock3, Laptop, MapPin, ShieldCheck, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
@@ -20,6 +21,7 @@ import {
   skillPathwayCurricula,
   type PublicCourse,
 } from "@/lib/schoolOfDiscoveryCurriculum";
+import { getPublicRegistrationState } from "@/lib/registrationControl.server";
 
 export const metadata: Metadata = {
   title: "REALMS School of Discovery | Foundational & Advanced Discipleship and Skill Pathways",
@@ -33,13 +35,17 @@ const sectionNav = [
   { label: "Cybersecurity", href: "#cybersecurity-foundations" },
 ] as const;
 
-export default function DiscoveryPage() {
+export default async function DiscoveryPage() {
+  await connection();
+  const registration = await getPublicRegistrationState();
+  const registrationOpen = registration.kind === "open";
+  const cohortName = registration.cohort?.name ?? "the current cohort";
   return (
     <PageShell>
       <PageHero
-        eyebrow="Registration Open"
+        eyebrow={registrationOpen ? "Registration Open" : "Registration Closed"}
         title="REALMS School of Discovery"
-        subtitle="Applications are now open for the August 2026 cohort. Christian Formation. Practical Competence. Kingdom Purpose."
+        subtitle={registrationOpen ? `Applications are now open for ${cohortName}. Christian Formation. Practical Competence. Kingdom Purpose.` : `Public registration for ${cohortName} is currently closed. Existing applicants should continue using their previously provided instructions.`}
         breadcrumbs={[{ label: "Home", href: "/" }, { label: "Schools", href: "/schools" }, { label: "School of Discovery" }]}
       />
 
@@ -73,7 +79,7 @@ export default function DiscoveryPage() {
                   <RouteBadge>Foundational Discipleship</RouteBadge>
                   <h3 className="mt-5 text-3xl font-semibold">A strong biblical foundation for faithful Christian living.</h3>
                   <p className="mt-5 leading-8 text-white/70">Designed for new students and applicants who do not meet advanced-entry requirements. The route includes all eight foundational courses.</p>
-                  <PrimaryButton href="/register" className="mt-7" showIcon>Apply for the Foundational Route</PrimaryButton>
+                  <PrimaryButton href="/register" className="mt-7" showIcon>{registrationOpen ? "Apply for the Foundational Route" : "Registration Information"}</PrimaryButton>
                 </div>
                 <CourseAccordionList courses={foundationalDiscipleshipCourses} />
               </div>
@@ -93,7 +99,7 @@ export default function DiscoveryPage() {
                     </ul>
                   </div>
                   <div className="mt-5 flex items-start gap-3 text-sm leading-6 text-white/75"><Clock3 aria-hidden="true" className="mt-1 size-4 shrink-0 text-[var(--realm-gold-soft)]" /><div>{advancedDiscipleshipSchedule.sessions.map((session) => <p key={session.days}>{session.days}<br />{session.time}</p>)}<p>{advancedDiscipleshipSchedule.mode}</p></div></div>
-                  <PrimaryButton href="/register?applicant=advanced" className="mt-7" showIcon>Apply for Advanced Entry</PrimaryButton>
+                  <PrimaryButton href="/register?applicant=advanced" className="mt-7" showIcon>{registrationOpen ? "Apply for Advanced Entry" : "Registration Information"}</PrimaryButton>
                 </div>
                 <CourseMap courses={advancedDiscipleshipCourses} dark />
               </div>
@@ -133,7 +139,7 @@ export default function DiscoveryPage() {
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#8b641c]">Capstone Outcome</p>
                       <p className="mt-3 text-sm leading-7 text-amber-950">{pathway.capstone}</p>
                     </div>
-                    <PrimaryButton href={pathway.applyHref} className="mt-2 w-full" showIcon>Apply for {pathway.title}</PrimaryButton>
+                    <PrimaryButton href={pathway.applyHref} className="mt-2 w-full" showIcon>{registrationOpen ? `Apply for ${pathway.title}` : "Registration Information"}</PrimaryButton>
                   </div>
                 </div>
               </div>
@@ -212,14 +218,14 @@ export default function DiscoveryPage() {
         </div>
         <div className="mt-8 rounded-2xl border border-[#d7aa45]/35 bg-white p-6 md:flex md:items-center md:justify-between md:gap-8">
           <div><h3 className="text-xl font-semibold text-[#071327]">Need help with the registration fee?</h3><p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">Applicants who genuinely cannot afford the registration/application fee may request scholarship support during registration. Support is limited and subject to review and availability.</p></div>
-          <PrimaryButton href="/register" className="mt-5 shrink-0 md:mt-0" showIcon>Request Support During Registration</PrimaryButton>
+          <PrimaryButton href="/register" className="mt-5 shrink-0 md:mt-0" showIcon>{registrationOpen ? "Request Support During Registration" : "Registration Information"}</PrimaryButton>
         </div>
       </LightSection>
 
       <section className="bg-[#f7f5ef] px-5 py-20 md:px-8">
         <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-8 rounded-3xl border border-[#d7aa45]/30 bg-[#071327] p-7 text-white md:flex-row md:items-center md:p-12">
-          <div><p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--realm-gold-soft)]">Take the Next Step</p><h2 className="mt-3 text-3xl font-semibold">Ready to Begin Your REALMS Journey?</h2><p className="mt-3 max-w-2xl leading-7 text-white/65">Apply for the August 2026 cohort or contact REALMS Institute if you need help choosing the route or skill pathway that fits your application.</p></div>
-          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row"><PrimaryButton href="/register" showIcon>Apply for August 2026</PrimaryButton><SecondaryButton href="/contact">Ask a Question</SecondaryButton></div>
+          <div><p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--realm-gold-soft)]">Take the Next Step</p><h2 className="mt-3 text-3xl font-semibold">Ready to Begin Your REALMS Journey?</h2><p className="mt-3 max-w-2xl leading-7 text-white/65">{registrationOpen ? `Apply for ${cohortName} or contact REALMS Institute if you need help choosing the route or skill pathway that fits your application.` : "Review current registration information or contact REALMS Institute if you need help with an existing application."}</p></div>
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row"><PrimaryButton href="/register" showIcon>{registrationOpen ? `Apply for ${cohortName}` : "Registration Information"}</PrimaryButton><SecondaryButton href="/contact">Ask a Question</SecondaryButton></div>
         </div>
       </section>
     </PageShell>

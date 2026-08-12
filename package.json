@@ -26,6 +26,7 @@
     "test:august-assessments": "node --experimental-strip-types scripts/test-next-6-august-assessments.mjs",
     "test:quiz-integrity": "node --experimental-strip-types scripts/test-quiz-integrity.mjs",
     "test:application-removal": "node --experimental-strip-types scripts/test-application-removal.ts",
+    "test:registration-control": "node --experimental-strip-types scripts/test-registration-control.mjs",
     "test:august-operations": "node --experimental-strip-types scripts/test-august-2026-operations.mjs",
     "test:late-entry-catchup": "node --experimental-strip-types scripts/test-late-entry-catchup.mjs",
     "process:admission-deadlines": "node --env-file=.env.local --experimental-strip-types scripts/process-admission-deadlines.mjs"

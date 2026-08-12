@@ -6,7 +6,7 @@ import { SectionContainer } from "@/components/ui/SectionContainer";
 import { realmClasses } from "@/lib/theme";
 import { schoolOfDiscoveryLearningModeStatement, schoolOfDiscoveryStructureStatement } from "@/lib/schoolOfDiscoveryCurriculum";
 
-export function Cohort() {
+export function Cohort({ registrationOpen, cohortName }: { registrationOpen: boolean; cohortName?: string }) {
   return (
     <SectionContainer id="cohort" labelledBy="cohort-title">
       <div className={realmClasses.container}>
@@ -16,9 +16,9 @@ export function Cohort() {
               <Badge className="mb-6">Announcement</Badge>
             <SectionHeading
               id="cohort-title"
-              eyebrow="Registration Open"
-              title="Applications Open for August 2026"
-              description={`${schoolOfDiscoveryStructureStatement} The detailed cohort schedule is now published.`}
+              eyebrow={registrationOpen ? "Registration Open" : "Registration Closed"}
+              title={registrationOpen ? `Applications Open for ${cohortName ?? "the Current Cohort"}` : `${cohortName ?? "Current Cohort"} Registration Is Closed`}
+              description={`${schoolOfDiscoveryStructureStatement} ${registrationOpen ? "The detailed cohort schedule is now published." : "Existing applications and applicant instructions remain valid."}`}
             />
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
@@ -38,7 +38,7 @@ export function Cohort() {
           </div>
           <div className="relative mt-8">
             <PrimaryButton href="/register" showIcon>
-              Apply Now
+              {registrationOpen ? "Apply Now" : "Registration Information"}
             </PrimaryButton>
           </div>
         </GlassCard>

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { Award, BookOpenCheck, CalendarClock, HandHeart, MessageCircle, Users } from "lucide-react";
 
 import { PageHero } from "@/components/layout/PageHero";
@@ -13,6 +14,7 @@ import { SectionHeading } from "@/components/ui/SectionHeading";
 import { cohortExpectations } from "@/lib/constants";
 import { schoolOfDiscoveryCertificateStatement, schoolOfDiscoveryLearningModeStatement, schoolOfDiscoveryStructureStatement } from "@/lib/schoolOfDiscoveryCurriculum";
 import { realmClasses } from "@/lib/theme";
+import { getPublicRegistrationState } from "@/lib/registrationControl.server";
 
 export const metadata: Metadata = {
   title: "REALMS Institute | Cohorts",
@@ -21,7 +23,11 @@ export const metadata: Metadata = {
 
 const expectationIcons = [BookOpenCheck, HandHeart, CalendarClock, Users, MessageCircle, Award] as const;
 
-export default function CohortsPage() {
+export default async function CohortsPage() {
+  await connection();
+  const registration = await getPublicRegistrationState();
+  const registrationOpen = registration.kind === "open";
+  const cohortName = registration.cohort?.name ?? "Current Cohort";
   return (
     <PageShell>
       <PageHero
@@ -32,15 +38,15 @@ export default function CohortsPage() {
       <SectionContainer labelledBy="next-cohort-title">
         <div className={realmClasses.container}>
           <GlassCard intensity="strong" className="p-6 md:p-10">
-            <Badge>Registration Open · August 2026</Badge>
-            <h2 id="next-cohort-title" className="mt-6 text-3xl font-semibold text-[var(--realm-white)] md:text-5xl">Applications Are Now Open</h2>
+            <Badge>{registrationOpen ? `Registration Open · ${cohortName}` : "Registration Closed"}</Badge>
+            <h2 id="next-cohort-title" className="mt-6 text-3xl font-semibold text-[var(--realm-white)] md:text-5xl">{registrationOpen ? "Applications Are Now Open" : `${cohortName} Registration Is Closed`}</h2>
             <p className="mt-5 max-w-4xl leading-7 text-[var(--realm-muted)]">{schoolOfDiscoveryStructureStatement} The detailed August 2026 schedule is published on the School of Discovery page.</p>
             <div className="mt-8 grid gap-3 md:grid-cols-2">
               {[schoolOfDiscoveryLearningModeStatement, "Web Development", "Cybersecurity Foundations", "Practical skill capstone required"].map((detail) => (
                 <div key={detail} className="rounded-2xl border border-white/10 bg-[var(--realm-navy)]/45 px-5 py-5 font-semibold text-[var(--realm-white)]">{detail}</div>
               ))}
             </div>
-            <div className="mt-7 flex flex-wrap gap-3"><PrimaryButton href="/register" showIcon>Apply Now</PrimaryButton><SecondaryButton href="/schools/discovery#schedule-title">View Programme Schedule</SecondaryButton></div>
+            <div className="mt-7 flex flex-wrap gap-3"><PrimaryButton href="/register" showIcon>{registrationOpen ? "Apply Now" : "Registration Information"}</PrimaryButton><SecondaryButton href="/schools/discovery#schedule-title">View Programme Schedule</SecondaryButton></div>
           </GlassCard>
         </div>
       </SectionContainer>
@@ -62,7 +68,7 @@ export default function CohortsPage() {
             eyebrow="Past Cohort Impact"
             titleId="cohort-impact-title"
             title="The Beginning of a Larger Burden"
-            actions={<PrimaryButton href="/register" showIcon>Apply Now</PrimaryButton>}
+            actions={<PrimaryButton href="/register" showIcon>{registrationOpen ? "Apply Now" : "Registration Information"}</PrimaryButton>}
           >
             <p>The first School of Discovery cohort marked the beginning of a larger burden to raise believers who are formed for doctrine, prayer, calling, and practical usefulness.</p>
           </Callout>

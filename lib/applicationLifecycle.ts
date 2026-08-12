@@ -1,4 +1,6 @@
-export const currentAdmissionsCohortCode = "RSD-AUG-2026";
+// Historical compatibility only. New public applications receive their cohort
+// from the admin-selected public registration cohort, never from this value.
+export const historicalAugust2026CohortCode = "RSD-AUG-2026";
 
 export const applicationDeletionReasons = [
   "duplicate_application",
