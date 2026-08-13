@@ -8,7 +8,7 @@ import { paymentReferenceMatchesApplication, scholarshipPaystackMetadataSource, 
 import { recordPaymentVerificationEvent } from "@/lib/paymentVerificationAudit";
 import { generatePaymentReference } from "@/lib/registration";
 import { buildVerifiedPaymentColumns, PaymentRegistrationConflictError, savedRegistrationSelect, type PaymentPersistenceContext, type RegistrationSaveResult, type SavedRegistration } from "@/lib/saveRegistration";
-import { scholarshipFinancialSummary, type ScholarshipFinancialSummary } from "@/lib/scholarshipFinance";
+import { registrationFinancialSummary, type ScholarshipFinancialSummary } from "@/lib/scholarshipFinance";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 const tokenLifetimeMs = 30 * 24 * 60 * 60 * 1000;
@@ -82,12 +82,15 @@ function paymentUrl(token: string) {
 }
 
 function financials(row: ScholarshipPaymentRow) {
-  return scholarshipFinancialSummary({
+  return registrationFinancialSummary({
     normalFee: Number(row.amount),
+    currency: row.currency,
+    fundingRoute: row.funding_route,
     scholarshipStatus: row.scholarship_status,
     approvedScholarshipAmount: row.scholarship_approved_amount,
     amountPaid: row.amount_paid,
     paymentStatus: row.payment_status,
+    financialRequirementStatus: row.financial_requirement_status,
   });
 }
 
@@ -119,14 +122,14 @@ export async function getScholarshipPaymentPageState(token: string): Promise<Sch
   if (summary.financialRequirementStatus === "satisfied_by_payment") {
     return { kind: "completed", applicantName: row.full_name, amountPaid: Number(row.amount_paid || 0), currency: row.currency, message: "The required registration payment has already been completed. No additional payment is requested." };
   }
-  if (summary.financialRequirementStatus === "satisfied_by_scholarship" || summary.amountDue === 0) {
+  if (summary.financialRequirementStatus === "satisfied_by_scholarship" || summary.remainingDue === 0) {
     return { kind: "not_required", applicantName: row.full_name, message: "Your registration fee is covered by the approved full scholarship. No registration payment is required." };
   }
   if (row.payment_status === "underpayment" || row.payment_status === "currency_mismatch") {
     return { kind: "manual_review", applicantName: row.full_name, message: "A previous payment attempt requires administrative reconciliation. Please contact REALMS Institute before making another payment." };
   }
-  if ((row.scholarship_status === "approved_partial" || row.scholarship_status === "declined") && summary.amountDue) {
-    return { kind: "payable", applicantName: row.full_name, amountDue: summary.amountDue, currency: row.currency, scholarshipStatus: row.scholarship_status };
+  if ((row.scholarship_status === "approved_partial" || row.scholarship_status === "declined") && summary.remainingDue) {
+    return { kind: "payable", applicantName: row.full_name, amountDue: summary.remainingDue, currency: row.currency, scholarshipStatus: row.scholarship_status };
   }
   return { kind: "not_required", applicantName: row.full_name, message: "Payment is not currently available for this scholarship decision." };
 }
@@ -139,7 +142,7 @@ export async function initializeScholarshipPayment(token: string) {
   const summary = financials(row);
   if (!summary.valid) return { success: false as const, status: 409, message: "The saved scholarship arrangement requires administrative review." };
   if (summary.financialRequirementStatus === "satisfied_by_payment") return { success: true as const, completed: true as const, message: "Payment has already been completed." };
-  if (summary.financialRequirementStatus === "satisfied_by_scholarship" || !summary.amountDue) return { success: false as const, status: 409, message: "No registration payment is required for the current scholarship decision." };
+  if (summary.financialRequirementStatus === "satisfied_by_scholarship" || !summary.remainingDue) return { success: false as const, status: 409, message: "No registration payment is required for the current scholarship decision." };
   if (row.scholarship_status !== "approved_partial" && row.scholarship_status !== "declined") {
     return { success: false as const, status: 409, message: "Payment is not available for the current scholarship decision." };
   }
@@ -152,7 +155,7 @@ export async function initializeScholarshipPayment(token: string) {
     row.payment_status === "pending"
     && row.payment_reference
     && row.payment_authorization_url
-    && expectedAmount === summary.amountDue
+    && expectedAmount === summary.remainingDue
   ) {
     return { success: true as const, completed: false as const, authorizationUrl: row.payment_authorization_url, reused: true };
   }
@@ -160,7 +163,7 @@ export async function initializeScholarshipPayment(token: string) {
     row.payment_status === "pending"
     && row.payment_reference
     && !row.payment_authorization_url
-    && expectedAmount === summary.amountDue
+    && expectedAmount === summary.remainingDue
   ) {
     return { success: false as const, status: 409, message: "Secure payment initialization is already in progress. Please wait a moment and try again." };
   }
@@ -175,7 +178,7 @@ export async function initializeScholarshipPayment(token: string) {
     .update({
       payment_reference: reference,
       payment_status: "pending",
-      payment_expected_amount: summary.amountDue,
+      payment_expected_amount: summary.remainingDue,
       payment_authorization_url: null,
       payment_initialized_at: null,
       financial_requirement_status: "payment_required",
@@ -193,7 +196,7 @@ export async function initializeScholarshipPayment(token: string) {
   }
   if (!claimed.data) {
     const refreshed = await loadRegistration(row.id);
-    if (refreshed?.payment_status === "pending" && refreshed.payment_authorization_url && Number(refreshed.payment_expected_amount) === summary.amountDue) {
+    if (refreshed?.payment_status === "pending" && refreshed.payment_authorization_url && Number(refreshed.payment_expected_amount) === summary.remainingDue) {
       return { success: true as const, completed: false as const, authorizationUrl: refreshed.payment_authorization_url, reused: true };
     }
     return { success: false as const, status: 409, message: "The scholarship decision or payment state changed. Please refresh and try again." };
@@ -205,7 +208,7 @@ export async function initializeScholarshipPayment(token: string) {
   try {
     transaction = await initializePaystackTransaction({
       email: row.email,
-      fee: { amount: summary.amountDue, currency: row.currency },
+      fee: { amount: summary.remainingDue, currency: row.currency },
       reference,
       callbackUrl: callbackUrl.toString(),
       metadata: {
@@ -236,17 +239,17 @@ export async function resolveScholarshipPaymentFromPaystack(metadata: unknown, r
   const row = await loadRegistration(source.registration_id, { includeDeleted: true });
   if (!row || !paymentReferenceMatchesApplication(row.payment_reference, reference)) return null;
   const summary = financials(row);
-  if (!summary.valid || !summary.amountDue || (row.scholarship_status !== "approved_partial" && row.scholarship_status !== "declined")) return null;
-  if (Number(row.payment_expected_amount) !== summary.amountDue) return null;
+  if (!summary.valid || !summary.remainingDue || (row.scholarship_status !== "approved_partial" && row.scholarship_status !== "declined")) return null;
+  if (Number(row.payment_expected_amount) !== summary.remainingDue) return null;
   return {
     applicationId: row.id,
     registration: row,
     financials: summary,
     calculatedFee: {
-      amount: summary.amountDue,
+      amount: summary.remainingDue,
       currency: row.currency,
-      display: `${row.currency} ${summary.amountDue.toLocaleString("en")}`,
-      publicDisplay: `${row.currency} ${summary.amountDue.toLocaleString("en")}`,
+      display: `${row.currency} ${summary.remainingDue.toLocaleString("en")}`,
+      publicDisplay: `${row.currency} ${summary.remainingDue.toLocaleString("en")}`,
     },
   };
 }
@@ -302,7 +305,7 @@ export async function saveVerifiedScholarshipPayment(paystackData: PaystackVerif
   const { data, error } = await supabase.from("registrations").update({
     ...buildVerifiedPaymentColumns(paystackData, reconciliation, context),
     financial_requirement_status: "satisfied_by_payment",
-    payment_expected_amount: resolved.financials.amountDue,
+    payment_expected_amount: resolved.financials.remainingDue,
   }).eq("id", resolved.applicationId).eq("funding_route", "scholarship_request").eq("payment_reference", paystackData.reference).neq("payment_status", "success").select(scholarshipPaymentSelect).maybeSingle();
   if (error) throw new Error(`SCHOLARSHIP_PAYMENT_SAVE_FAILED:${error.message}`);
   if (!data) {

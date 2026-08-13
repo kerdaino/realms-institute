@@ -17,7 +17,7 @@ assert.equal(isFinancialRequirementSatisfied({ amount: 10_000, payment_status: "
 assert.equal(scholarshipFinancialSummary({ normalFee: 15_000, scholarshipStatus: "approved_partial", approvedScholarshipAmount: 9_000, amountPaid: null, paymentStatus: "not_paid" }).amountDue, 6_000);
 assert.match(conditionalAdmission, /conditionalAdmissionDeadlineDays = 14/);
 assert.match(conditionalAdmission, /assigned_discipleship_route/);
-assert.match(conditionalAdmission, /isFinancialRequirementSatisfied/);
+assert.match(conditionalAdmission, /registrationFinancialSummary/);
 assert.match(conditionalAdmission, /august2026ClassStartAt = "2026-08-17T00:00:00\+01:00"/);
 assert.ok(applicationStatuses.includes("conditional_admission_payment_outstanding"));
 assert.ok(applicationStatuses.includes("admission_offer_lapsed_payment_outstanding"));

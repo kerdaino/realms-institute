@@ -18,8 +18,8 @@ import {
   type EmailTemplate,
   type ScholarshipOutcome,
 } from "@/lib/emailTemplates";
-import { scholarshipFinancialSummary } from "@/lib/scholarshipFinance";
-import { createScholarshipPaymentLink } from "@/lib/scholarshipPayment.server";
+import { registrationFinancialSummary, scholarshipFinancialSummary } from "@/lib/scholarshipFinance";
+import { createPaymentContinuationLink } from "@/lib/paymentContinuation.server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type RegistrationEmailStatus = { applicant: EmailSendResult; admin: EmailSendResult; admission?: EmailSendResult };
@@ -33,7 +33,7 @@ type ScholarshipEmailKind = "scholarship_applicant" | "scholarship_admin";
 const paidEmailRegistrationSelect = "id, deleted_at, full_name, email, whatsapp, country, city, gender, age_range, church, learning_mode, skill_pathway, reason, referral_source, fee_policy_consent, computer_access_confirmed, amount, amount_paid, currency, public_fee_display, amount_display, payment_reference, payment_status, application_status, applicant_type, requested_discipleship_route, assigned_discipleship_route, advanced_entry_status, alumni_verification_status, screening_status, screening_objective_score, screening_objective_max, scholarship_status, paid_at, confirmation_email_sent, confirmation_email_sent_at, admin_email_sent, admin_email_sent_at, admission_email_sent, admission_email_sent_at";
 const scholarshipEmailRegistrationSelect = `${paidEmailRegistrationSelect}, funding_route, scholarship_reason, scholarship_financial_situation, scholarship_can_contribute, scholarship_contribution_amount, scholarship_approved_amount, scholarship_applicant_message, financial_requirement_status, payment_expected_amount, scholarship_reviewed_at, scholarship_confirmation_email_sent, scholarship_confirmation_email_sent_at, scholarship_admin_email_sent, scholarship_admin_email_sent_at, scholarship_decision_email_sent, scholarship_decision_email_sent_at, scholarship_decision_email_type, scholarship_decision_email_error, scholarship_decision_email_last_attempted_at`;
 const advancedEntryEmailRegistrationSelect = `${paidEmailRegistrationSelect}, advanced_entry_applicant_message, advanced_entry_decision_email_sent, advanced_entry_decision_email_sent_at, advanced_entry_decision_email_type, advanced_entry_decision_email_error, advanced_entry_decision_email_last_attempted_at, advanced_entry_decision_email_last_attempt_type`;
-const admissionCommunicationRegistrationSelect = `${paidEmailRegistrationSelect}, funding_route, financial_requirement_status, payment_expected_amount, payment_authorization_url, scholarship_approved_amount, admission_offer_at, admission_payment_deadline, admission_outstanding_amount, admission_confirmed_at, admission_offer_lapsed_at, late_entry_required`;
+const admissionCommunicationRegistrationSelect = `${paidEmailRegistrationSelect}, funding_route, financial_requirement_status, payment_expected_amount, scholarship_approved_amount, admission_offer_at, admission_payment_deadline, admission_outstanding_amount, admission_confirmed_at, admission_offer_lapsed_at, late_entry_required`;
 
 function paidColumns(kind: PaidEmailKind) {
   if (kind === "applicant") return { sentColumn: "confirmation_email_sent", sentAtColumn: "confirmation_email_sent_at" };
@@ -156,14 +156,57 @@ export async function sendAdmissionCommunication(
   if (!supabase) return { sent: false, reason: "Supabase is required for auditable admission email delivery." };
   const loaded = await supabase.from("registrations").select(admissionCommunicationRegistrationSelect).eq("id", applicationId).is("deleted_at", null).maybeSingle();
   if (loaded.error || !loaded.data) return { sent: false, reason: "The active application could not be loaded for admission email delivery." };
-  const registration = loaded.data as EmailRegistration & { payment_authorization_url?: string | null };
+  const registration = loaded.data as EmailRegistration;
+  const deadline = registration.admission_payment_deadline || null;
+  async function failedAdmissionAttempt(reason: string) {
+    if (communicationType === "conditional_admission_offer" || communicationType === "payment_deadline_extended") {
+      const attemptedAt = new Date().toISOString();
+      const event = await supabase!.from("registration_communication_events").insert({
+        registration_id: applicationId,
+        communication_type: communicationType,
+        recipient_email: registration.email,
+        subject_snapshot: communicationType === "conditional_admission_offer" ? "REALMS Institute — Conditional Admission Email" : "REALMS Institute — Conditional Admission Payment Deadline Extended",
+        content_snapshot: { application_status: registration.application_status, admission_payment_deadline: deadline, failure_stage: "server_preflight" },
+        delivery_status: "failed",
+        provider_message_id: null,
+        provider_error: reason.slice(0, 1000),
+        attempted_at: attemptedAt,
+        sent_at: null,
+      });
+      if (event.error) console.error("Admission communication preflight failure audit insert failed", { applicationId, communicationType, code: event.error.code });
+    }
+    return { sent: false as const, reason };
+  }
   if (communicationType === "admission_confirmed" && (!registration.admission_offer_at || registration.application_status !== "admitted")) {
     return { sent: false, reason: "This payment did not confirm a conditional admission offer." };
+  }
+  if (communicationType === "conditional_admission_offer" && registration.application_status !== "conditional_admission_payment_outstanding") {
+    return failedAdmissionAttempt("The application does not currently have an active conditional admission offer.");
   }
   if (communicationType === "admission_offer_lapsed" && registration.application_status !== "admission_offer_lapsed_payment_outstanding") {
     return { sent: false, reason: "The conditional admission offer has not lapsed." };
   }
-  const deadline = registration.admission_payment_deadline || null;
+  const currentFinancials = registrationFinancialSummary({
+    normalFee: Number(registration.amount),
+    currency: registration.currency,
+    fundingRoute: registration.funding_route || "self_pay",
+    scholarshipStatus: registration.scholarship_status || (registration.funding_route === "scholarship_request" ? "" : "not_requested"),
+    approvedScholarshipAmount: registration.scholarship_approved_amount,
+    amountPaid: registration.amount_paid,
+    paymentStatus: registration.payment_status,
+    financialRequirementStatus: registration.financial_requirement_status,
+  });
+  if (communicationType === "conditional_admission_offer" || communicationType === "payment_deadline_extended") {
+    if (!currentFinancials.valid || currentFinancials.remainingDue === null || currentFinancials.remainingDue <= 0 || currentFinancials.requiresManualPaymentReview) {
+      return failedAdmissionAttempt("The current financial requirement cannot be communicated safely. Review the scholarship and payment state before sending this offer.");
+    }
+    if (Number(registration.admission_outstanding_amount) !== currentFinancials.remainingDue) {
+      return failedAdmissionAttempt("The current amount due differs from the historical outstanding-at-offer snapshot. Administrative review is required before sending another admission communication.");
+    }
+    if (!deadline || !Number.isFinite(Date.parse(deadline)) || Date.parse(deadline) <= Date.now()) {
+      return failedAdmissionAttempt("The conditional admission payment deadline is missing or has already passed.");
+    }
+  }
   if (!options.force) {
     let prior = supabase.from("registration_communication_events").select("id").eq("registration_id", applicationId).eq("communication_type", communicationType).eq("delivery_status", "sent");
     if (deadline) prior = prior.contains("content_snapshot", { admission_payment_deadline: deadline });
@@ -174,15 +217,11 @@ export async function sendAdmissionCommunication(
   let paymentUrl: string | null = null;
   if (communicationType === "conditional_admission_offer" || communicationType === "payment_deadline_extended") {
     try {
-      if (registration.funding_route === "scholarship_request") paymentUrl = createScholarshipPaymentLink(applicationId);
-      else if (registration.payment_authorization_url) {
-        const parsed = new URL(registration.payment_authorization_url);
-        if (parsed.protocol === "https:") paymentUrl = parsed.toString();
-      }
+      paymentUrl = createPaymentContinuationLink(applicationId, "conditional_admission");
     } catch {
       paymentUrl = null;
     }
-    if (!paymentUrl) return { sent: false, reason: "A secure server-derived payment link is not available. Re-initialize the application payment before sending this offer." };
+    if (!paymentUrl) return failedAdmissionAttempt("A secure server-derived payment continuation link is not available. Check the site and token configuration before resending this offer.");
   }
 
   const template = createAdmissionCommunicationEmail(registration, communicationType, { paymentUrl });
@@ -190,7 +229,7 @@ export async function sendAdmissionCommunication(
   const result = await deliver(
     registration.email,
     template,
-    `realms-admission-${applicationId}-${communicationType}-${deadline || registration.admission_confirmed_at || registration.admission_offer_lapsed_at || "current"}`,
+    options.force ? undefined : `realms-admission-${applicationId}-${communicationType}-${deadline || registration.admission_confirmed_at || registration.admission_offer_lapsed_at || "current"}`,
   );
   const event = await supabase.from("registration_communication_events").insert({
     registration_id: applicationId,
@@ -201,6 +240,9 @@ export async function sendAdmissionCommunication(
       application_status: registration.application_status,
       admission_payment_deadline: deadline,
       admission_outstanding_amount: registration.admission_outstanding_amount ?? null,
+      current_amount_due: currentFinancials.remainingDue,
+      normal_registration_fee: currentFinancials.normalFee,
+      approved_scholarship_support: currentFinancials.approvedSupport,
       assigned_discipleship_route: registration.assigned_discipleship_route ?? null,
       skill_pathway: registration.skill_pathway,
       learning_mode: registration.learning_mode,
@@ -241,7 +283,7 @@ export async function sendScholarshipOutcomeEmail(registration: EmailRegistratio
   });
   const paymentUrl = (outcome === "approved_partial" || outcome === "declined")
     && financials.financialRequirementStatus === "payment_required"
-    ? createScholarshipPaymentLink(registration.id)
+    ? createPaymentContinuationLink(registration.id, "scholarship_decision")
     : null;
   return deliver(registration.email, createScholarshipDecisionEmail(registration, outcome, { paymentUrl }));
 }
@@ -297,7 +339,7 @@ export async function sendCurrentScholarshipDecisionEmail(applicationId: string)
       (decision === "approved_partial" || decision === "declined")
       && summary.financialRequirementStatus === "payment_required"
     ) {
-      paymentUrl = createScholarshipPaymentLink(applicationId);
+      paymentUrl = createPaymentContinuationLink(applicationId, "scholarship_decision");
     }
   } catch (linkError) {
     const reason = linkError instanceof Error ? linkError.message : "The secure scholarship payment link could not be created.";

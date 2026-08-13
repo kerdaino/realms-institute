@@ -48,15 +48,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (status === conditionalAdmissionStatus) {
     const eligibility = conditionalAdmissionEligibility(current);
     if (!eligibility.eligible) return NextResponse.json({ message: eligibility.reason }, { status: 409 });
+    const existingOffer = [conditionalAdmissionStatus, lapsedConditionalAdmissionStatus].includes(current.application_status)
+      && current.admission_offer_at
+      && current.admission_payment_deadline
+      && Number(current.admission_outstanding_amount) > 0;
     const preservedExtendedDeadline = current.application_status === lapsedConditionalAdmissionStatus
       && current.admission_payment_deadline
       && Date.parse(current.admission_payment_deadline) > Date.now()
       ? current.admission_payment_deadline
       : null;
     Object.assign(update, {
-      admission_offer_at: decisionAt,
-      admission_payment_deadline: preservedExtendedDeadline || paymentDeadlineFromOffer(decisionAt),
-      admission_outstanding_amount: eligibility.outstandingAmount,
+      admission_offer_at: existingOffer ? current.admission_offer_at : decisionAt,
+      admission_payment_deadline: existingOffer ? current.admission_payment_deadline : preservedExtendedDeadline || paymentDeadlineFromOffer(decisionAt),
+      admission_outstanding_amount: existingOffer ? current.admission_outstanding_amount : eligibility.outstandingAmount,
       admission_offer_lapsed_at: null,
     });
   }
@@ -83,7 +87,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const event = await supabase.from("registration_review_events").insert({
     registration_id: id,
     event_type: status === conditionalAdmissionStatus ? "conditional_admission_issued" : status === lapsedConditionalAdmissionStatus ? "conditional_admission_offer_lapsed" : "admission_status_changed",
-    previous_state: { application_status: current.application_status, admission_payment_deadline: current.admission_payment_deadline },
+    previous_state: { application_status: current.application_status, admission_offer_at: current.admission_offer_at, admission_payment_deadline: current.admission_payment_deadline, admission_outstanding_amount: current.admission_outstanding_amount },
     new_state: { application_status: status, admission_payment_deadline: data.admission_payment_deadline, admission_outstanding_amount: data.admission_outstanding_amount },
     note: adminNote || null,
     actor: "REALMS Admin",

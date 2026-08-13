@@ -95,7 +95,7 @@ assert.doesNotMatch(resendRoute, /scholarship_status|scholarship_approved_amount
 assert.match(paymentServer, /createCipheriv\("aes-256-gcm"/);
 assert.match(paymentServer, /expiresAt: Date\.now\(\) \+ tokenLifetimeMs/);
 assert.doesNotMatch(paymentServer.slice(paymentServer.indexOf("type TokenPayload"), paymentServer.indexOf("export type ScholarshipPaymentPageState")), /amount|currency/);
-assert.match(paymentServer, /scholarshipFinancialSummary/);
+assert.match(paymentServer, /registrationFinancialSummary/);
 assert.match(paymentServer, /payment_expected_amount/);
 assert.match(paymentServer, /paymentReferenceMatchesApplication/);
 assert.match(paymentServer, /financial_requirement_status: "satisfied_by_payment"/);

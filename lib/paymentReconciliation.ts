@@ -1,4 +1,5 @@
 export const paystackRegistrationMetadataSource = "realms_august_2026_registration";
+export const legacyPublicPaystackRegistrationMetadataSource = "realms_public_registration";
 export const scholarshipPaystackMetadataSource = "realms_august_2026_scholarship_payment";
 
 export type PaymentVarianceType = "exact" | "overpayment" | "underpayment" | "currency_mismatch";
@@ -22,7 +23,9 @@ function normalizedCurrency(value: string) {
 export function hasExpectedPaystackRegistrationSource(metadata: unknown) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
   const source = (metadata as Record<string, unknown>).source;
-  return source === paystackRegistrationMetadataSource || source === scholarshipPaystackMetadataSource;
+  return source === paystackRegistrationMetadataSource
+    || source === legacyPublicPaystackRegistrationMetadataSource
+    || source === scholarshipPaystackMetadataSource;
 }
 
 export function isScholarshipPaystackRegistrationSource(metadata: unknown) {

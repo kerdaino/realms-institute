@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { duplicateApplicationMessage, DuplicateActiveApplicationError } from "@/lib/applicationLifecycle";
 import { initializePaystackTransaction } from "@/lib/paystack";
+import { paystackRegistrationMetadataSource } from "@/lib/paymentReconciliation";
 import { consumePublicRateLimits, hashPublicSubmissionIdentifier, publicRequestSource } from "@/lib/publicRateLimit.server";
 import { PUBLIC_RATE_LIMIT_MESSAGE } from "@/lib/publicRateLimitPolicy";
 import { calculateCohortFee, generatePaymentReference, validateRegistrationPayload } from "@/lib/registration";
@@ -104,7 +105,7 @@ export async function POST(request: Request) {
     exchangeNote: "exchangeNote" in fee ? fee.exchangeNote : undefined,
   };
   const metadata = {
-    source: "realms_public_registration",
+    source: paystackRegistrationMetadataSource,
     registration_id: application.id,
     application_reference: application.applicationReference,
     cohort_id: authorization.cohort.id,

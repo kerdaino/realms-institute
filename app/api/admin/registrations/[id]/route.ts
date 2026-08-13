@@ -27,16 +27,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ message: "Registration could not be loaded." }, { status: 500 });
   }
   if (!data) return NextResponse.json({ message: "Registration not found." }, { status: 404 });
-  const [studentResult, candidateResult, supersedingResult] = await Promise.all([
+  const [studentResult, candidateResult, supersedingResult, admissionCommunicationResult] = await Promise.all([
     supabase.from("students").select("id, student_number, profile_id, student_status, onboarding_status").eq("registration_id", id).maybeSingle(),
     supabase.from("registrations").select("id, full_name, email, created_at, cohort_code, payment_status, scholarship_status, advanced_entry_status, application_status").eq("cohort_code", data.cohort_code).is("deleted_at", null).neq("id", id).limit(5000),
     data.superseded_by_application_id
       ? supabase.from("registrations").select("id, full_name, email, created_at").eq("id", data.superseded_by_application_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
+    supabase.from("registration_communication_events").select("id, communication_type, delivery_status, provider_error, attempted_at, sent_at").eq("registration_id", id).in("communication_type", ["conditional_admission_offer", "payment_deadline_extended"]).order("created_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
   if (studentResult.error && studentResult.error.code !== "42P01" && studentResult.error.code !== "42703") console.error("Linked student query failed", { code: studentResult.error.code });
   if (candidateResult.error) console.error("Canonical application candidate query failed", { code: candidateResult.error.code });
   if (supersedingResult.error) console.error("Superseding application query failed", { code: supersedingResult.error.code });
+  if (admissionCommunicationResult.error && admissionCommunicationResult.error.code !== "42P01" && admissionCommunicationResult.error.code !== "42703") console.error("Admission communication status query failed", { code: admissionCommunicationResult.error.code });
   const { data: reviewEvents, error: reviewEventsError } = await supabase
     .from("registration_review_events")
     .select("id, registration_id, event_type, previous_state, new_state, note, actor, created_at")
@@ -53,5 +55,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     studentProvisioning: studentResult.data ?? null,
     canonicalCandidates,
     supersedingApplication: supersedingResult.data ?? null,
+    latestAdmissionCommunication: admissionCommunicationResult.data ?? null,
   });
 }

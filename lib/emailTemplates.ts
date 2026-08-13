@@ -3,7 +3,7 @@ import "server-only";
 import { applicationStatusLabels, type ApplicationStatus } from "@/lib/applicationStatus";
 import { whatsappChannelUrl } from "@/lib/constants";
 import type { AdvancedEntryStatus, AlumniVerificationStatus, ApplicantType, RequestedDiscipleshipRoute, ScholarshipStatus } from "@/lib/registration";
-import { scholarshipFinancialSummary } from "@/lib/scholarshipFinance";
+import { registrationFinancialSummary, scholarshipFinancialSummary } from "@/lib/scholarshipFinance";
 
 export type EmailRegistration = {
   id: string;
@@ -408,11 +408,30 @@ export function createAdmissionCommunicationEmail(
     return { subject: "REALMS Institute — Conditional Admission Offer Lapsed", html, text };
   }
   const title = type === "payment_deadline_extended" ? "Conditional Admission Payment Deadline Extended" : "Conditional Admission — Payment Outstanding";
-  details.push(["Exact Registration Amount Outstanding", formatMoney(registration.admission_outstanding_amount, registration.currency)]);
+  const currentFinancials = registrationFinancialSummary({
+    normalFee: Number(registration.amount),
+    currency: registration.currency,
+    fundingRoute: registration.funding_route || "self_pay",
+    scholarshipStatus: registration.scholarship_status || (registration.funding_route === "scholarship_request" ? "" : "not_requested"),
+    approvedScholarshipAmount: registration.scholarship_approved_amount,
+    amountPaid: registration.amount_paid,
+    paymentStatus: registration.payment_status,
+    financialRequirementStatus: registration.financial_requirement_status,
+  });
+  details.push(["Registration Fee", formatMoney(currentFinancials.normalFee, registration.currency)]);
+  if (registration.funding_route === "scholarship_request" && registration.scholarship_status === "approved_partial") {
+    details.push(["Scholarship Support", formatMoney(currentFinancials.approvedSupport, registration.currency)]);
+  }
+  details.push(["Amount Paid", formatMoney(currentFinancials.verifiedAmountPaid, registration.currency)]);
+  details.push(["Amount Due", formatMoney(currentFinancials.remainingDue, registration.currency)]);
   details.push(["Payment Deadline", dateOnly(registration.admission_payment_deadline)]);
   const paymentLine = options.paymentUrl ? `Complete payment securely:\n${options.paymentUrl}` : "Your secure payment link is temporarily unavailable. Please contact REALMS Admissions; do not send payment details by email.";
-  const text = `Dear ${registration.full_name},\n\n${type === "payment_deadline_extended" ? "Your conditional admission payment deadline has been extended." : "You have received a conditional admission offer from REALMS Institute."}\n\n${textLines(details)}\n\n${paymentLine}\n\nYour admission place is not fully confirmed until the registration payment requirement is satisfied by verified payment. Failure to meet the deadline may cause the offer to lapse.\n\nWith joy in Christ,\nREALMS Institute`;
-  const html = layout(title, `<p>Dear ${escapeHtml(registration.full_name)},</p><p>${type === "payment_deadline_extended" ? "Your conditional admission payment deadline has been extended." : "You have received a conditional admission offer from REALMS Institute."}</p><table style="border-collapse:collapse;width:100%;margin:20px 0">${rows(details)}</table>${options.paymentUrl ? `<p style="margin:24px 0">${securePaymentButton(options.paymentUrl)}</p>` : `<div style="border-left:4px solid #dc2626;background:#fef2f2;padding:16px;margin:20px 0">Your secure payment link is temporarily unavailable. Please contact REALMS Admissions; do not send payment details by email.</div>`}<div style="border-left:4px solid #d7aa45;background:#fff8e6;padding:16px;margin:20px 0"><p style="margin:0">Your admission place is not fully confirmed until the registration payment requirement is satisfied by verified payment. Failure to meet the deadline may cause the offer to lapse.</p></div><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
+  const scholarshipNote = registration.funding_route === "scholarship_request" && registration.scholarship_status === "approved_partial"
+    ? "Your approved scholarship support has already been deducted from the normal registration fee."
+    : "";
+  const decisionNote = "Your admission will be confirmed after verified payment satisfies the financial requirement. Payment does not change your academic requirements. Failure to meet the deadline may cause the offer to lapse.";
+  const text = `Dear ${registration.full_name},\n\n${type === "payment_deadline_extended" ? "Your conditional admission payment deadline has been extended." : "You have received a conditional admission offer from REALMS Institute."}\n\n${textLines(details)}\n\n${scholarshipNote ? `${scholarshipNote}\n\n` : ""}${paymentLine}\n\n${decisionNote}\n\nWith joy in Christ,\nREALMS Institute`;
+  const html = layout(title, `<p>Dear ${escapeHtml(registration.full_name)},</p><p>${type === "payment_deadline_extended" ? "Your conditional admission payment deadline has been extended." : "You have received a conditional admission offer from REALMS Institute."}</p><table style="border-collapse:collapse;width:100%;margin:20px 0">${rows(details)}</table>${scholarshipNote ? `<p>${escapeHtml(scholarshipNote)}</p>` : ""}${options.paymentUrl ? `<p style="margin:24px 0">${securePaymentButton(options.paymentUrl)}</p>` : `<div style="border-left:4px solid #dc2626;background:#fef2f2;padding:16px;margin:20px 0">Your secure payment link is temporarily unavailable. Please contact REALMS Admissions; do not send payment details by email.</div>`}<div style="border-left:4px solid #d7aa45;background:#fff8e6;padding:16px;margin:20px 0"><p style="margin:0">${escapeHtml(decisionNote)}</p></div><p>With joy in Christ,<br><strong>REALMS Institute</strong></p>`);
   return { subject: `REALMS Institute — ${title}`, html, text };
 }
 
