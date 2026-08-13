@@ -30,6 +30,7 @@
     "test:conditional-admission": "node --experimental-strip-types scripts/test-conditional-admission-partial-scholarship.mjs",
     "test:self-pay-continuation": "node --experimental-strip-types scripts/test-self-pay-conditional-admission-continuation.mjs",
     "test:august-operations": "node --experimental-strip-types scripts/test-august-2026-operations.mjs",
+    "test:announcements": "node --experimental-strip-types scripts/test-announcement-recipient-resolution.mjs",
     "test:late-entry-catchup": "node --experimental-strip-types scripts/test-late-entry-catchup.mjs",
     "process:admission-deadlines": "node --env-file=.env.local --experimental-strip-types scripts/process-admission-deadlines.mjs"
   },

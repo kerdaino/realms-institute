@@ -8,5 +8,5 @@ export default async function AdminAnnouncementsPage() {
   await requireAdmin();
   const supabase = requireLmsAdminClient();
   const [announcements, options] = await Promise.all([fetchAdminInstitutionalAnnouncements(supabase), fetchAnnouncementAdminOptions(supabase)]);
-  return <AdminShell title="Announcements" description="Create controlled institutional notices for active students and facilitators, with portal visibility and auditable email delivery."><AnnouncementsManager initialAnnouncements={announcements as never} options={options as never} /></AdminShell>;
+  return <AdminShell title="Announcements" description="Create controlled institutional notices for eligible current and upcoming cohort learners and facilitators, with account-aware portal visibility and auditable email delivery."><AnnouncementsManager initialAnnouncements={announcements as never} options={options as never} /></AdminShell>;
 }
