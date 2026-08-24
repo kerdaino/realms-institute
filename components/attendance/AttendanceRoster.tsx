@@ -68,7 +68,7 @@ export function AttendanceRoster({ sessionId, initialRecord, scope }: { sessionI
     finally { setPending(false); }
   }
 
-  return <div className="space-y-6">
+  return <div className="space-y-6 text-slate-900 [&_button.bg-white]:text-slate-900 [&_button.bg-white:disabled]:opacity-60 [&_input]:text-slate-900 [&_input::placeholder]:text-slate-400 [&_label]:text-slate-700 [&_select]:text-slate-900 [&_textarea]:text-slate-900 [&_textarea::placeholder]:text-slate-400">
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div><h2 className="text-lg font-semibold text-[#071327]">Attendance roster</h2><p className="mt-1 text-sm leading-6 text-slate-600">Required sessions create one idempotent attendance record and one learning-completion record per active course enrolment.</p></div>
       <button type="button" disabled={pending} onClick={initialize} className="min-h-11 rounded-xl bg-[#0b315c] px-5 py-2 text-sm font-semibold text-white disabled:opacity-60">{record.attendance.length ? "Refresh / initialize roster" : "Initialize roster"}</button>
