@@ -11,6 +11,11 @@ type Invite = RecordData["invites"][number];
 
 function object(value: unknown) { return value && typeof value === "object" ? value as Record<string, unknown> : {}; }
 function text(value: unknown) { return typeof value === "string" ? value : null; }
+function lagosTimestampInput(value: string | null | undefined) {
+  if (!value) return "";
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(value)).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
 function localTimestamp(value: string | null | undefined) {
   if (!value) return "";
   const date = new Date(value);
@@ -18,10 +23,15 @@ function localTimestamp(value: string | null | undefined) {
   return new Date(date.valueOf() - offset).toISOString().slice(0, 16);
 }
 function defaultExpiry() {
-  return localTimestamp(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+  const date = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.valueOf() - offset).toISOString().slice(0, 16);
 }
 function isoTimestamp(value: FormDataEntryValue | null) {
   return typeof value === "string" && value ? new Date(value).toISOString() : null;
+}
+function lagosIsoTimestamp(value: FormDataEntryValue | null) {
+  return typeof value === "string" && value ? new Date(`${value}:00+01:00`).toISOString() : null;
 }
 
 export function CohortRecord({ initialRecord }: { initialRecord: RecordData }) {
@@ -31,7 +41,9 @@ export function CohortRecord({ initialRecord }: { initialRecord: RecordData }) {
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setMessage("");
-    const body = Object.fromEntries(new FormData(event.currentTarget));
+    const form = new FormData(event.currentTarget);
+    const body: Record<string, FormDataEntryValue | null> = Object.fromEntries(form);
+    for (const field of ["orientation_start_at", "matriculation_start_at", "graduation_start_at"]) body[field] = lagosIsoTimestamp(form.get(field));
     const response = await fetch(`/api/admin/cohorts/${record.cohort.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const payload = await response.json(); setBusy(false);
     if (!response.ok) return setMessage(payload.message || "Cohort could not be updated.");
@@ -95,13 +107,15 @@ export function CohortRecord({ initialRecord }: { initialRecord: RecordData }) {
   return <div className="space-y-6">
     {message ? <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">{message}</p> : null}
     <div className="grid gap-6 lg:grid-cols-[1.4fr_0.6fr]">
-      <AdminPanel title="Cohort operations">
+      <AdminPanel title="Cohort operations" description="Calendar boundaries are cohort-owned. The completion period is separate from normal teaching weeks, and event times remain unset until an approved time is entered.">
         <form onSubmit={save} className="grid gap-4 md:grid-cols-2">
           <label className="text-sm font-medium">Name<input name="name" defaultValue={record.cohort.name} required className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2" /></label>
           <label className="text-sm font-medium">Status<select name="status" defaultValue={record.cohort.status} className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2">{cohortStatuses.map((item) => <option key={item} value={item}>{humanize(item)}</option>)}</select></label>
           <label className="text-sm font-medium">Academic year<input name="academic_year" defaultValue={record.cohort.academic_year ?? ""} className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2" /></label>
           <label className="text-sm font-medium">Maximum capacity<input name="maximum_capacity" type="number" min="1" defaultValue={record.cohort.maximum_capacity ?? ""} className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2" /></label>
-          {[["start_date", "Start date"], ["end_date", "End date"], ["application_open_date", "Legacy applications open date"], ["application_close_date", "Legacy applications close date"], ["orientation_date", "Orientation"], ["matriculation_date", "Matriculation"], ["graduation_date", "Graduation"]].map(([name, label]) => <label key={name} className="text-sm font-medium">{label}<input name={name} type="date" defaultValue={(record.cohort as unknown as Record<string, string | null>)[name] ?? ""} className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2" /></label>)}
+          {[["start_date", "Programme start"], ["end_date", "Programme end"], ["teaching_start_date", "Teaching start"], ["teaching_end_date", "Teaching end"], ["completion_period_start_date", "Completion / reconciliation starts"], ["completion_period_end_date", "Completion / reconciliation ends"], ["application_open_date", "Legacy applications open date"], ["application_close_date", "Legacy applications close date"], ["orientation_date", "Orientation date"], ["matriculation_date", "Matriculation date"], ["graduation_date", "Graduation date"]].map(([name, label]) => <label key={name} className="text-sm font-medium">{label}<input name={name} type="date" defaultValue={(record.cohort as unknown as Record<string, string | null>)[name] ?? ""} className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2" /></label>)}
+          <label className="text-sm font-medium">Teaching-week count<input name="teaching_week_count" type="number" min="1" max="52" defaultValue={record.cohort.teaching_week_count ?? ""} className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2" /></label>
+          {[["orientation_start_at", "Orientation date & time"], ["matriculation_start_at", "Matriculation date & time"], ["graduation_start_at", "Graduation date & time"]].map(([name, label]) => <label key={name} className="text-sm font-medium">{label}<input name={name} type="datetime-local" defaultValue={lagosTimestampInput((record.cohort as unknown as Record<string, string | null>)[name])} className="mt-1 block w-full rounded-xl border border-slate-300 px-3 py-2" /><span className="mt-1 block text-xs font-normal text-slate-500">Africa/Lagos time. Leave blank if the exact time is not approved.</span></label>)}
           <label className="text-sm font-medium md:col-span-2">Description<textarea name="description" defaultValue={record.cohort.description ?? ""} rows={3} className="mt-1 block w-full rounded-xl border border-slate-300 p-3" /></label>
           <label className="text-sm font-medium md:col-span-2">Internal notes<textarea name="internal_notes" defaultValue={record.cohort.internal_notes ?? ""} rows={3} className="mt-1 block w-full rounded-xl border border-slate-300 p-3" /></label>
           <button disabled={busy} className="rounded-xl bg-[#071327] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 md:col-span-2">Save cohort</button>

@@ -18,7 +18,7 @@ assert.equal(scholarshipFinancialSummary({ normalFee: 15_000, scholarshipStatus:
 assert.match(conditionalAdmission, /conditionalAdmissionDeadlineDays = 14/);
 assert.match(conditionalAdmission, /assigned_discipleship_route/);
 assert.match(conditionalAdmission, /registrationFinancialSummary/);
-assert.match(conditionalAdmission, /august2026ClassStartAt = "2026-08-17T00:00:00\+01:00"/);
+assert.match(conditionalAdmission, /august2026ClassStartAt = "2026-08-24T00:00:00\+01:00"/);
 assert.ok(applicationStatuses.includes("conditional_admission_payment_outstanding"));
 assert.ok(applicationStatuses.includes("admission_offer_lapsed_payment_outstanding"));
 assert.match(statusRoute, /conditionalAdmissionEligibility/);
@@ -32,10 +32,10 @@ assert.match(provisioning, /isFinancialRequirementSatisfied/);
 assert.match(deadlineScript, /process\.argv\.includes\("--apply"\)/);
 assert.match(deadlineScript, /ADMISSION_DEADLINES_APPLY/);
 
-assert.deepEqual(august2026CohortDates, { startDate: "2026-08-17", endDate: "2026-10-18", orientationDate: "2026-08-14", matriculationDate: "2026-08-16", finalCompletionStartDate: "2026-10-12", finalCompletionEndDate: "2026-10-17", graduationDate: "2026-10-18", graduationTime: null });
-assert.equal(august2026Sessions.length, 80);
-assert.equal(august2026Sessions.find((session) => session.courseCode === "RSD-WEB 101")?.scheduledStartAt, "2026-08-17T14:30:00.000Z");
-assert.equal(august2026Sessions.find((session) => session.courseCode === "RSD-CYB 101")?.scheduledStartAt, "2026-08-19T14:30:00.000Z");
+assert.deepEqual(august2026CohortDates, { startDate: "2026-08-24", endDate: "2026-10-18", teachingStartDate: "2026-08-24", teachingEndDate: "2026-10-11", teachingWeekCount: 7, orientationDate: "2026-08-21", orientationStartAt: null, matriculationDate: "2026-08-23", matriculationStartAt: null, finalCompletionStartDate: "2026-10-12", finalCompletionEndDate: "2026-10-17", graduationDate: "2026-10-18", graduationStartAt: null });
+assert.equal(august2026Sessions.length, 73);
+assert.equal(august2026Sessions.find((session) => session.courseCode === "RSD-WEB 101")?.scheduledStartAt, "2026-08-24T14:30:00.000Z");
+assert.equal(august2026Sessions.find((session) => session.courseCode === "RSD-CYB 101")?.scheduledStartAt, "2026-08-26T14:30:00.000Z");
 assert.equal(august2026CohortEvents[1].scheduledStartAt, null);
 
 assert.equal(normalizeRecipientEmail(" Person@Example.COM "), "person@example.com");

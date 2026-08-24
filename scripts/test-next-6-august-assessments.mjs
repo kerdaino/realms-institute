@@ -46,6 +46,8 @@ check("web covers every skill category", () => assert.equal(new Set(byRoute("web
 check("cyber covers every skill category", () => assert.equal(new Set(byRoute("cyber").map((item) => item.assessmentCategory)).size, 5));
 check("final route shells are graduation mappings", () => assert.ok(august2026AssessmentShells.filter((item) => item.assessmentCategory === "final_route_assessment").every((item) => item.requiredForGraduation)));
 check("both capstones are graduation mappings", () => { const capstones = august2026AssessmentShells.filter((item) => item.assessmentCategory === "capstone"); assert.equal(capstones.length, 2); assert.ok(capstones.every((item) => item.requiredForGraduation)); });
+check("compressed final shells are labelled week seven", () => { for (const code of ["RSD-DIS 108", "RSD-WEB 108", "RSD-CYB 108"]) assert.match(august2026AssessmentShells.find((item) => item.courseCode === code).title, /^Week 7/); assert.match(august2026AssessmentShells.find((item) => item.courseCode === "RSD-ADV 205" && item.assessmentCategory === "final_route_assessment").title, /^Week 7/); });
+check("existing stable assessment identifiers are preserved", () => assert.equal(august2026AssessmentShells.filter((item) => item.stableId).length, 4));
 check("web capstone uses realistic URL evidence", () => { const item = august2026AssessmentShells.find((shell) => shell.courseCode === "RSD-WEB 190"); assert.equal(item.submissionRequirements.repository_url_required, true); assert.equal(item.submissionRequirements.deployment_url_required, true); });
 check("cyber shells preserve authorised scope", () => assert.ok(byRoute("cyber").every((item) => /approved|authorised|professional|workflow|scope/i.test(item.evidencePurpose))));
 check("cyber capstone bans unsafe targets", () => assert.match(august2026AssessmentShells.find((item) => item.courseCode === "RSD-CYB 190").evidencePurpose, /No real-world target, malware sample or unsafe executable/));
@@ -53,6 +55,7 @@ check("file submission stays optional and private", () => { assert.ok(august2026
 check("seed is dry-run first and double-confirmed", () => { assert.match(seed, /process\.argv\.includes\("--apply"\)/); assert.match(seed, /NEXT_6_APPLY/); assert.match(seed, /mode: apply \? "apply" : "dry-run"/); });
 check("stable deterministic IDs prevent duplicates", () => { assert.match(seed, /stableUuid/); assert.match(seed, /same_offering_title_has_different_id/); });
 check("seed never creates courses or offerings", () => { assert.doesNotMatch(seed, /from\("courses"\)\.insert/); assert.doesNotMatch(seed, /from\("cohort_courses"\)\.insert/); });
+check("only drafts can receive controlled label updates", () => { assert.match(seed, /draftAssignmentUpdates/); assert.match(seed, /publishedOrNonDraftAdminReviews/); assert.match(seed, /eq\("assignment_status", "draft"\)/); assert.match(seed, /publishedAssessmentsMovedAutomatically: 0/); });
 check("students query published assessments only", () => { assert.match(studentData, /eq\("assignment_status", "published"\)/); assert.match(studentData, /eq\("quiz_status", "published"\)/); });
 check("content readiness is visible to academic managers", () => { assert.match(assessmentData, /content_readiness/); assert.match(assessmentData, /CONTENT PENDING FACILITATOR TEACHING/); });
 check("facilitator assignment creation remains assigned-course scoped", () => { assert.match(facilitatorAssignments, /context\.offeringIds\.includes/); assert.match(facilitatorAssignments, /saveAssignment/); });
@@ -61,5 +64,5 @@ check("facilitator questions stay assigned and draft-only", () => { assert.match
 check("attendance remains outside assessment mappings", () => assert.ok(august2026AssessmentShells.every((item) => item.assessmentDomain !== "engagement")));
 check("results preserve independent gates", () => { assert.match(results, /discipleship_gate_points/); assert.match(results, /skill_gate_points/); assert.match(results, /engagement_gate_points/); assert.match(results, /capstone_defence_gate_met/); });
 
-assert.equal(passed, 33);
+assert.equal(passed, 36);
 console.log(`NEXT 6 August assessment framework checks passed (${passed}).`);

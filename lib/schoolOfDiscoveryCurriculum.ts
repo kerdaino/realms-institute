@@ -91,8 +91,8 @@ export const advancedDiscipleshipCourses = [
   { code: "RSD-ADV 201", title: "Marriage, Relationships and Family Life", delivery: "Weeks 1–2" },
   { code: "RSD-ADV 202", title: "Marketplace Ministry and Kingdom Influence", delivery: "Week 3" },
   { code: "RSD-ADV 203", title: "Ministry, Priesthood and Church Service", delivery: "Weeks 4–5" },
-  { code: "RSD-ADV 204", title: "Biblical Principles of Counselling", delivery: "Weeks 6–7" },
-  { code: "RSD-ADV 205", title: "Christian Philosophy and Critical Thinking", delivery: "Week 8" },
+  { code: "RSD-ADV 204", title: "Biblical Principles of Counselling", delivery: "Week 6" },
+  { code: "RSD-ADV 205", title: "Christian Philosophy and Critical Thinking", delivery: "Week 7 + final integration" },
 ] as const satisfies readonly PublicCourse[];
 
 export const webDevelopmentCourses = [
@@ -103,7 +103,7 @@ export const webDevelopmentCourses = [
   { code: "RSD-WEB 105", title: "JavaScript Fundamentals", delivery: "Week 5" },
   { code: "RSD-WEB 106", title: "DOM, Events, Forms and Validation", delivery: "Week 6" },
   { code: "RSD-WEB 107", title: "Git, GitHub, Deployment and Client Workflow", delivery: "Week 7" },
-  { code: "RSD-WEB 108", title: "Time Management, Focus and Kingdom Stewardship for Developers", delivery: "Week 8" },
+  { code: "RSD-WEB 108", title: "Time Management, Focus and Kingdom Stewardship for Developers", delivery: "Week 7" },
   { code: "RSD-WEB 190", title: "Integrated Web Development Capstone", delivery: "Integrated capstone" },
 ] as const satisfies readonly PublicCourse[];
 
@@ -115,7 +115,7 @@ export const cybersecurityCourses = [
   { code: "RSD-CYB 105", title: "System Hardening and Network Security", delivery: "Week 5" },
   { code: "RSD-CYB 106", title: "Approved-Lab Reconnaissance and Vulnerability Assessment", delivery: "Week 6" },
   { code: "RSD-CYB 107", title: "Incident Response and Security Reporting", delivery: "Week 7" },
-  { code: "RSD-CYB 108", title: "Time Management, Focus and Professional Discipline", delivery: "Week 8" },
+  { code: "RSD-CYB 108", title: "Time Management, Focus and Professional Discipline", delivery: "Week 7" },
   { code: "RSD-CYB 190", title: "Integrated Cybersecurity Foundations Capstone", delivery: "Integrated capstone" },
 ] as const satisfies readonly PublicCourse[];
 

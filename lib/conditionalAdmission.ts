@@ -2,7 +2,7 @@ import { registrationFinancialSummary } from "@/lib/scholarshipFinance";
 
 export const conditionalAdmissionStatus = "conditional_admission_payment_outstanding" as const;
 export const lapsedConditionalAdmissionStatus = "admission_offer_lapsed_payment_outstanding" as const;
-export const august2026ClassStartAt = "2026-08-17T00:00:00+01:00";
+export const august2026ClassStartAt = "2026-08-24T00:00:00+01:00";
 export const conditionalAdmissionDeadlineDays = 14;
 
 export type ConditionalAdmissionFinancialRecord = {

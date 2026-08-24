@@ -86,9 +86,10 @@ async function attendanceById(supabase: SupabaseClient, id: string) {
 }
 
 export async function ensureSessionAttendanceRoster(supabase: SupabaseClient, sessionId: string, actor: AttendanceActor) {
-  const sessionResult = await supabase.from("class_sessions").select("id, cohort_course_id, is_required, title, scheduled_start_at, scheduled_end_at").eq("id", sessionId).maybeSingle();
+  const sessionResult = await supabase.from("class_sessions").select("id, cohort_course_id, is_required, session_status, title, scheduled_start_at, scheduled_end_at").eq("id", sessionId).maybeSingle();
   if (sessionResult.error) throw new LmsAdminDataError("Class session could not be loaded.");
   if (!sessionResult.data) throw new LmsAdminDataError("Class session not found.", 404);
+  if (sessionResult.data.session_status === "cancelled") return { created: 0, eligible: 0, lateEntryExcluded: 0, optionalSession: false, cancelledSession: true };
   if (!sessionResult.data.is_required) return { created: 0, eligible: 0, optionalSession: true };
 
   const enrollmentResult = await supabase

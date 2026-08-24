@@ -44,6 +44,11 @@ export type Cohort = {
   programme: string | null;
   start_date: string | null;
   end_date: string | null;
+  teaching_start_date: string | null;
+  teaching_end_date: string | null;
+  teaching_week_count: number | null;
+  completion_period_start_date: string | null;
+  completion_period_end_date: string | null;
   status: string;
   maximum_capacity: number | null;
   academic_year: string | null;
@@ -54,8 +59,11 @@ export type Cohort = {
   registration_closes_at: string | null;
   is_public_registration_cohort: boolean;
   orientation_date: string | null;
+  orientation_start_at: string | null;
   matriculation_date: string | null;
+  matriculation_start_at: string | null;
   graduation_date: string | null;
+  graduation_start_at: string | null;
   description: string | null;
   internal_notes: string | null;
   created_at: string;

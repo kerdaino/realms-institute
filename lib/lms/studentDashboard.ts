@@ -88,7 +88,7 @@ export type StudentResource = {
 
 type DashboardStudent = Pick<Student, "id" | "student_number" | "legal_name" | "preferred_name" | "email" | "phone" | "country" | "city" | "student_status" | "onboarding_status" | "orientation_completed_at" | "matriculated_at">;
 type DashboardEnrollment = Pick<StudentEnrollment, "id" | "cohort_id" | "discipleship_route" | "skill_pathway" | "skill_learning_mode" | "enrolment_status" | "enrolled_at"> & { academic_standing: string };
-type DashboardCohort = Pick<Cohort, "id" | "code" | "name" | "school" | "programme" | "orientation_date" | "matriculation_date">;
+type DashboardCohort = Pick<Cohort, "id" | "code" | "name" | "school" | "programme" | "orientation_date" | "orientation_start_at" | "matriculation_date" | "matriculation_start_at">;
 type DashboardProfile = Pick<Profile, "id" | "full_name" | "preferred_name" | "email" | "phone" | "avatar_url" | "account_status">;
 
 export type StudentDashboardData = {
@@ -259,7 +259,7 @@ async function loadStudentDashboardData(profileId: string, options: LoadOptions 
   if (!enrollment) return base;
 
   const [cohortResult, courseEnrollmentResult] = await Promise.all([
-    supabase.from("cohorts").select("id, code, name, school, programme, orientation_date, matriculation_date").eq("id", enrollment.cohort_id).maybeSingle(),
+    supabase.from("cohorts").select("id, code, name, school, programme, orientation_date, orientation_start_at, matriculation_date, matriculation_start_at").eq("id", enrollment.cohort_id).maybeSingle(),
     supabase.from("course_enrollments").select("id, enrollment_status, delivery_route, cohort_courses(id, delivery_mode, schedule_text, courses(id, code, title, course_category, discipleship_route, skill_pathway, sequence_number))").eq("student_enrollment_id", enrollment.id).in("enrollment_status", ["active", "enrolled"]),
   ]);
   reportFailure("cohort lookup", cohortResult.error);

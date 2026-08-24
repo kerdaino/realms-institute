@@ -89,8 +89,8 @@ export default async function DiscoveryPage() {
               <div className="grid gap-10 lg:grid-cols-[0.82fr_1.18fr]">
                 <div>
                   <RouteBadge>Advanced Discipleship</RouteBadge>
-                  <h3 className="mt-5 text-3xl font-semibold">One complete eight-week advanced route.</h3>
-                  <p className="mt-5 leading-8 text-white/75">The Advanced Discipleship Programme is one complete eight-week route. Eligible students complete all five advanced courses; students do not select one advanced elective.</p>
+                  <h3 className="mt-5 text-3xl font-semibold">One complete advanced route.</h3>
+                  <p className="mt-5 leading-8 text-white/75">For the August 2026 cohort, the complete Advanced Discipleship Programme is delivered across seven teaching weeks. Eligible students complete all five advanced courses plus the required integration and final assessment; students do not select one advanced elective.</p>
                   <div className="mt-7 rounded-2xl border border-white/10 bg-[#050d1c]/50 p-5">
                     <p className="font-semibold text-[var(--realm-gold-soft)]">Eligibility for consideration</p>
                     <ul className="mt-4 grid gap-3 text-sm leading-6 text-white/70">
@@ -115,7 +115,7 @@ export default async function DiscoveryPage() {
               <div className="border-b border-slate-200 bg-[#071327] p-6 text-white md:p-10">
                 <div className="flex items-center gap-3 text-[var(--realm-gold-soft)]">
                   {pathway.id === "web-development" ? <Laptop aria-hidden="true" className="size-6" /> : <ShieldCheck aria-hidden="true" className="size-6" />}
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em]">Eight-Week Skill Pathway</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em]">Seven Teaching Weeks + Final Completion Period</p>
                 </div>
                 <h3 className="mt-5 text-3xl font-semibold md:text-4xl">{pathway.title}</h3>
                 <p className="mt-3 text-lg font-medium text-white/85">{pathway.subtitle}</p>
@@ -175,7 +175,7 @@ export default async function DiscoveryPage() {
 
       <section aria-labelledby="schedule-title" className="bg-white px-5 py-20 md:px-8 md:py-28">
         <div className="mx-auto max-w-7xl">
-          <SectionIntro id="schedule-title" eyebrow="August 2026 Schedule" title="A clear weekly rhythm" description="Physical/Online learning-mode selection applies to the practical skill pathway. Discipleship sessions are delivered online according to the student's approved discipleship route." />
+          <SectionIntro id="schedule-title" eyebrow="August 2026 Schedule" title="Seven teaching weeks, with standards preserved" description="Teaching runs 24 August–11 October 2026. The separate 12–17 October final completion, assessment, capstone, catch-up and reconciliation period is not a normal teaching week. Graduation remains 18 October, subject to every published eligibility gate." />
           <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             {programmeSchedules.map((schedule) => <ScheduleCard key={schedule.title} {...schedule} />)}
           </div>

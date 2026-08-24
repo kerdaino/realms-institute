@@ -67,7 +67,7 @@ for (const item of august2026AssessmentShells) {
 const desiredAssignments = august2026AssessmentShells.filter((item) => item.assessmentKind === "assignment").map((item) => ({
   config: item,
   row: {
-    id: stableUuid(`assignment:${item.stableKey}`),
+    id: item.stableId ?? stableUuid(`assignment:${item.stableKey}`),
     cohort_course_id: offeringByCode.get(item.courseCode).id,
     class_session_id: null,
     title: item.title,
@@ -89,7 +89,7 @@ const desiredAssignments = august2026AssessmentShells.filter((item) => item.asse
 const desiredQuizzes = august2026AssessmentShells.filter((item) => item.assessmentKind === "quiz").map((item) => ({
   config: item,
   row: {
-    id: stableUuid(`quiz:${item.stableKey}`),
+    id: item.stableId ?? stableUuid(`quiz:${item.stableKey}`),
     cohort_course_id: offeringByCode.get(item.courseCode).id,
     class_session_id: null,
     title: item.title,
@@ -122,12 +122,21 @@ const existingByOfferingTitle = new Map(existingAssignmentResult.data.map((item)
 const assignmentConflicts = [];
 const missingAssignments = [];
 const existingManagedAssignments = [];
+const draftAssignmentUpdates = [];
+const publishedAssignmentReviews = [];
 for (const desired of desiredAssignments) {
   const byId = existingById.get(desired.row.id);
   const byTitle = existingByOfferingTitle.get(`${desired.row.cohort_course_id}:${desired.row.title}`);
   if (byId && byId.cohort_course_id !== desired.row.cohort_course_id) assignmentConflicts.push({ stableKey: desired.config.stableKey, id: desired.row.id, issue: "stable_id_used_by_other_offering" });
   else if (byTitle && byTitle.id !== desired.row.id) assignmentConflicts.push({ stableKey: desired.config.stableKey, id: byTitle.id, issue: "same_offering_title_has_different_id" });
-  else if (byId) existingManagedAssignments.push({ id: byId.id, title: byId.title, status: byId.assignment_status });
+  else if (byId) {
+    existingManagedAssignments.push({ id: byId.id, title: byId.title, desiredTitle: desired.row.title, status: byId.assignment_status, dueAt: byId.due_at });
+    if (byId.title !== desired.row.title || byId.description !== desired.row.description || byId.instructions !== desired.row.instructions) {
+      const change = { desired, current: byId, changes: { title: desired.row.title, description: desired.row.description, instructions: desired.row.instructions } };
+      if (byId.assignment_status === "draft") draftAssignmentUpdates.push(change);
+      else publishedAssignmentReviews.push({ id: byId.id, courseCode: desired.config.courseCode, currentTitle: byId.title, desiredTitle: desired.row.title, status: byId.assignment_status, dueAt: byId.due_at, action: "Admin review required; this script will not change a non-draft assessment." });
+    }
+  }
   else missingAssignments.push(desired);
 }
 
@@ -156,8 +165,9 @@ const desiredRubrics = desiredAssignments.flatMap(({ config, row }) => august202
 const rubricResult = await supabase.from("assignment_rubric_criteria").select("*").in("assignment_id", assignmentIds);
 if (rubricResult.error) throw new Error(`Rubric inventory: ${rubricResult.error.message}`);
 const rubricById = new Map(rubricResult.data.map((item) => [item.id, item]));
+const rubricByAssignmentContent = new Map(rubricResult.data.map((item) => [`${item.assignment_id}:${item.sort_order}:${item.criterion}`, item]));
 const rubricConflicts = desiredRubrics.filter((item) => rubricById.has(item.id) && rubricById.get(item.id).assignment_id !== item.assignment_id).map((item) => ({ id: item.id, issue: "stable_rubric_id_used_by_other_assignment" }));
-const missingRubrics = desiredRubrics.filter((item) => !rubricById.has(item.id));
+const missingRubrics = desiredRubrics.filter((item) => !rubricById.has(item.id) && !rubricByAssignmentContent.has(`${item.assignment_id}:${item.sort_order}:${item.criterion}`));
 
 const desiredWeights = [...desiredAssignments.map((item) => ({ ...item, assessmentType: "assignment" })), ...desiredQuizzes.map((item) => ({ ...item, assessmentType: "quiz" }))].map(({ config, row, assessmentType }) => {
   const category = categoryByCode.get(config.assessmentCategory);
@@ -184,8 +194,8 @@ const report = {
   cohort: { id: cohort.id, code: cohort.code },
   governingPolicy: { discipleship: 40, skill: 45, attendanceParticipationIntegrity: 15, overallGate: 60, discipleshipGate: 20, skillGate: 23, engagementGate: 8 },
   shells: { ...august2026AssessmentCounts(), total: august2026AssessmentShells.length, assignmentShells: desiredAssignments.length, quizShells: desiredQuizzes.length, detailedQuestionsCreated: 0, status: "draft" },
-  preparation: { existingManagedAssignments: existingManagedAssignments.length, existingManagedQuizzes: existingManagedQuizzes.length, missingAssignments: missingAssignments.length, missingQuizzes: missingQuizzes.length, missingRubricCriteria: missingRubrics.length, missingInactiveWeightMappings: missingWeights.length, assignmentConflicts, quizConflicts, rubricConflicts },
-  publishing: { studentVisible: false, contentPending: true, weightingCountsTowardResult: false, weightingActive: false },
+  preparation: { existingManagedAssignments: existingManagedAssignments.length, existingManagedQuizzes: existingManagedQuizzes.length, existingAssignmentStatuses: Object.fromEntries([...new Set(existingManagedAssignments.map((item) => item.status))].map((status) => [status, existingManagedAssignments.filter((item) => item.status === status).length])), draftAssignmentUpdates: draftAssignmentUpdates.map((item) => ({ id: item.current.id, courseCode: item.desired.config.courseCode, currentTitle: item.current.title, desiredTitle: item.desired.row.title, dueAtUnchanged: item.current.due_at })), publishedOrNonDraftAdminReviews: publishedAssignmentReviews, missingAssignments: missingAssignments.length, missingQuizzes: missingQuizzes.length, missingRubricCriteria: missingRubrics.length, missingInactiveWeightMappings: missingWeights.length, assignmentConflicts, quizConflicts, rubricConflicts },
+  publishing: { studentVisible: existingManagedAssignments.some((item) => item.status === "published") || existingManagedQuizzes.some((item) => item.status === "published"), contentPending: true, weightingCountsTowardResult: false, weightingActive: false, publishedAssessmentsMovedAutomatically: 0 },
   catalogue: { offeringsReused: offeringResult.data.length, offeringsCreated: 0, missingOfferings, missingCategories },
 };
 
@@ -195,6 +205,12 @@ if (!apply) {
   if (conflicts.length) process.exitCode = 2;
 } else {
   if (conflicts.length) throw new Error(`Assessment records require manual review before setup: ${JSON.stringify(conflicts)}`);
+  for (const item of draftAssignmentUpdates) {
+    const updated = await supabase.from("assignments").update(item.changes).eq("id", item.current.id).eq("assignment_status", "draft").eq("title", item.current.title).select("id").maybeSingle();
+    if (updated.error || !updated.data) throw new Error(`${item.desired.config.courseCode} draft changed during the controlled update.`);
+    const audit = await supabase.from("audit_logs").insert({ action: "assignment_updated", entity_type: "assignment", entity_id: item.current.id, metadata: { previous_title: item.current.title, title: item.desired.row.title, due_at_unchanged: item.current.due_at, source: "august_2026_seven_teaching_week_revision" } });
+    if (audit.error) throw new Error(`Assignment update audit: ${audit.error.message}`);
+  }
   const createdAssignmentIds = [];
   for (const desired of missingAssignments) {
     const inserted = await supabase.from("assignments").insert(desired.row).select("id").single();
@@ -219,5 +235,5 @@ if (!apply) {
     const inserted = await supabase.from("assessment_weightings").insert(missingWeights);
     if (inserted.error) throw new Error(`Inactive weight mappings: ${inserted.error.message}`);
   }
-  console.log(JSON.stringify({ ...report, applied: { assignmentsCreated: createdAssignmentIds.length, quizzesCreated: createdQuizIds.length, rubricCriteriaCreated: missingRubrics.length, inactiveWeightMappingsCreated: missingWeights.length, questionsCreated: 0, publishedAssessments: 0 } }, null, 2));
+  console.log(JSON.stringify({ ...report, applied: { draftAssignmentsUpdated: draftAssignmentUpdates.length, publishedAssignmentsUpdated: 0, assignmentsCreated: createdAssignmentIds.length, quizzesCreated: createdQuizIds.length, rubricCriteriaCreated: missingRubrics.length, inactiveWeightMappingsCreated: missingWeights.length, questionsCreated: 0, publishedAssessments: 0 } }, null, 2));
 }

@@ -128,8 +128,8 @@ export default async function StudentDashboardPage() {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <DataCard label="Portal Access" value={lifecycle.portalAccess} />
             <DataCard label="Student Handbook" value={lifecycle.handbook} detail={handbookState.acknowledgement ? formatStudentDate(handbookState.acknowledgement.acknowledged_at) : undefined} />
-            <DataCard label="Orientation" value={lifecycle.orientation} detail={data.student.orientation_completed_at ? formatStudentDate(data.student.orientation_completed_at) : data.cohort?.orientation_date ? `Scheduled: ${formatStudentDate(data.cohort.orientation_date)}` : undefined} />
-            <DataCard label="Matriculation" value={lifecycle.matriculation} detail={data.student.matriculated_at ? formatStudentDate(data.student.matriculated_at) : data.cohort?.matriculation_date ? `Scheduled: ${formatStudentDate(data.cohort.matriculation_date)}` : undefined} />
+            <DataCard label="Orientation" value={lifecycle.orientation} detail={data.student.orientation_completed_at ? formatStudentDate(data.student.orientation_completed_at) : data.cohort?.orientation_start_at ? `Scheduled: ${formatStudentDate(data.cohort.orientation_start_at)}` : data.cohort?.orientation_date ? `Date: ${formatStudentDate(data.cohort.orientation_date)} · Time not yet configured` : undefined} />
+            <DataCard label="Matriculation" value={lifecycle.matriculation} detail={data.student.matriculated_at ? formatStudentDate(data.student.matriculated_at) : data.cohort?.matriculation_start_at ? `Scheduled: ${formatStudentDate(data.cohort.matriculation_start_at)}` : data.cohort?.matriculation_date ? `Date: ${formatStudentDate(data.cohort.matriculation_date)} · Time not yet configured` : undefined} />
           </div>
         </StudentPanel>
         <StudentPanel title="Next Actions" description="Based on the learning information currently available.">
