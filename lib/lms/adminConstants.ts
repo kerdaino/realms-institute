@@ -8,11 +8,11 @@ export const sessionTypes = ["teaching", "prayer", "q_and_a", "practical", "revi
 export const sessionDeliveryModes = ["online", "physical", "hybrid", "recorded_primary"] as const;
 export const sessionStatuses = ["scheduled", "live", "completed", "cancelled", "rescheduled"] as const;
 export const sessionVisibilityStatuses = ["enrolled_only", "facilitators_only", "admin_only"] as const;
-export const summaryStatuses = ["draft", "published", "archived"] as const;
+export const summaryStatuses = ["draft", "submitted", "changes_requested", "approved", "published", "archived", "superseded"] as const;
 export const resourceTypes = ["slides", "document", "worksheet", "link", "scripture_reference", "code_repository", "download", "other"] as const;
 export const sessionAccessLevels = ["enrolled_students", "facilitators_only", "alumni_archive", "admin_only"] as const;
 export const recordingProviders = ["zoom", "vimeo", "youtube_unlisted", "other"] as const;
-export const recordingStatuses = ["processing", "available", "unavailable", "archived"] as const;
+export const recordingStatuses = ["draft", "processing", "available", "unavailable", "archived"] as const;
 
 export function isOneOf<T extends readonly string[]>(values: T, value: unknown): value is T[number] {
   return typeof value === "string" && (values as readonly string[]).includes(value);

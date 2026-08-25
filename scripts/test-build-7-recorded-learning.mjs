@@ -1,6 +1,24 @@
 import assert from "node:assert/strict";
 
 import { creditedPlaybackSegment, evaluateRecordedRequirements, mergeWatchedSegments, providerTrackingMode, resolveRecordingProgressProvider, resolveRecordingRequirementSnapshot, uniqueWatchedSeconds, watchPercentage } from "../lib/lms/recording.ts";
+import { formatRecordingTime, formatRequiredCheckpoints, formatRequirementHours, parseRecordingTime } from "../lib/lms/recordingTime.ts";
+
+assert.deepEqual(parseRecordingTime("02:00:00"), { ok: true, seconds: 7200 });
+assert.deepEqual(parseRecordingTime("01:35:00"), { ok: true, seconds: 5700 });
+assert.deepEqual(parseRecordingTime("45:00"), { ok: true, seconds: 2700 });
+assert.deepEqual(parseRecordingTime("60:00"), { ok: true, seconds: 3600 });
+assert.deepEqual(parseRecordingTime(""), { ok: true, seconds: null });
+assert.equal(parseRecordingTime("01:75:00").ok, false);
+assert.equal(parseRecordingTime("00:60").ok, false);
+assert.equal(parseRecordingTime("1:2").ok, false);
+assert.equal(parseRecordingTime("90").ok, false);
+assert.equal(formatRecordingTime(5700), "01:35:00");
+assert.equal(formatRecordingTime(2700), "00:45:00");
+assert.equal(formatRecordingTime("7200"), "02:00:00");
+assert.equal(formatRequirementHours(72), "Complete within 72 hours");
+assert.equal(formatRequiredCheckpoints(2), "2 required checkpoints");
+assert.equal(formatRequiredCheckpoints(1), "1 required checkpoint");
+assert.equal(formatRequiredCheckpoints(0), "No checkpoints required");
 
 const merged = mergeWatchedSegments([{ start: 0, end: 40 }, { start: 20, end: 60 }, { start: 75, end: 90 }, { start: 90, end: 100 }]);
 assert.deepEqual(merged, [{ start: 0, end: 60 }, { start: 75, end: 100 }]);
@@ -42,4 +60,4 @@ assert.deepEqual(resolveRecordingRequirementSnapshot(null), { status: "legacy", 
 assert.deepEqual(resolveRecordingRequirementSnapshot({}), { status: "legacy", requirements: null });
 assert.deepEqual(resolveRecordingRequirementSnapshot({ minWatchPercentage: 85, deadlineHours: 72 }), { status: "legacy", requirements: null });
 
-console.log(JSON.stringify({ segmentMerge: "passed", elapsedTimeCap: "passed", providerModes: "passed", evaluatorCases: 10, requirementSnapshotCases: 4, passed: 28 }, null, 2));
+console.log(JSON.stringify({ timeAuthoringCases: 16, segmentMerge: "passed", elapsedTimeCap: "passed", providerModes: "passed", evaluatorCases: 10, requirementSnapshotCases: 4, passed: 44 }, null, 2));

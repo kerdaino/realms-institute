@@ -2,13 +2,71 @@ export const recordingPurposeCodes = ["REV", "RP", "DR-E", "MU-E", "MU-U", "LE-C
 export type RecordingPurposeCode = (typeof recordingPurposeCodes)[number];
 
 export const recordingPurposeLabels: Record<RecordingPurposeCode, string> = {
-  REV: "Revision",
-  RP: "Recorded Primary",
-  "DR-E": "Recorded Discipleship Exception",
-  "MU-E": "Excused Make-Up",
-  "MU-U": "Unapproved Make-Up",
+  REV: "General Replay / Revision",
+  RP: "Official Recorded Attendance",
+  "DR-E": "Official Recorded Attendance",
+  "MU-E": "Approved Absence Make-Up",
+  "MU-U": "Required Absence Make-Up",
   "LE-C": "Late Entry Catch-Up",
 };
+
+export const recordingPurposeStudentCopy: Record<RecordingPurposeCode, { heading: string; description: string }> = {
+  REV: {
+    heading: "Available for review",
+    description: "This replay is for learning and revision. Watching it does not change attendance or satisfy a separate make-up requirement.",
+  },
+  RP: {
+    heading: "Required Recorded Session",
+    description: "Completion contributes to your official recorded-attendance evidence after every required learning check is verified.",
+  },
+  "DR-E": {
+    heading: "Required Recorded Session",
+    description: "Completion contributes to your official recorded-attendance evidence after every required learning check is verified.",
+  },
+  "MU-E": {
+    heading: "Approved Make-Up Requirement",
+    description: "Your original excused-absence record remains unchanged. Complete this learning requirement and its evidence by the stated deadline.",
+  },
+  "MU-U": {
+    heading: "Required Make-Up Learning",
+    description: "Your original attendance record remains unchanged. Complete the assigned learning evidence by the stated deadline.",
+  },
+  "LE-C": {
+    heading: "Late Entry Catch-Up",
+    description: "Complete the assigned learning evidence for teaching delivered before your enrolment became active.",
+  },
+};
+
+export type RecordingEvidenceReadiness = { ready: boolean; reasons: string[] };
+
+function secureRecordingUrl(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return false;
+  try { return new URL(value).protocol === "https:"; }
+  catch { return false; }
+}
+
+/**
+ * Evidence-bearing assignments require a stronger gate than ordinary replay.
+ * Manual providers may be reviewed by staff, while Vimeo automation additionally
+ * needs a supported embed and duration for trustworthy watch calculations.
+ */
+export function recordingEvidenceReadiness(recording: Record<string, unknown>): RecordingEvidenceReadiness {
+  const reasons: string[] = [];
+  const provider = typeof recording.provider === "string" ? recording.provider : "";
+  const external = secureRecordingUrl(recording.external_url);
+  const embed = secureRecordingUrl(recording.embed_url);
+  if (recording.recording_status !== "available") reasons.push("recording_not_available");
+  if (recording.access_level !== "enrolled_students") reasons.push("not_available_to_enrolled_students");
+  if (recording.quality_checked !== true) reasons.push("quality_check_required");
+  if (typeof recording.title !== "string" || !recording.title.trim()) reasons.push("title_required");
+  if (typeof recording.recording_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(recording.recording_date) || Number.isNaN(Date.parse(`${recording.recording_date}T00:00:00Z`))) reasons.push("recording_date_required");
+  if (!external && !embed) reasons.push("secure_source_required");
+  if (!['zoom', 'vimeo', 'youtube_unlisted', 'other'].includes(provider)) reasons.push("valid_provider_required");
+  if (provider === "vimeo") {
+    if (providerTrackingMode(provider, typeof recording.embed_url === "string" ? recording.embed_url : null, typeof recording.duration_seconds === "number" ? recording.duration_seconds : null) !== "automated") reasons.push("vimeo_embed_and_duration_required");
+  }
+  return { ready: reasons.length === 0, reasons };
+}
 
 export const recordingRequirementTypes = ["watch", "checkpoints", "quiz", "practical", "reflection", "oral_verification"] as const;
 export type RecordingRequirementType = (typeof recordingRequirementTypes)[number];

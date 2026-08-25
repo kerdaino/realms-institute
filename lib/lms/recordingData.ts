@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { LmsAdminDataError } from "@/lib/lms/adminData";
-import { providerTrackingMode, recordingPurposeLabels, resolveEffectiveRecordingRequirements, type RecordingPurposeCode } from "@/lib/lms/recording";
+import { providerTrackingMode, recordingEvidenceReadiness, recordingPurposeLabels, resolveEffectiveRecordingRequirements, type RecordingPurposeCode } from "@/lib/lms/recording";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 function object(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -123,6 +123,112 @@ export async function getStudentRecordingAssignment(profileId: string, assignmen
 
 export type RecordingDashboardFilters = { cohort?: string; course?: string; student?: string; purpose?: string; learningStatus?: string; recordingStatus?: string; deadlineFrom?: string; deadlineTo?: string; overdue?: string; integrityStatus?: string };
 
+export const recordingQueueLabels = {
+  missing_recording: "Missing Recording",
+  draft: "Draft",
+  needs_quality_check: "Needs Quality Check",
+  available: "Available",
+  awaiting_recorded_attendance: "Students Awaiting Recorded Attendance",
+  recorded_attendance_in_progress: "Recorded Attendance In Progress",
+  pending_recorded_verification: "Pending Recorded Verification",
+  approved_makeup_awaiting_recording: "Approved Make-Up Awaiting Recording",
+  makeup_in_progress: "Make-Up In Progress",
+  integrity_review: "Integrity Review Required",
+} as const;
+
+export type RecordingQueueKey = keyof typeof recordingQueueLabels;
+
+export async function fetchAdminRecordingOperations(supabase: SupabaseClient, queue?: string) {
+  const [sessions, recordings, enrollments, attendances, makeups, assignments] = await Promise.all([
+    supabase.from("class_sessions").select("id, cohort_course_id, title, scheduled_start_at, scheduled_end_at, session_status, is_required, cohort_courses(id, cohorts(id, code, name), courses(id, code, title)), facilitators(id, display_name)").neq("session_status", "cancelled").order("scheduled_start_at", { ascending: false }),
+    supabase.from("class_recordings").select("*").order("created_at", { ascending: false }),
+    supabase.from("course_enrollments").select("id, cohort_course_id, delivery_route, enrollment_status, enrolled_at, student_enrollments(enrolled_at)").in("enrollment_status", ["active", "enrolled"]),
+    supabase.from("session_attendance").select("id, class_session_id, course_enrollment_id, attendance_status, course_enrollments(student_enrollments(students(student_number, legal_name, preferred_name)))").eq("attendance_status", "pending_recorded_verification"),
+    supabase.from("makeup_requirements").select("id, class_session_id, course_enrollment_id, purpose_code, makeup_status, recording_learning_assignment_id, course_enrollments(student_enrollments(students(student_number, legal_name, preferred_name)))").in("purpose_code", ["MU-E", "MU-U"]),
+    supabase.from("recording_learning_assignments").select("id, class_session_id, class_recording_id, course_enrollment_id, purpose_code, assignment_status, recording_progress(progress_status, integrity_status), course_enrollments(student_enrollments(students(student_number, legal_name, preferred_name)))"),
+  ]);
+  if (sessions.error || recordings.error || enrollments.error || attendances.error || makeups.error || assignments.error) throw new LmsAdminDataError("Recording operations could not be loaded.");
+  const sessionById = new Map((sessions.data ?? []).map((item) => [String(item.id), item]));
+  const recordingsBySession = new Map<string, Array<Record<string, unknown>>>();
+  for (const recording of recordings.data ?? []) {
+    const id = String(recording.class_session_id);
+    recordingsBySession.set(id, [...(recordingsBySession.get(id) ?? []), recording]);
+  }
+  const enrollmentByOffering = new Map<string, Array<Record<string, unknown>>>();
+  for (const enrollment of enrollments.data ?? []) {
+    const id = String(enrollment.cohort_course_id);
+    enrollmentByOffering.set(id, [...(enrollmentByOffering.get(id) ?? []), enrollment]);
+  }
+  const makeupBySession = new Map<string, Array<Record<string, unknown>>>();
+  for (const makeup of makeups.data ?? []) {
+    const id = String(makeup.class_session_id);
+    makeupBySession.set(id, [...(makeupBySession.get(id) ?? []), makeup]);
+  }
+  const now = Date.now();
+  const queueItems: Array<{ queue: RecordingQueueKey; sessionId: string; recordingId?: string; assignmentId?: string; makeupId?: string; title: string; context: string; student?: string; href: string }> = [];
+  for (const session of sessions.data ?? []) {
+    const offering = relation(session.cohort_courses); const cohort = relation(offering.cohorts); const course = relation(offering.courses);
+    const context = `${String(course.code ?? "Course")} · ${String(cohort.code ?? "Cohort")}`;
+    const sessionRecordings = recordingsBySession.get(String(session.id)) ?? [];
+    const cutoff = session.scheduled_end_at ?? session.scheduled_start_at;
+    const routeDemand = (enrollmentByOffering.get(String(session.cohort_course_id)) ?? []).filter((enrollment) => {
+      if (!["RP", "DR-E"].includes(String(enrollment.delivery_route))) return false;
+      const enrolledAt = enrollment.enrolled_at ?? relation(enrollment.student_enrollments).enrolled_at;
+      return !cutoff || typeof enrolledAt !== "string" || Date.parse(String(cutoff)) >= Date.parse(enrolledAt);
+    });
+    const awaitingMakeups = (makeupBySession.get(String(session.id)) ?? []).filter((makeup) => makeup.purpose_code === "MU-E" && !makeup.recording_learning_assignment_id && ["awaiting_materials", "alternative_required"].includes(String(makeup.makeup_status)));
+    const occurred = typeof session.scheduled_start_at === "string" && Date.parse(session.scheduled_start_at) <= now;
+    if (occurred && (routeDemand.length || awaitingMakeups.length) && !sessionRecordings.some((recording) => recording.recording_status === "available")) queueItems.push({ queue: "missing_recording", sessionId: String(session.id), title: String(session.title), context, href: `/admin/recordings?session=${session.id}` });
+    for (const recording of sessionRecordings) {
+      const base = { sessionId: String(session.id), recordingId: String(recording.id), title: String(recording.title), context, href: `/admin/recordings?session=${session.id}` };
+      if (["draft", "processing"].includes(String(recording.recording_status))) queueItems.push({ queue: "draft", ...base });
+      if (recording.recording_status === "available" && !recordingEvidenceReadiness(recording).ready) queueItems.push({ queue: "needs_quality_check", ...base });
+      if (recording.recording_status === "available") queueItems.push({ queue: "available", ...base });
+    }
+    for (const makeup of awaitingMakeups) {
+      const student = relation(relation(relation(makeup.course_enrollments).student_enrollments).students);
+      queueItems.push({ queue: "approved_makeup_awaiting_recording", sessionId: String(session.id), makeupId: String(makeup.id), title: String(session.title), context, student: String(student.preferred_name || student.legal_name || student.student_number || "Student"), href: "/admin/absence-makeup" });
+    }
+  }
+  for (const attendance of attendances.data ?? []) {
+    const session = sessionById.get(String(attendance.class_session_id)); if (!session) continue;
+    const offering = relation(session.cohort_courses); const course = relation(offering.courses); const cohort = relation(offering.cohorts); const student = relation(relation(relation(attendance.course_enrollments).student_enrollments).students);
+    const linked = (assignments.data ?? []).find((assignment) => assignment.class_session_id === attendance.class_session_id && assignment.course_enrollment_id === attendance.course_enrollment_id && ["RP", "DR-E"].includes(String(assignment.purpose_code)));
+    const progress = linked ? relation(linked.recording_progress) : {};
+    const progressStatus = String(progress.progress_status ?? "not_started");
+    const queue: RecordingQueueKey = !linked || progressStatus === "not_started"
+      ? "awaiting_recorded_attendance"
+      : ["in_progress", "awaiting_checkpoint"].includes(progressStatus)
+        ? "recorded_attendance_in_progress"
+        : "pending_recorded_verification";
+    queueItems.push({ queue, sessionId: String(session.id), assignmentId: linked ? String(linked.id) : undefined, title: String(session.title), context: `${String(course.code)} · ${String(cohort.code)}`, student: String(student.preferred_name || student.legal_name || student.student_number || "Student"), href: linked ? `/admin/recordings/${linked.id}` : `/admin/sessions/${session.id}/attendance` });
+  }
+  for (const assignment of assignments.data ?? []) {
+    const progress = relation(assignment.recording_progress); const session = sessionById.get(String(assignment.class_session_id)); if (!session) continue;
+    const offering = relation(session.cohort_courses); const course = relation(offering.courses); const cohort = relation(offering.cohorts); const student = relation(relation(relation(assignment.course_enrollments).student_enrollments).students);
+    const base = { sessionId: String(session.id), assignmentId: String(assignment.id), title: String(session.title), context: `${String(course.code)} · ${String(cohort.code)}`, student: String(student.preferred_name || student.legal_name || student.student_number || "Student"), href: `/admin/recordings/${assignment.id}` };
+    if (["MU-E", "MU-U"].includes(String(assignment.purpose_code)) && ["in_progress", "awaiting_checkpoint", "under_review"].includes(String(progress.progress_status)) && assignment.assignment_status !== "completed") queueItems.push({ queue: "makeup_in_progress", ...base });
+    if (progress.integrity_status !== "clear") queueItems.push({ queue: "integrity_review", ...base });
+  }
+  const metrics = Object.fromEntries((Object.keys(recordingQueueLabels) as RecordingQueueKey[]).map((key) => [key, queueItems.filter((item) => item.queue === key).length])) as Record<RecordingQueueKey, number>;
+  const selectedQueue = queue && queue in recordingQueueLabels ? queue as RecordingQueueKey : null;
+  const recordingOperations = (recordings.data ?? []).map((recording) => {
+    const related = (assignments.data ?? []).filter((assignment) => assignment.class_recording_id === recording.id);
+    return {
+      ...recording,
+      purposes: [...new Set(related.map((assignment) => String(assignment.purpose_code)))],
+      assignment_count: related.length,
+      in_progress_count: related.filter((assignment) => assignment.assignment_status !== "completed").length,
+      integrity_review_count: related.filter((assignment) => relation(assignment.recording_progress).integrity_status !== "clear").length,
+    };
+  });
+  return {
+    sessions: (sessions.data ?? []).map((session) => { const offering = relation(session.cohort_courses); const course = relation(offering.courses); const cohort = relation(offering.cohorts); return { id: String(session.id), title: String(session.title), scheduledStartAt: session.scheduled_start_at as string | null, courseCode: String(course.code ?? ""), courseTitle: String(course.title ?? ""), cohortCode: String(cohort.code ?? "") }; }),
+    recordings: recordingOperations, metrics, selectedQueue,
+    queueItems: selectedQueue ? queueItems.filter((item) => item.queue === selectedQueue) : queueItems,
+  };
+}
+
 export async function fetchAdminRecordingDashboard(supabase: SupabaseClient, filters: RecordingDashboardFilters = {}) {
   const result = await supabase.from("recording_learning_assignments").select(`${assignmentSelect}, recording_progress(*), recording_requirement_statuses(*)`).order("due_at", { ascending: true, nullsFirst: false }).limit(5000);
   if (result.error) throw new LmsAdminDataError("Recorded-learning dashboard could not be loaded.");
@@ -172,11 +278,18 @@ export async function fetchAdminRecordingDetail(supabase: SupabaseClient, assign
 }
 
 export async function fetchFacilitatorRecordingAssignments(supabase: SupabaseClient, facilitatorId: string) {
-  const assignments = await supabase.from("facilitator_course_assignments").select("cohort_course_id").eq("facilitator_id", facilitatorId);
-  if (assignments.error) throw new LmsAdminDataError("Facilitator scope could not be loaded.");
-  const ids = (assignments.data ?? []).map((row) => row.cohort_course_id); if (!ids.length) return [];
-  const result = await supabase.from("recording_learning_assignments").select(`${assignmentSelect}, recording_progress(*), recording_requirement_statuses(*)`).in("class_sessions.cohort_course_id", ids).order("due_at", { ascending: true });
+  const [courseAssignments, directSessions] = await Promise.all([
+    supabase.from("facilitator_course_assignments").select("cohort_course_id").eq("facilitator_id", facilitatorId),
+    supabase.from("class_sessions").select("id").eq("facilitator_id", facilitatorId),
+  ]);
+  if (courseAssignments.error || directSessions.error) throw new LmsAdminDataError("Facilitator scope could not be loaded.");
+  const offeringIds = (courseAssignments.data ?? []).map((row) => row.cohort_course_id);
+  const offeringSessions = offeringIds.length ? await supabase.from("class_sessions").select("id").in("cohort_course_id", offeringIds) : { data: [], error: null };
+  if (offeringSessions.error) throw new LmsAdminDataError("Facilitator course sessions could not be loaded.");
+  const sessionIds = [...new Set([...(directSessions.data ?? []), ...(offeringSessions.data ?? [])].map((row) => String(row.id)))];
+  if (!sessionIds.length) return [];
+  const result = await supabase.from("recording_learning_assignments").select(`${assignmentSelect}, recording_progress(*), recording_requirement_statuses(*)`).in("class_session_id", sessionIds).order("due_at", { ascending: true });
   if (result.error) throw new LmsAdminDataError("Assigned-course recording progress could not be loaded.");
   const rows = await prepareAssignments(supabase, (result.data ?? []).map((row) => row as unknown as Record<string, unknown>));
-  return rows.filter((row) => ids.includes(String(relation(row.class_sessions).cohort_course_id))).map((row) => { const student = relation(relation(relation(row.course_enrollments).student_enrollments).students); return { ...mapAssignment(row), student: { number: String(student.student_number), name: String(student.preferred_name || student.legal_name) } }; });
+  return rows.filter((row) => sessionIds.includes(String(row.class_session_id))).map((row) => { const student = relation(relation(relation(row.course_enrollments).student_enrollments).students); return { ...mapAssignment(row), student: { number: String(student.student_number), name: String(student.preferred_name || student.legal_name) } }; });
 }

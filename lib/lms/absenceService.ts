@@ -174,7 +174,7 @@ async function attachMakeupMaterials(supabase: SupabaseClient, makeup: Record<st
     if (purpose !== "LE-C") await sendMakeupEmail(supabase, String(makeup.id), "makeup_assigned");
     return { makeup: saved.data, assigned: true, warning: requiresAlternative ? "Practical evidence or an authorised alternative activity is still required." : null };
   } catch (error) {
-    if (error instanceof LmsAdminDataError && error.status === 503) return { makeup, assigned: false, warning: error.message };
+    if (error instanceof LmsAdminDataError && [409, 503].includes(error.status)) return { makeup, assigned: false, warning: error.status === 409 ? `Recording evidence is not ready: ${error.message}` : error.message };
     throw error;
   }
 }

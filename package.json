@@ -32,6 +32,8 @@
     "test:august-operations": "node --experimental-strip-types scripts/test-august-2026-operations.mjs",
     "test:announcements": "node --experimental-strip-types scripts/test-announcement-recipient-resolution.mjs",
     "test:late-entry-catchup": "node --experimental-strip-types scripts/test-late-entry-catchup.mjs",
+    "test:live-teaching-operations": "node --experimental-strip-types scripts/test-live-teaching-operations.mjs",
+    "test:recording-learning": "node --experimental-strip-types scripts/test-build-7-recorded-learning.mjs",
     "process:admission-deadlines": "node --env-file=.env.local --experimental-strip-types scripts/process-admission-deadlines.mjs"
   },
   "dependencies": {

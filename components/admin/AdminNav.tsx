@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 const links = [
-  ["/admin/dashboard", "Dashboard"], ["/admin/announcements", "Announcements"], ["/admin/registrations", "Applications"], ["/admin/students", "Students"], ["/admin/at-risk", "Student Engagement"], ["/admin/results", "Results"], ["/admin/graduation", "Graduation"], ["/admin/awards", "Awards"], ["/admin/alumni", "Alumni"], ["/admin/cohorts", "Cohorts"], ["/admin/courses", "Courses"], ["/admin/sessions", "Sessions"], ["/admin/attendance", "Attendance"], ["/admin/absence-makeup", "Absence & Make-Up"], ["/admin/recordings", "Recordings"], ["/admin/assessments", "Assessments"], ["/admin/assignments", "Assignments"], ["/admin/quizzes", "Quizzes"], ["/admin/facilitators", "Facilitators"], ["/admin/scholarships", "Scholarships"], ["/", "Public Site"],
+  ["/admin/dashboard", "Dashboard"], ["/admin/announcements", "Announcements"], ["/admin/registrations", "Applications"], ["/admin/students", "Students"], ["/admin/at-risk", "Student Engagement"], ["/admin/results", "Results"], ["/admin/graduation", "Graduation"], ["/admin/awards", "Awards"], ["/admin/alumni", "Alumni"], ["/admin/cohorts", "Cohorts"], ["/admin/courses", "Courses"], ["/admin/sessions", "Sessions"], ["/admin/class-summaries", "Class Summaries"], ["/admin/attendance", "Attendance"], ["/admin/absence-makeup", "Absence & Make-Up"], ["/admin/recordings", "Recordings"], ["/admin/assessments", "Assessments"], ["/admin/assignments", "Assignments"], ["/admin/quizzes", "Quizzes"], ["/admin/facilitators", "Facilitators"], ["/admin/scholarships", "Scholarships"], ["/", "Public Site"],
 ] as const;
 
 export function AdminNav() {

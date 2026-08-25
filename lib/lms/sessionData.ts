@@ -70,9 +70,9 @@ export async function fetchAdminSessions(supabase: SupabaseClient, filters: Sess
 }
 
 export async function fetchAdminSession(supabase: SupabaseClient, id: string) {
-  const [session, summary, resources, recordings, changes, audits, recordingRequirements, assignmentCount] = await Promise.all([
+  const [session, summaries, resources, recordings, changes, audits, recordingRequirements, assignmentCount] = await Promise.all([
     supabase.from("class_sessions").select("*, cohort_courses(*, cohorts(id, code, name, status), courses(*), facilitator_course_assignments(assignment_role, facilitators(id, display_name, title, facilitator_status))), facilitators(id, display_name, title, facilitator_status)").eq("id", id).maybeSingle(),
-    supabase.from("class_summaries").select("*").eq("class_session_id", id).maybeSingle(),
+    supabase.from("class_summaries").select("*").eq("class_session_id", id).order("updated_at", { ascending: false }),
     supabase.from("session_resources").select("*").eq("class_session_id", id).order("sort_order").order("created_at"),
     supabase.from("class_recordings").select("*").eq("class_session_id", id).order("created_at"),
     supabase.from("session_change_events").select("*").eq("class_session_id", id).order("created_at", { ascending: false }),
@@ -80,7 +80,7 @@ export async function fetchAdminSession(supabase: SupabaseClient, id: string) {
     supabase.from("session_recording_requirements").select("*").eq("class_session_id", id).eq("requirement_status", "active").maybeSingle(),
     supabase.from("recording_learning_assignments").select("id", { count: "exact", head: true }).eq("class_session_id", id),
   ]);
-  for (const [label, result] of [["Class session", session], ["Class summary", summary], ["Session resources", resources], ["Class recordings", recordings], ["Session change history", changes], ["Session audit history", audits], ["Recorded-learning requirements", recordingRequirements], ["Recorded-learning assignment count", assignmentCount]] as const) fail(label, result.error);
+  for (const [label, result] of [["Class session", session], ["Class summaries", summaries], ["Session resources", resources], ["Class recordings", recordings], ["Session change history", changes], ["Session audit history", audits], ["Recorded-learning requirements", recordingRequirements], ["Recorded-learning assignment count", assignmentCount]] as const) fail(label, result.error);
   if (!session.data) throw new LmsAdminDataError("Class session not found.", 404);
   const offering = relation(session.data.cohort_courses);
   const [recordingPolicy, assessmentAssignments, assessmentQuizzes] = await Promise.all([
@@ -91,12 +91,20 @@ export async function fetchAdminSession(supabase: SupabaseClient, id: string) {
   fail("Recorded-learning policy", recordingPolicy.error);
   fail("Session assignment links", assessmentAssignments.error);
   fail("Session quiz links", assessmentQuizzes.error);
-  let versions: unknown[] = [];
-  if (summary.data) {
-    const result = await supabase.from("class_summary_versions").select("id, version_number, change_note, created_by, created_at").eq("class_summary_id", summary.data.id).order("version_number", { ascending: false });
+  const summaryRevisions = summaries.data ?? [];
+  const summary = currentSummaryRevision(summaryRevisions);
+  const publishedSummary = summaryRevisions.find((item) => item.summary_status === "published") ?? null;
+  const summaryIds = summaryRevisions.map((item) => item.id);
+  let versions: unknown[] = [], reviewEvents: unknown[] = [];
+  if (summary) {
+    const result = await supabase.from("class_summary_versions").select("id, version_number, change_note, created_by, created_at").eq("class_summary_id", summary.id).order("version_number", { ascending: false });
     fail("Class summary history", result.error); versions = result.data ?? [];
   }
-  return { session: session.data, summary: summary.data, summaryVersions: versions, resources: resources.data ?? [], recordings: recordings.data ?? [], changes: changes.data ?? [], audits: audits.data ?? [], recordingRequirements: recordingRequirements.data, recordingPolicy: recordingPolicy.data, recordingAssignmentCount: assignmentCount.count ?? 0, assessmentAssignments: assessmentAssignments.data ?? [], assessmentQuizzes: assessmentQuizzes.data ?? [] };
+  if (summaryIds.length) {
+    const result = await supabase.from("class_summary_review_events").select("*").in("class_summary_id", summaryIds).order("created_at", { ascending: false });
+    fail("Class summary review history", result.error); reviewEvents = result.data ?? [];
+  }
+  return { session: session.data, summary, publishedSummary, summaryRevisions, summaryVersions: versions, summaryReviewEvents: reviewEvents, resources: resources.data ?? [], recordings: recordings.data ?? [], changes: changes.data ?? [], audits: audits.data ?? [], recordingRequirements: recordingRequirements.data, recordingPolicy: recordingPolicy.data, recordingAssignmentCount: assignmentCount.count ?? 0, assessmentAssignments: assessmentAssignments.data ?? [], assessmentQuizzes: assessmentQuizzes.data ?? [] };
 }
 
 export async function fetchCohortSessions(supabase: SupabaseClient, cohortId: string) {
@@ -112,5 +120,11 @@ export async function fetchCourseSessions(supabase: SupabaseClient, courseId: st
 export function object(value: unknown) { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 export function relation(value: unknown) { return Array.isArray(value) ? object(value[0]) : object(value); }
 export function text(value: unknown) { return typeof value === "string" ? value : null; }
-export function summaryRelation(value: unknown) { return Array.isArray(value) ? object(value[0]) : object(value); }
+export function summaryRelation(value: unknown) { return Array.isArray(value) ? object(currentSummaryRevision(value.map(object))) : object(value); }
 export function isPastSession(session: Pick<ClassSession, "scheduled_start_at">) { return Boolean(session.scheduled_start_at && Date.parse(session.scheduled_start_at) < Date.now()); }
+
+export function currentSummaryRevision<T extends { summary_status?: string; updated_at?: string | null }>(summaries: T[]) {
+  const open = summaries.find((item) => ["draft", "submitted", "changes_requested", "approved"].includes(String(item.summary_status)));
+  if (open) return open;
+  return summaries.find((item) => item.summary_status === "published") ?? summaries[0] ?? null;
+}

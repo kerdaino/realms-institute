@@ -7,12 +7,14 @@ import { LmsAdminDataError } from "@/lib/lms/adminData";
 import { makeupStatusFromLearning } from "@/lib/lms/absence";
 import { sendMakeupEmail } from "@/lib/lms/absenceEmail";
 import { ensureSessionAttendanceRoster } from "@/lib/lms/attendanceService";
+import { triggerEngagementEvaluationForCourseEnrollment } from "@/lib/lms/engagementService";
 import { setLearningCompletionState } from "@/lib/lms/learningCompletionService";
 import {
   creditedPlaybackSegment,
   evaluateRecordedRequirements,
   mergeWatchedSegments,
   providerTrackingMode,
+  recordingEvidenceReadiness,
   recordingRequirementTypes,
   resolveRecordingRequirementSnapshot,
   resolveEffectiveRecordingRequirements,
@@ -54,6 +56,38 @@ async function effectiveRequirements(supabase: SupabaseClient, input: { sessionI
   return resolveEffectiveRecordingRequirements({ policy: policy.data, sessionOverride: session.data, courseCategory: input.courseCategory, purpose: input.purpose });
 }
 
+async function assertEvidenceConfigurationReady(supabase: SupabaseClient, input: { sessionId: string; recordingId: string | null; requirements: EffectiveRecordingRequirements }) {
+  const requirementRow = await supabase.from("session_recording_requirements").select("quiz_id, practical_assignment_id, reflection_assignment_id").eq("class_session_id", input.sessionId).eq("requirement_status", "active").maybeSingle();
+  if (requirementRow.error) throw new LmsAdminDataError("Recorded-learning evidence links could not be checked.");
+  if (input.requirements.requiresQuiz && !requirementRow.data?.quiz_id) throw new LmsAdminDataError("Link a valid quiz before activating official recorded learning.", 409);
+  if (input.requirements.requiresPractical && !requirementRow.data?.practical_assignment_id) throw new LmsAdminDataError("Link a valid practical before activating official recorded learning.", 409);
+  if (input.requirements.requiresReflection && !requirementRow.data?.reflection_assignment_id) throw new LmsAdminDataError("Link a valid reflection before activating official recorded learning.", 409);
+  if (!input.requirements.requiresCheckpoints) return;
+  if (input.requirements.requiredCheckpointCount <= 0) throw new LmsAdminDataError("Required checkpoint count must be greater than zero before activating official recorded learning.", 409);
+  if (!input.recordingId) throw new LmsAdminDataError(`Save the recording as a draft, then configure ${input.requirements.requiredCheckpointCount} required checkpoint${input.requirements.requiredCheckpointCount === 1 ? "" : "s"} before activation.`, 409);
+  const checkpoints = await supabase.from("recording_checkpoints").select("id, recording_checkpoint_questions(id, is_active)").eq("class_recording_id", input.recordingId).eq("is_required", true).eq("is_active", true);
+  if (checkpoints.error) throw new LmsAdminDataError("Required recording checkpoints could not be checked.");
+  const configured = (checkpoints.data ?? []).filter((checkpoint) => (checkpoint.recording_checkpoint_questions ?? []).some((question) => question.is_active !== false)).length;
+  if (configured < input.requirements.requiredCheckpointCount) throw new LmsAdminDataError(`Configure ${input.requirements.requiredCheckpointCount} required checkpoints with active questions before activation. ${configured} ${configured === 1 ? "is" : "are"} ready.`, 409);
+}
+
+export async function assertRecordingActivationReady(supabase: SupabaseClient, sessionId: string, recordingId: string | null) {
+  const session = await supabase.from("class_sessions").select("id, cohort_course_id, scheduled_start_at, scheduled_end_at, cohort_courses(cohort_id, courses(course_category))").eq("id", sessionId).maybeSingle();
+  if (session.error || !session.data) throw new LmsAdminDataError("Class session not found.", 404);
+  const routes = await supabase.from("course_enrollments").select("delivery_route, enrolled_at, student_enrollments(enrolled_at)").eq("cohort_course_id", session.data.cohort_course_id).in("enrollment_status", ["active", "enrolled"]).in("delivery_route", ["RP", "DR-E"]);
+  if (routes.error) throw new LmsAdminDataError("Recorded-route enrolments could not be checked.");
+  const offering = relation(session.data.cohort_courses); const course = relation(offering.courses);
+  const sessionCutoff = session.data.scheduled_end_at ?? session.data.scheduled_start_at;
+  const purposes = [...new Set((routes.data ?? []).filter((row) => {
+    const enrolledAt = row.enrolled_at ?? relation(row.student_enrollments).enrolled_at;
+    return !sessionCutoff || typeof enrolledAt !== "string" || Date.parse(sessionCutoff) >= Date.parse(enrolledAt);
+  }).map((row) => row.delivery_route as "RP" | "DR-E"))];
+  for (const purpose of purposes) {
+    const requirements = await effectiveRequirements(supabase, { sessionId, cohortId: String(offering.cohort_id), courseCategory: String(course.course_category), purpose });
+    await assertEvidenceConfigurationReady(supabase, { sessionId, recordingId, requirements });
+  }
+}
+
 async function createAssignmentParts(supabase: SupabaseClient, input: {
   courseEnrollmentId: string;
   sessionId: string;
@@ -93,8 +127,10 @@ async function createAssignmentParts(supabase: SupabaseClient, input: {
   const statuses = recordingRequirementTypes.map((type) => ({ recording_assignment_id: assignment.id, requirement_type: type, is_required: required[type], requirement_status: required[type] ? "pending" : "not_required" }));
   const requirements = await supabase.from("recording_requirement_statuses").upsert(statuses, { onConflict: "recording_assignment_id,requirement_type", ignoreDuplicates: true });
   if (requirements.error) throw new LmsAdminDataError("Recorded-learning requirements could not be prepared.");
-  const completion = await supabase.from("session_learning_completion").upsert({ course_enrollment_id: input.courseEnrollmentId, class_session_id: input.sessionId, completion_status: "not_started" }, { onConflict: "course_enrollment_id,class_session_id", ignoreDuplicates: true });
-  if (completion.error) throw new LmsAdminDataError("Learning-completion status could not be prepared.");
+  if (input.purpose !== "REV") {
+    const completion = await supabase.from("session_learning_completion").upsert({ course_enrollment_id: input.courseEnrollmentId, class_session_id: input.sessionId, completion_status: "not_started" }, { onConflict: "course_enrollment_id,class_session_id", ignoreDuplicates: true });
+    if (completion.error) throw new LmsAdminDataError("Learning-completion status could not be prepared.");
+  }
   return { assignment, created };
 }
 
@@ -109,10 +145,11 @@ export async function ensureMakeupRecordingAssignment(supabase: SupabaseClient, 
   const recordings = await supabase.from("class_recordings").select("*").eq("class_session_id", input.sessionId).eq("recording_status", "available").eq("access_level", "enrolled_students").order("available_from", { ascending: false, nullsFirst: false });
   if (recordings.error) throw new LmsAdminDataError("Available make-up materials could not be checked.");
   const now = new Date();
-  const recording = (recordings.data ?? []).find((item) => (!item.available_from || Date.parse(item.available_from) <= now.valueOf()) && (!item.available_until || Date.parse(item.available_until) > now.valueOf()));
+  const recording = (recordings.data ?? []).find((item) => recordingEvidenceReadiness(item).ready && (!item.available_from || Date.parse(item.available_from) <= now.valueOf()) && (!item.available_until || Date.parse(item.available_until) > now.valueOf()));
   if (!recording) return { state: "awaiting_materials" as const };
   const offering = relation(sessionResult.data.cohort_courses); const course = relation(offering.courses);
   const requirements = await effectiveRequirements(supabase, { sessionId: input.sessionId, cohortId: String(offering.cohort_id), courseCategory: String(course.course_category), purpose: input.purpose });
+  await assertEvidenceConfigurationReady(supabase, { sessionId: input.sessionId, recordingId: String(recording.id), requirements });
   const availableAt = now.toISOString();
   const result = await createAssignmentParts(supabase, { courseEnrollmentId: input.courseEnrollmentId, sessionId: input.sessionId, recording, purpose: input.purpose, requirements, assignmentAvailableAt: availableAt, assignmentDueAt: input.dueAt === undefined ? undefined : input.dueAt });
   const links = await supabase.from("session_recording_requirements").select("quiz_id, practical_assignment_id, reflection_assignment_id, requires_oral_verification").eq("class_session_id", input.sessionId).eq("requirement_status", "active").maybeSingle();
@@ -121,32 +158,89 @@ export async function ensureMakeupRecordingAssignment(supabase: SupabaseClient, 
 }
 
 export async function initializeRecordedLearningForSession(supabase: SupabaseClient, sessionId: string, actor: Actor) {
-  await ensureSessionAttendanceRoster(supabase, sessionId, { actorLabel: actor.actorLabel === "Facilitator" ? "Facilitator" : "REALMS Admin", actorUserId: actor.actorUserId, auditClient: supabase });
-  const session = await supabase.from("class_sessions").select("id, cohort_course_id, cohort_courses(cohort_id, courses(course_category))").eq("id", sessionId).maybeSingle();
+  const session = await supabase.from("class_sessions").select("id, cohort_course_id, scheduled_start_at, scheduled_end_at, cohort_courses(cohort_id, courses(course_category))").eq("id", sessionId).maybeSingle();
   if (session.error || !session.data) throw new LmsAdminDataError("Class session not found.", 404);
   const offering = relation(session.data.cohort_courses); const course = relation(offering.courses);
   const recordings = await supabase.from("class_recordings").select("*").eq("class_session_id", sessionId).eq("recording_status", "available").eq("access_level", "enrolled_students");
   if (recordings.error) throw new LmsAdminDataError("Available class recordings could not be loaded.");
-  if (!recordings.data?.length) throw new LmsAdminDataError("An available enrolled-student recording is required before recorded learning can be initialized.", 409);
-  const enrollments = await supabase.from("course_enrollments").select("id, delivery_route").eq("cohort_course_id", session.data.cohort_course_id).in("enrollment_status", ["active", "enrolled"]).in("delivery_route", ["RP", "DR-E"]);
+  const evidenceRecordings = (recordings.data ?? []).filter((recording) => recordingEvidenceReadiness(recording).ready);
+  if (!evidenceRecordings.length) throw new LmsAdminDataError("A quality-approved, available recording with valid metadata is required before recorded learning can be initialized.", 409);
+  const enrollments = await supabase.from("course_enrollments").select("id, delivery_route, enrolled_at, student_enrollments(enrolled_at)").eq("cohort_course_id", session.data.cohort_course_id).in("enrollment_status", ["active", "enrolled"]).in("delivery_route", ["RP", "DR-E"]);
   if (enrollments.error) throw new LmsAdminDataError("Eligible recorded-route enrolments could not be loaded.");
-  let created = 0;
-  for (const enrollment of enrollments.data ?? []) {
-    const purpose = enrollment.delivery_route as "RP" | "DR-E";
+  const sessionCutoff = session.data.scheduled_end_at ?? session.data.scheduled_start_at;
+  const eligibleEnrollments = (enrollments.data ?? []).filter((enrollment) => {
+    const enrolledAt = enrollment.enrolled_at ?? relation(enrollment.student_enrollments).enrolled_at;
+    return !sessionCutoff || typeof enrolledAt !== "string" || Date.parse(sessionCutoff) >= Date.parse(enrolledAt);
+  });
+  const requirementsByPurpose = new Map<"RP" | "DR-E", EffectiveRecordingRequirements>();
+  for (const purpose of [...new Set(eligibleEnrollments.map((enrollment) => enrollment.delivery_route as "RP" | "DR-E"))]) {
     const requirements = await effectiveRequirements(supabase, { sessionId, cohortId: String(offering.cohort_id), courseCategory: String(course.course_category), purpose });
-    for (const recording of recordings.data) {
+    for (const recording of evidenceRecordings) await assertEvidenceConfigurationReady(supabase, { sessionId, recordingId: String(recording.id), requirements });
+    requirementsByPurpose.set(purpose, requirements);
+  }
+  await ensureSessionAttendanceRoster(supabase, sessionId, { actorLabel: actor.actorLabel === "Facilitator" ? "Facilitator" : "REALMS Admin", actorUserId: actor.actorUserId, auditClient: supabase });
+  let created = 0;
+  for (const enrollment of eligibleEnrollments) {
+    const purpose = enrollment.delivery_route as "RP" | "DR-E";
+    const requirements = requirementsByPurpose.get(purpose)!;
+    for (const recording of evidenceRecordings) {
       const result = await createAssignmentParts(supabase, { courseEnrollmentId: enrollment.id, sessionId, recording, purpose, requirements });
       if (result.created) created += 1;
     }
   }
-  await recordLmsAudit(supabase, { action: "recorded_learning_initialized", entityType: "class_session", entityId: sessionId, actorUserId: actor.actorUserId, metadata: { eligible_enrolments: enrollments.data?.length ?? 0, available_recordings: recordings.data.length, assignments_created: created } });
-  return { created, eligible: enrollments.data?.length ?? 0, recordings: recordings.data.length };
+  await recordLmsAudit(supabase, { action: "recorded_learning_initialized", entityType: "class_session", entityId: sessionId, actorUserId: actor.actorUserId, metadata: { eligible_enrolments: eligibleEnrollments.length, late_entry_excluded: (enrollments.data?.length ?? 0) - eligibleEnrollments.length, available_recordings: evidenceRecordings.length, assignments_created: created } });
+  return { created, eligible: eligibleEnrollments.length, recordings: evidenceRecordings.length, lateEntryExcluded: (enrollments.data?.length ?? 0) - eligibleEnrollments.length };
+}
+
+export async function initializeRecordedLearningForCourseEnrollment(supabase: SupabaseClient, courseEnrollmentId: string, actor: Actor) {
+  const enrollmentResult = await supabase.from("course_enrollments").select("id, cohort_course_id, delivery_route, enrollment_status, enrolled_at, student_enrollments(enrolled_at), cohort_courses(cohort_id, courses(course_category))").eq("id", courseEnrollmentId).maybeSingle();
+  if (enrollmentResult.error || !enrollmentResult.data) throw new LmsAdminDataError("Course enrolment not found.", 404);
+  const enrollment = enrollmentResult.data;
+  if (!["active", "enrolled"].includes(String(enrollment.enrollment_status)) || !["RP", "DR-E"].includes(String(enrollment.delivery_route))) return { created: 0, eligibleSessions: 0, awaitingRecording: 0, awaitingConfiguration: 0 };
+  const enrolledAt = enrollment.enrolled_at ?? relation(enrollment.student_enrollments).enrolled_at;
+  const sessions = await supabase.from("class_sessions").select("id, scheduled_start_at, scheduled_end_at, session_status, is_required").eq("cohort_course_id", enrollment.cohort_course_id).neq("session_status", "cancelled").eq("is_required", true).order("scheduled_start_at");
+  if (sessions.error) throw new LmsAdminDataError("Recorded-route sessions could not be loaded.");
+  const now = Date.now();
+  const eligibleSessions = (sessions.data ?? []).filter((session) => {
+    const cutoff = session.scheduled_end_at ?? session.scheduled_start_at;
+    return !cutoff || typeof enrolledAt !== "string" || Date.parse(cutoff) >= Date.parse(enrolledAt);
+  });
+  let created = 0;
+  let awaitingRecording = 0;
+  let awaitingConfiguration = 0;
+  for (const session of eligibleSessions) {
+    const recordings = await supabase.from("class_recordings").select("*").eq("class_session_id", session.id).eq("recording_status", "available").eq("access_level", "enrolled_students");
+    if (recordings.error) throw new LmsAdminDataError("Session recordings could not be checked.");
+    const available = (recordings.data ?? []).filter((recording) => recordingEvidenceReadiness(recording).ready);
+    if (!available.length) {
+      const occurred = typeof session.scheduled_start_at === "string" && Date.parse(session.scheduled_start_at) <= now;
+      if (occurred) awaitingRecording += 1;
+      continue;
+    }
+    const offering = relation(enrollment.cohort_courses); const course = relation(offering.courses);
+    const purpose = enrollment.delivery_route as "RP" | "DR-E";
+    const requirements = await effectiveRequirements(supabase, { sessionId: session.id, cohortId: String(offering.cohort_id), courseCategory: String(course.course_category), purpose });
+    try {
+      for (const recording of available) await assertEvidenceConfigurationReady(supabase, { sessionId: String(session.id), recordingId: String(recording.id), requirements });
+    } catch (error) {
+      if (!(error instanceof LmsAdminDataError) || error.status !== 409) throw error;
+      awaitingConfiguration += 1;
+      continue;
+    }
+    await ensureSessionAttendanceRoster(supabase, session.id, { actorLabel: actor.actorLabel === "Facilitator" ? "Facilitator" : "REALMS Admin", actorUserId: actor.actorUserId, auditClient: supabase });
+    for (const recording of available) {
+      const result = await createAssignmentParts(supabase, { courseEnrollmentId, sessionId: session.id, recording, purpose, requirements });
+      if (result.created) created += 1;
+    }
+  }
+  await recordLmsAudit(supabase, { action: "recorded_learning_initialized", entityType: "course_enrollment", entityId: courseEnrollmentId, actorUserId: actor.actorUserId, metadata: { source: "delivery_route_change", eligible_sessions: eligibleSessions.length, assignments_created: created, awaiting_recording: awaitingRecording, awaiting_configuration: awaitingConfiguration } });
+  return { created, eligibleSessions: eligibleSessions.length, awaitingRecording, awaitingConfiguration };
 }
 
 export async function ensureRevisionAssignmentForRecording(supabase: SupabaseClient, profileId: string, recordingId: string) {
   const student = await supabase.from("students").select("id").eq("profile_id", profileId).maybeSingle();
   if (student.error || !student.data) throw new LmsAdminDataError("Student learning identity could not be resolved.", 403);
-  const recording = await supabase.from("class_recordings").select("*, class_sessions(id, cohort_course_id, cohort_courses(cohort_id, courses(course_category)))").eq("id", recordingId).eq("recording_status", "available").maybeSingle();
+  const recording = await supabase.from("class_recordings").select("*, class_sessions(id, cohort_course_id, cohort_courses(cohort_id, courses(course_category)))").eq("id", recordingId).eq("recording_status", "available").eq("access_level", "enrolled_students").maybeSingle();
   if (recording.error || !recording.data) throw new LmsAdminDataError("This recording is not currently available.", 403);
   const session = relation(recording.data.class_sessions);
   const enrollment = await supabase.from("course_enrollments").select("id, delivery_route, student_enrollments!inner(student_id)").eq("cohort_course_id", session.cohort_course_id).eq("student_enrollments.student_id", student.data.id).in("enrollment_status", ["active", "enrolled"]).maybeSingle();
@@ -165,6 +259,8 @@ export async function resolveStudentRecordingAssignment(supabase: SupabaseClient
   if (student.error || !student.data) throw new LmsAdminDataError("Student access required.", 403);
   const assignment = await supabase.from("recording_learning_assignments").select("*, class_recordings(*), class_sessions(id, title, cohort_course_id, cohort_courses(cohort_id, courses(id, code, title, course_category))), course_enrollments(id, delivery_route, student_enrollments!inner(student_id))").eq("id", assignmentId).eq("course_enrollments.student_enrollments.student_id", student.data.id).maybeSingle();
   if (assignment.error || !assignment.data) throw new LmsAdminDataError("This recorded-learning assignment is not available in your account.", 403);
+  const recording = relation(assignment.data.class_recordings);
+  if (recording.recording_status !== "available" || recording.access_level !== "enrolled_students") throw new LmsAdminDataError("This recording is not currently available in your enrolled learning area.", 403);
   return assignment.data;
 }
 
@@ -278,25 +374,33 @@ async function checkpointEvidence(supabase: SupabaseClient, assignmentId: string
 }
 
 export async function evaluateRecordedLearningAssignment(supabase: SupabaseClient, assignmentId: string, actor: Actor) {
-  const assignmentResult = await supabase.from("recording_learning_assignments").select("*, class_recordings(id, provider, embed_url, duration_seconds), class_sessions(id, cohort_course_id, cohort_courses(cohort_id, courses(course_category))), course_enrollments(id, delivery_route)").eq("id", assignmentId).maybeSingle();
+  const assignmentResult = await supabase.from("recording_learning_assignments").select("*, class_recordings(*), class_sessions(id, cohort_course_id, cohort_courses(cohort_id, courses(course_category))), course_enrollments(id, delivery_route)").eq("id", assignmentId).maybeSingle();
   if (assignmentResult.error || !assignmentResult.data) throw new LmsAdminDataError("Recorded-learning assignment not found.", 404);
   const assignment = assignmentResult.data; const purpose = assignment.purpose_code as RecordingPurposeCode; const recording = relation(assignment.class_recordings);
   const [progress, statusRows, completion] = await Promise.all([
     supabase.from("recording_progress").select("*").eq("recording_assignment_id", assignmentId).single(),
     supabase.from("recording_requirement_statuses").select("*").eq("recording_assignment_id", assignmentId),
-    supabase.from("session_learning_completion").select("*").eq("course_enrollment_id", assignment.course_enrollment_id).eq("class_session_id", assignment.class_session_id).single(),
+    purpose === "REV"
+      ? supabase.from("session_learning_completion").select("*").eq("course_enrollment_id", assignment.course_enrollment_id).eq("class_session_id", assignment.class_session_id).maybeSingle()
+      : supabase.from("session_learning_completion").select("*").eq("course_enrollment_id", assignment.course_enrollment_id).eq("class_session_id", assignment.class_session_id).single(),
   ]);
   if (progress.error || statusRows.error || completion.error) throw new LmsAdminDataError("Recorded-learning evidence could not be evaluated.");
+  const evidenceReadiness = recordingEvidenceReadiness(recording);
+  if (purpose !== "REV" && !evidenceReadiness.ready) {
+    const alreadyComplete = assignment.assignment_status === "completed" && ["verified_complete", "late_complete"].includes(String(completion.data?.completion_status));
+    if (!alreadyComplete && progress.data.progress_status !== "under_review") await supabase.from("recording_progress").update({ progress_status: "under_review", updated_at: new Date().toISOString() }).eq("id", progress.data.id);
+    return { learningStatus: alreadyComplete ? String(completion.data?.completion_status) : "under_review", progressStatus: alreadyComplete ? String(progress.data.progress_status) : "under_review", complete: alreadyComplete, requirements: assignmentRequirements(assignment).requirements, checkpoints: null, watchPercentage: Number(progress.data.watch_percentage), warning: "Official learning evidence is awaiting recording quality approval.", qualityGate: evidenceReadiness };
+  }
   const requirementResolution = assignmentRequirements(assignment);
   const requirements = requirementResolution.requirements;
   if (!requirements) {
-    const alreadyComplete = assignment.assignment_status === "completed" && ["verified_complete", "late_complete"].includes(String(completion.data.completion_status));
+    const alreadyComplete = assignment.assignment_status === "completed" && ["verified_complete", "late_complete"].includes(String(completion.data?.completion_status));
     if (!alreadyComplete && progress.data.progress_status !== "under_review") {
       const review = await supabase.from("recording_progress").update({ progress_status: "under_review", updated_at: new Date().toISOString() }).eq("id", progress.data.id);
       if (review.error) throw new LmsAdminDataError("Historical recorded-learning progress could not be marked for review.");
     }
     return {
-      learningStatus: alreadyComplete ? completion.data.completion_status : "under_review",
+      learningStatus: alreadyComplete ? completion.data?.completion_status : "under_review",
       progressStatus: alreadyComplete ? progress.data.progress_status : "under_review",
       complete: alreadyComplete,
       requirements: null,
@@ -325,6 +429,7 @@ export async function evaluateRecordedLearningAssignment(supabase: SupabaseClien
   if (manualProviderAwaitingEvidence && progress.data.integrity_status === "clear") evaluation = { learningStatus: purpose === "REV" ? "in_progress" : "under_review", progressStatus: "under_review", complete: false };
   await supabase.from("recording_progress").update({ progress_status: evaluation.progressStatus, watch_requirement_met: watchMet, checkpoint_requirement_met: checkpointsMet, updated_at: new Date().toISOString() }).eq("id", progress.data.id);
   if (purpose !== "REV") {
+    if (!completion.data) throw new LmsAdminDataError("Learning-completion evidence is not initialized.", 409);
     const wasComplete = ["verified_complete", "late_complete"].includes(String(completion.data.completion_status)) && assignment.assignment_status === "completed";
     await setLearningCompletionState(supabase, { learningCompletionId: completion.data.id, status: evaluation.learningStatus, method: purposeMethod(purpose), reason: "Recorded-learning requirements evaluated from trusted evidence.", actor });
     if (evaluation.complete && (purpose === "RP" || purpose === "DR-E")) {
@@ -337,6 +442,7 @@ export async function evaluateRecordedLearningAssignment(supabase: SupabaseClien
       }
       if (!wasComplete) await supabase.from("recording_learning_assignments").update({ assignment_status: "completed", completed_at: new Date().toISOString(), verified_at: new Date().toISOString(), verified_by: actorReference(actor), updated_at: new Date().toISOString() }).eq("id", assignmentId);
       if (!wasComplete || attendanceNeedsUpdate) await recordLmsAudit(supabase, { action: evaluation.learningStatus === "late_complete" ? "recorded_learning_late_completed" : "recorded_learning_verified", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: actor.actorUserId, metadata: { purpose, attendance_id: attendance.data.id, learning_status: evaluation.learningStatus } });
+      if (evaluation.complete) await triggerEngagementEvaluationForCourseEnrollment(supabase, String(assignment.course_enrollment_id));
     } else if (purpose === "MU-E" || purpose === "MU-U" || purpose === "LE-C") {
       const makeupResult = await supabase.from("makeup_requirements").select("*").eq("recording_learning_assignment_id", assignmentId).maybeSingle();
       if (makeupResult.error || !makeupResult.data) throw new LmsAdminDataError("The linked make-up requirement could not be loaded.", 409);
@@ -369,6 +475,7 @@ export async function evaluateRecordedLearningAssignment(supabase: SupabaseClien
         if (assignmentSaved.error) throw new LmsAdminDataError("Completed make-up assignment could not be saved.");
         await recordLmsAudit(supabase, { action: purpose === "MU-U" ? "makeup_late_completed" : purpose === "LE-C" ? "late_entry_catchup_completed" : "makeup_verified", entityType: "makeup_requirement", entityId: makeupResult.data.id, actorUserId: actor.actorUserId, metadata: { purpose, learning_status: evaluation.learningStatus, attendance_unchanged: true } });
         if (purpose !== "LE-C") await sendMakeupEmail(supabase, makeupResult.data.id, "makeup_completed");
+        await triggerEngagementEvaluationForCourseEnrollment(supabase, String(assignment.course_enrollment_id));
       }
     } else if (evaluation.learningStatus === "incomplete" && completion.data.completion_status !== "incomplete") {
       await recordLmsAudit(supabase, { action: "recorded_learning_marked_incomplete", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: actor.actorUserId, metadata: { due_at: assignment.due_at } });
@@ -425,18 +532,21 @@ export async function saveSessionRecordingRequirements(supabase: SupabaseClient,
   };
   const session = await supabase.from("class_sessions").select("cohort_course_id").eq("id", sessionId).maybeSingle();
   if (session.error || !session.data) throw new LmsAdminDataError("Class session not found.", 404);
-  for (const [field, id] of Object.entries(linkedIds)) {
-    if (!id) continue;
-    const table = field === "quiz_id" ? "quizzes" : "assignments";
-    const linked = await supabase.from(table).select("id").eq("id", id).eq("cohort_course_id", session.data.cohort_course_id).maybeSingle();
-    if (linked.error || !linked.data) throw new LmsAdminDataError("Linked recorded-learning assessments must belong to this session's cohort course.", 400);
-  }
+  const [quiz, practical, reflection] = await Promise.all([
+    linkedIds.quiz_id ? supabase.from("quizzes").select("id, quiz_status").eq("id", linkedIds.quiz_id).eq("cohort_course_id", session.data.cohort_course_id).in("quiz_status", ["draft", "published"]).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    linkedIds.practical_assignment_id ? supabase.from("assignments").select("id, assignment_type, assignment_status").eq("id", linkedIds.practical_assignment_id).eq("cohort_course_id", session.data.cohort_course_id).in("assignment_status", ["draft", "published"]).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    linkedIds.reflection_assignment_id ? supabase.from("assignments").select("id, assignment_type, assignment_status").eq("id", linkedIds.reflection_assignment_id).eq("cohort_course_id", session.data.cohort_course_id).eq("assignment_type", "reflection").in("assignment_status", ["draft", "published"]).maybeSingle() : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (linkedIds.quiz_id && (quiz.error || !quiz.data)) throw new LmsAdminDataError("The linked quiz must be an active draft or published quiz for this cohort course.", 400);
+  if (linkedIds.practical_assignment_id && (practical.error || !practical.data || practical.data.assignment_type === "reflection")) throw new LmsAdminDataError("The linked practical must be an active non-reflection assignment for this cohort course.", 400);
+  if (linkedIds.reflection_assignment_id && (reflection.error || !reflection.data)) throw new LmsAdminDataError("The linked reflection must be an active reflection assignment for this cohort course.", 400);
   const existingAssignments = await supabase.from("recording_learning_assignments").select("id", { count: "exact", head: true }).eq("class_session_id", sessionId);
   if (existingAssignments.error) throw new LmsAdminDataError("Existing recorded-learning assignments could not be checked.");
   if ((existingAssignments.count ?? 0) > 0 && body.confirm_existing_assignments !== true) throw new LmsAdminDataError("Recorded-learning assignments already exist. Confirm that this change must not silently rewrite completed student evidence.", 409);
   if (boolean(body.requires_quiz) && !linkedIds.quiz_id) throw new LmsAdminDataError("Choose the quiz that supplies this recorded-learning evidence.", 400);
   if (boolean(body.requires_practical) && !linkedIds.practical_assignment_id) throw new LmsAdminDataError("Choose the practical assignment that supplies this recorded-learning evidence.", 400);
   if (boolean(body.requires_reflection) && !linkedIds.reflection_assignment_id) throw new LmsAdminDataError("Choose the reflection assignment that supplies this recorded-learning evidence.", 400);
+  if (boolean(body.requires_checkpoints) && (!Number.isInteger(checkpointCount) || !checkpointCount || checkpointCount <= 0)) throw new LmsAdminDataError("Required checkpoint count must be a whole number greater than zero when checkpoints are required.", 400);
   const values = { class_session_id: sessionId, min_watch_percentage: minWatch, deadline_hours: deadline, requires_checkpoints: boolean(body.requires_checkpoints), required_checkpoint_count: checkpointCount, requires_quiz: boolean(body.requires_quiz), requires_practical: boolean(body.requires_practical), requires_reflection: boolean(body.requires_reflection), requires_oral_verification: boolean(body.requires_oral_verification), allow_late_completion: boolean(body.allow_late_completion), ...linkedIds, requirement_status: "active", updated_at: new Date().toISOString() };
   const saved = await supabase.from("session_recording_requirements").upsert(values, { onConflict: "class_session_id" }).select("*").single();
   if (saved.error) throw new LmsAdminDataError("Recorded-learning requirements could not be saved.");
@@ -446,8 +556,11 @@ export async function saveSessionRecordingRequirements(supabase: SupabaseClient,
 
 export async function createRecordingCheckpoint(supabase: SupabaseClient, recordingId: string, body: Record<string, unknown>, actor: Actor) {
   const title = requiredText(body.title, "Checkpoint title is required.", 240); const seconds = optionalNumber(body.position_seconds, 0); const percentage = optionalNumber(body.position_percentage, 0, 100); const order = optionalNumber(body.checkpoint_order, 1) ?? 1;
-  if (seconds === null && percentage === null) invalid("Provide a checkpoint position in seconds or percentage.");
-  if (seconds !== null && percentage !== null) invalid("Choose either a checkpoint position in seconds or a position percentage, not both.");
+  if (seconds === null && percentage === null) invalid("Provide either Time in recording or Position percentage.");
+  if (seconds !== null && percentage !== null) invalid("Choose either Time in recording or Position percentage, not both.");
+  const recording = await supabase.from("class_recordings").select("id, duration_seconds").eq("id", recordingId).maybeSingle();
+  if (recording.error || !recording.data) throw new LmsAdminDataError("Recording not found.", 404);
+  if (seconds !== null && recording.data.duration_seconds !== null && seconds > Number(recording.data.duration_seconds)) throw new LmsAdminDataError("Time in recording cannot be later than the recording duration.", 400);
   const saved = await supabase.from("recording_checkpoints").insert({ class_recording_id: recordingId, title, position_seconds: seconds, position_percentage: percentage, checkpoint_order: order, is_required: body.is_required !== false, is_active: true }).select("*").single();
   if (saved.error) throw new LmsAdminDataError("Recording checkpoint could not be created.");
   await recordLmsAudit(supabase, { action: "recording_requirements_updated", entityType: "class_recording", entityId: recordingId, actorUserId: actor.actorUserId, metadata: { checkpoint_id: saved.data.id } });

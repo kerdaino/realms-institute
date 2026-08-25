@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 
 export function PortalShell({ eyebrow, title, description, children }: { eyebrow: string; title: string; description?: string; children: ReactNode }) {
+  const facultyContrast = eyebrow.toLowerCase().startsWith("faculty");
   return (
     <main className="relative min-h-dvh overflow-hidden bg-[linear-gradient(145deg,#050d1c_0%,#0b2140_62%,#132f53_100%)] px-5 py-8 text-white md:px-8 md:py-12">
       <div aria-hidden="true" className="realm-grid absolute inset-0 opacity-45" />
@@ -21,7 +22,7 @@ export function PortalShell({ eyebrow, title, description, children }: { eyebrow
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--realm-gold-soft)]">{eyebrow}</p>
           <h1 className="mt-4 max-w-4xl text-4xl font-semibold tracking-tight md:text-6xl">{title}</h1>
           {description ? <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--realm-muted)] md:text-lg">{description}</p> : null}
-          <div className="mt-10">{children}</div>
+          <div className={`mt-10 ${facultyContrast ? "faculty-contrast-scope" : ""}`}>{children}</div>
         </section>
       </div>
     </main>

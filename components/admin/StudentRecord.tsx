@@ -55,7 +55,10 @@ export function StudentRecord({ initialRecord }: { initialRecord: StudentRecordD
     const payload = await response.json(); setBusy(false);
     if (!response.ok) return setMessage(payload.message || "Delivery route could not be changed.");
     setRecord((current) => ({ ...current, courseEnrollments: current.courseEnrollments.map((item) => object(item).id === courseEnrollmentId ? { ...item, ...payload.courseEnrollment } : item) }));
-    setMessage("Delivery route updated with an audit event.");
+    const awaiting = Number(payload.recordedLearning?.awaitingRecording ?? 0);
+    const awaitingConfiguration = Number(payload.recordedLearning?.awaitingConfiguration ?? 0);
+    const created = Number(payload.recordedLearning?.created ?? 0);
+    setMessage(awaitingConfiguration > 0 ? `Delivery route updated. ${created} recorded-learning assignment(s) initialized; ${awaitingConfiguration} eligible session(s) need linked evidence or checkpoint configuration before activation.` : awaiting > 0 ? `Delivery route updated. ${created} recorded-learning assignment(s) initialized; ${awaiting} eligible session(s) are Awaiting Recording and now appear in the Recording Control Centre.` : `Delivery route updated. ${created} eligible recorded-learning assignment(s) initialized idempotently.`);
   }
 
   return <div className="space-y-6">{message ? <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">{message}</p> : null}
