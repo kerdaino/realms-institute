@@ -6,6 +6,10 @@ const absenceSource = await readFile(new URL("../lib/lms/absence.ts", import.met
 const compiled = ts.transpileModule(absenceSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
 const { absenceReasonCategories, absenceRequestStatuses, makeupStatuses, makeupStatusFromLearning, oralVerificationStatuses } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 
+const reviewSource = await readFile(new URL("../lib/lms/absenceReview.ts", import.meta.url), "utf8");
+const reviewCompiled = ts.transpileModule(reviewSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+const { absenceReviewDecisionEndpoint, absenceReviewDecisions, AbsenceReviewDecisionValidationError } = await import(`data:text/javascript;base64,${Buffer.from(reviewCompiled).toString("base64")}`);
+
 assert.equal(absenceReasonCategories.length, 8);
 assert.ok(absenceReasonCategories.includes("illness"));
 assert.ok(absenceReasonCategories.includes("connectivity_or_power"));
@@ -17,11 +21,28 @@ assert.equal(makeupStatusFromLearning("late_complete", true), "late_complete");
 assert.equal(makeupStatusFromLearning("awaiting_quiz", false), "awaiting_quiz");
 assert.equal(makeupStatusFromLearning("incomplete", false, "2020-01-01T00:00:00Z"), "overdue");
 assert.ok(oralVerificationStatuses.includes("satisfactory"));
+assert.deepEqual(absenceReviewDecisions, ["approve", "decline", "request_information"]);
+assert.equal(absenceReviewDecisionEndpoint("request-id", "approve"), "/api/admin/absence-makeup/request-id/approve");
+assert.equal(absenceReviewDecisionEndpoint("request-id", "decline"), "/api/admin/absence-makeup/request-id/decline");
+assert.equal(absenceReviewDecisionEndpoint("request-id", "request_information"), "/api/admin/absence-makeup/request-id/request-information");
+for (const invalidAction of [null, undefined, "", "null", "request-information", "approve_anyway"]) {
+  assert.throws(
+    () => absenceReviewDecisionEndpoint("request-id", invalidAction),
+    (error) => error instanceof AbsenceReviewDecisionValidationError && error.status === 400 && /valid absence review action/i.test(error.message),
+  );
+}
 
 const service = await readFile(new URL("../lib/lms/absenceService.ts", import.meta.url), "utf8");
 const attendance = await readFile(new URL("../lib/lms/attendanceService.ts", import.meta.url), "utf8");
 const recording = await readFile(new URL("../lib/lms/recordingService.ts", import.meta.url), "utf8");
 const migration = await readFile(new URL("../supabase/lms_build_9_absence_makeup_security.sql", import.meta.url), "utf8");
+const reviewActions = await readFile(new URL("../components/admin/AbsenceReviewActions.tsx", import.meta.url), "utf8");
+const invalidActionRoute = await readFile(new URL("../app/api/admin/absence-makeup/[id]/[action]/route.ts", import.meta.url), "utf8");
+const actionRoutes = await Promise.all([
+  ["approve", "approve"],
+  ["decline", "decline"],
+  ["request-information", "request_information"],
+].map(async ([route, decision]) => [decision, await readFile(new URL(`../app/api/admin/absence-makeup/[id]/${route}/route.ts`, import.meta.url), "utf8")]));
 
 assert.match(service, /eq\("profile_id", profileId\)/);
 assert.match(service, /eq\("course_enrollment_id", courseEnrollmentId\).*eq\("class_session_id", sessionId\)/s);
@@ -38,5 +59,14 @@ assert.match(migration, /makeup_requirement_enrollment_session_purpose_unique_id
 assert.match(migration, /revoke insert, update, delete/i);
 assert.match(migration, /No authenticated SELECT policy is intentionally defined/);
 assert.doesNotMatch(service, /withdrawn.*student_status|automatic.*withdraw/i);
+assert.match(reviewActions, /nativeEvent as SubmitEvent/);
+assert.match(reviewActions, /new FormData\(event\.currentTarget, submitter\)/);
+assert.match(reviewActions, /absenceReviewDecisionEndpoint\(requestId, action\)/);
+assert.doesNotMatch(reviewActions, /\$\{requestId\}\/\$\{suffix\}/);
+assert.match(invalidActionRoute, /invalidAbsenceReviewDecisionMessage/);
+assert.match(invalidActionRoute, /status: 400/);
+for (const [decision, route] of actionRoutes) {
+  assert.match(route, new RegExp(`reviewAbsenceRequest\\(requireLmsAdminClient\\(\\), id, "${decision}"`));
+}
 
-console.log(JSON.stringify({ domainAndStatusModel: 11, ownershipAndIdempotency: 4, attendanceHistoryProtection: 5, privacyAndRls: 4, noAutomaticDiscipline: 1, passed: 25 }, null, 2));
+console.log(JSON.stringify({ domainAndStatusModel: 11, reviewActions: 15, ownershipAndIdempotency: 4, attendanceHistoryProtection: 5, privacyAndRls: 4, noAutomaticDiscipline: 1, passed: 40 }, null, 2));
