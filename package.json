@@ -34,6 +34,7 @@
     "test:late-entry-catchup": "node --experimental-strip-types scripts/test-late-entry-catchup.mjs",
     "test:live-teaching-operations": "node --experimental-strip-types scripts/test-live-teaching-operations.mjs",
     "test:recording-learning": "node --experimental-strip-types scripts/test-build-7-recorded-learning.mjs",
+    "test:attendance-roster": "node --experimental-strip-types scripts/test-attendance-roster-eligibility.mjs",
     "process:admission-deadlines": "node --env-file=.env.local --experimental-strip-types scripts/process-admission-deadlines.mjs"
   },
   "dependencies": {

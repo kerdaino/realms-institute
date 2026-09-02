@@ -7,6 +7,10 @@ import { triggerEngagementEvaluationForCourseEnrollment } from "@/lib/lms/engage
 import { LmsAdminDataError } from "@/lib/lms/adminData";
 import { syncLiveLearningCompletionFromAttendance } from "@/lib/lms/learningCompletionService";
 import {
+  attendanceRosterCourseStatuses,
+  isAttendanceRosterEligible,
+} from "@/lib/lms/attendanceRosterEligibility";
+import {
   allowedDeliveryRoutes,
   attendanceAbsenceWeight,
   attendanceStatuses,
@@ -78,15 +82,38 @@ async function policyAbsenceWeight(supabase: SupabaseClient, sessionId: string, 
   return Number(policy.data.absent_absence_weight);
 }
 
-async function attendanceById(supabase: SupabaseClient, id: string) {
-  const result = await supabase.from("session_attendance").select("*").eq("id", id).maybeSingle();
+const rosterEnrollmentSelect = "id, cohort_course_id, enrollment_status, delivery_route, student_enrollments(id, cohort_id, enrolled_at, enrolment_status, students(id, registration_id, student_status, student_number, legal_name, preferred_name, registrations(id, deleted_at, application_status)))";
+
+function enrollmentEligibility(enrollmentValue: unknown, courseCohortId: unknown) {
+  const enrollment = relation(enrollmentValue);
+  const studentEnrollment = relation(enrollment.student_enrollments);
+  const student = relation(studentEnrollment.students);
+  const registration = relation(student.registrations);
+  return isAttendanceRosterEligible({
+    courseEnrollmentStatus: enrollment.enrollment_status,
+    courseCohortId,
+    studentEnrollmentStatus: studentEnrollment.enrolment_status,
+    studentEnrollmentCohortId: studentEnrollment.cohort_id,
+    studentStatus: student.student_status,
+    registrationId: student.registration_id,
+    registrationDeletedAt: registration.deleted_at,
+    registrationStatus: registration.application_status,
+  });
+}
+
+async function attendanceById(supabase: SupabaseClient, id: string, requireRosterEligibility = false) {
+  const result = await supabase.from("session_attendance").select(`*, class_sessions(cohort_courses(cohort_id)), course_enrollments(${rosterEnrollmentSelect})`).eq("id", id).maybeSingle();
   if (result.error) throw new LmsAdminDataError("Attendance record could not be loaded.");
   if (!result.data) throw new LmsAdminDataError("Attendance record not found.", 404);
+  const cohortId = relation(relation(result.data.class_sessions).cohort_courses).cohort_id;
+  if (requireRosterEligibility && !enrollmentEligibility(result.data.course_enrollments, cohortId)) {
+    throw new LmsAdminDataError("This learner is no longer eligible for the active attendance roster. Use the historical correction workflow if a past record must be corrected.", 409);
+  }
   return result.data;
 }
 
 export async function ensureSessionAttendanceRoster(supabase: SupabaseClient, sessionId: string, actor: AttendanceActor) {
-  const sessionResult = await supabase.from("class_sessions").select("id, cohort_course_id, is_required, session_status, title, scheduled_start_at, scheduled_end_at").eq("id", sessionId).maybeSingle();
+  const sessionResult = await supabase.from("class_sessions").select("id, cohort_course_id, is_required, session_status, title, scheduled_start_at, scheduled_end_at, cohort_courses(cohort_id)").eq("id", sessionId).maybeSingle();
   if (sessionResult.error) throw new LmsAdminDataError("Class session could not be loaded.");
   if (!sessionResult.data) throw new LmsAdminDataError("Class session not found.", 404);
   if (sessionResult.data.session_status === "cancelled") return { created: 0, eligible: 0, lateEntryExcluded: 0, optionalSession: false, cancelledSession: true };
@@ -94,17 +121,19 @@ export async function ensureSessionAttendanceRoster(supabase: SupabaseClient, se
 
   const enrollmentResult = await supabase
     .from("course_enrollments")
-    .select("id, delivery_route, student_enrollments(enrolled_at)")
+    .select(rosterEnrollmentSelect)
     .eq("cohort_course_id", sessionResult.data.cohort_course_id)
-    .in("enrollment_status", ["active", "enrolled"]);
+    .in("enrollment_status", [...attendanceRosterCourseStatuses]);
   if (enrollmentResult.error) throw new LmsAdminDataError("Eligible session roster could not be loaded.");
   const sessionCutoff = sessionResult.data.scheduled_end_at ?? sessionResult.data.scheduled_start_at;
-  const enrollments = (enrollmentResult.data ?? []).filter((enrollment) => {
+  const courseCohortId = relation(sessionResult.data.cohort_courses).cohort_id;
+  const academicallyEligible = (enrollmentResult.data ?? []).filter((enrollment) => enrollmentEligibility(enrollment, courseCohortId));
+  const enrollments = academicallyEligible.filter((enrollment) => {
     if (!sessionCutoff) return true;
     const effectiveEnrolledAt = relation(enrollment.student_enrollments).enrolled_at;
     return typeof effectiveEnrolledAt !== "string" || Date.parse(sessionCutoff) >= Date.parse(effectiveEnrolledAt);
   });
-  const lateEntryExcluded = (enrollmentResult.data?.length ?? 0) - enrollments.length;
+  const lateEntryExcluded = academicallyEligible.length - enrollments.length;
   if (!enrollments.length) return { created: 0, eligible: 0, lateEntryExcluded, optionalSession: false };
 
   const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
@@ -164,23 +193,27 @@ export async function ensureSessionAttendanceRoster(supabase: SupabaseClient, se
 
 export async function fetchSessionAttendance(supabase: SupabaseClient, sessionId: string) {
   const [session, attendance] = await Promise.all([
-    supabase.from("class_sessions").select("id, title, is_required, delivery_mode, scheduled_start_at, scheduled_end_at, session_status, cohort_courses(id, cohorts(id, code, name), courses(id, code, title, course_category))").eq("id", sessionId).maybeSingle(),
-    supabase.from("session_attendance").select("*, course_enrollments(id, delivery_route, student_enrollments(id, students(id, student_number, legal_name, preferred_name)))").eq("class_session_id", sessionId).order("created_at"),
+    supabase.from("class_sessions").select("id, title, is_required, delivery_mode, scheduled_start_at, scheduled_end_at, session_status, cohort_courses(id, cohort_id, cohorts(id, code, name), courses(id, code, title, course_category))").eq("id", sessionId).maybeSingle(),
+    supabase.from("session_attendance").select(`*, course_enrollments(${rosterEnrollmentSelect})`).eq("class_session_id", sessionId).order("created_at"),
   ]);
   if (session.error || attendance.error) throw new LmsAdminDataError("Session attendance could not be loaded. Please contact a REALMS administrator.");
   if (!session.data) throw new LmsAdminDataError("Class session not found.", 404);
-  const attendanceIds = (attendance.data ?? []).map((row) => row.id);
+  const courseCohortId = relation(session.data.cohort_courses).cohort_id;
+  const completed = session.data.session_status === "completed";
+  const annotatedAttendance = (attendance.data ?? []).map((row) => ({ ...row, roster_eligible: enrollmentEligibility(row.course_enrollments, courseCohortId) }));
+  const visibleAttendance = completed ? annotatedAttendance : annotatedAttendance.filter((row) => row.roster_eligible);
+  const attendanceIds = visibleAttendance.map((row) => row.id);
   if (!attendanceIds.length) return { session: session.data, attendance: [], engagementChecks: [], changes: [] };
   const [checks, changes] = await Promise.all([
     supabase.from("attendance_engagement_checks").select("*").in("session_attendance_id", attendanceIds),
     supabase.from("attendance_change_events").select("*").in("session_attendance_id", attendanceIds).order("created_at", { ascending: false }),
   ]);
   if (checks.error || changes.error) throw new LmsAdminDataError("Session attendance evidence could not be loaded.");
-  return { session: session.data, attendance: attendance.data ?? [], engagementChecks: checks.data ?? [], changes: changes.data ?? [] };
+  return { session: session.data, attendance: visibleAttendance, engagementChecks: checks.data ?? [], changes: changes.data ?? [] };
 }
 
 export async function recordPhysicalRollCall(supabase: SupabaseClient, attendanceId: string, body: Record<string, unknown>, actor: AttendanceActor) {
-  const current = await attendanceById(supabase, attendanceId);
+  const current = await attendanceById(supabase, attendanceId, true);
   if (current.finalized_at) throw new LmsAdminDataError("This attendance record is finalized. Use the administrative correction workflow.", 409);
   if (current.manual_override) throw new LmsAdminDataError("This record has an authorised manual correction. Use the administrative correction workflow to change it.", 409);
   if (current.assigned_delivery_route !== "PL") invalid("Two-part physical roll call is available only for Physical Live attendance.");
@@ -204,7 +237,7 @@ export async function recordPhysicalRollCall(supabase: SupabaseClient, attendanc
 }
 
 export async function updateLiveAttendanceEvidence(supabase: SupabaseClient, attendanceId: string, body: Record<string, unknown>, actor: AttendanceActor) {
-  const current = await attendanceById(supabase, attendanceId);
+  const current = await attendanceById(supabase, attendanceId, true);
   if (current.finalized_at) throw new LmsAdminDataError("This attendance record is finalized. Use the administrative correction workflow.", 409);
   if (current.manual_override) throw new LmsAdminDataError("This record has an authorised manual correction. Use the administrative correction workflow to change it.", 409);
   if (current.assigned_delivery_route !== "OL" && current.assigned_delivery_route !== "DL") invalid("Live attendance evidence is available only for Online Live or Discipleship Live routes.");
@@ -233,7 +266,7 @@ export async function updateLiveAttendanceEvidence(supabase: SupabaseClient, att
 }
 
 export async function addAttendanceEngagementCheck(supabase: SupabaseClient, attendanceId: string, body: Record<string, unknown>, actor: AttendanceActor) {
-  const current = await attendanceById(supabase, attendanceId);
+  const current = await attendanceById(supabase, attendanceId, true);
   if (current.finalized_at) throw new LmsAdminDataError("This attendance record is finalized. Engagement evidence can no longer be added through normal editing.", 409);
   if (current.assigned_delivery_route !== "OL" && current.assigned_delivery_route !== "DL") invalid("Engagement checks are available only for Online Live or Discipleship Live routes.");
   if (!(engagementCheckTypes as readonly unknown[]).includes(body.check_type)) invalid("Choose a valid engagement-check type.");
@@ -252,7 +285,7 @@ export async function addAttendanceEngagementCheck(supabase: SupabaseClient, att
 }
 
 export async function finalizeAttendance(supabase: SupabaseClient, attendanceId: string, body: Record<string, unknown>, actor: AttendanceActor) {
-  const current = await attendanceById(supabase, attendanceId);
+  const current = await attendanceById(supabase, attendanceId, true);
   if (current.finalized_at) return current;
   if (["pending", "pending_recorded_verification"].includes(current.attendance_status)) throw new LmsAdminDataError("Resolve the attendance status before finalizing this record.", 409);
   if (current.assigned_delivery_route === "RP" || current.assigned_delivery_route === "DR-E") throw new LmsAdminDataError("Recorded attendance is finalized only by the recorded-learning requirement evaluator.", 409);
@@ -306,7 +339,7 @@ export async function changeCourseDeliveryRoute(supabase: SupabaseClient, course
 export type AttendanceDashboardFilters = { cohort?: string; course?: string; session?: string; facilitator?: string; route?: string; status?: string; student?: string; from?: string; to?: string };
 
 export async function fetchAttendanceDashboard(supabase: SupabaseClient, filters: AttendanceDashboardFilters = {}) {
-  const result = await supabase.from("session_attendance").select("*, class_sessions(id, title, facilitator_id, scheduled_start_at, cohort_courses(id, cohorts(id, code, name), courses(id, code, title))), course_enrollments(id, delivery_route, student_enrollments(students(id, student_number, legal_name, preferred_name)))").order("created_at", { ascending: false }).limit(5000);
+  const result = await supabase.from("session_attendance").select(`*, class_sessions(id, title, facilitator_id, scheduled_start_at, session_status, cohort_courses(id, cohort_id, cohorts(id, code, name), courses(id, code, title))), course_enrollments(${rosterEnrollmentSelect})`).order("created_at", { ascending: false }).limit(5000);
   if (result.error) throw new LmsAdminDataError("Attendance dashboard could not be loaded. Please contact a REALMS administrator.");
   const search = filters.student?.trim().toLowerCase();
   const from = filters.from && /^\d{4}-\d{2}-\d{2}$/.test(filters.from) ? Date.parse(`${filters.from}T00:00:00Z`) : null;
@@ -318,6 +351,7 @@ export async function fetchAttendanceDashboard(supabase: SupabaseClient, filters
     const course = relation(offering.courses);
     const enrollment = relation(raw.course_enrollments);
     const student = relation(relation(enrollment.student_enrollments).students);
+    if (session.session_status !== "completed" && !enrollmentEligibility(enrollment, offering.cohort_id)) return false;
     if (filters.cohort && cohort.id !== filters.cohort) return false;
     if (filters.course && course.id !== filters.course) return false;
     if (filters.session && session.id !== filters.session) return false;
