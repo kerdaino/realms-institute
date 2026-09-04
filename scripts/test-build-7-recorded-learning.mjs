@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import { creditedPlaybackSegment, evaluateRecordedRequirements, mergeWatchedSegments, providerTrackingMode, resolveRecordingProgressProvider, resolveRecordingRequirementSnapshot, uniqueWatchedSeconds, watchPercentage } from "../lib/lms/recording.ts";
+import { normalizeViewerEmail, parseZoomEvidenceCsv } from "../lib/lms/zoomEvidence.ts";
 import { formatRecordingTime, formatRequiredCheckpoints, formatRequirementHours, parseRecordingTime } from "../lib/lms/recordingTime.ts";
 
 assert.deepEqual(parseRecordingTime("02:00:00"), { ok: true, seconds: 7200 });
@@ -34,10 +36,10 @@ assert.deepEqual(seek.segment, { start: 10, end: 40 });
 assert.equal(seek.suspicious, true);
 assert.equal(providerTrackingMode("vimeo", "https://player.vimeo.com/video/123", 100), "automated");
 assert.equal(providerTrackingMode("zoom", "https://zoom.us/rec/share/example", 100), "manual_review");
+assert.equal(resolveRecordingProgressProvider("zoom", "https://zoom.us/rec/share/example", 100).adapter, "zoom_manual_verification");
 assert.equal(providerTrackingMode("vimeo", "https://vimeo.com/123", 100), "manual_review");
 assert.equal(providerTrackingMode("vimeo", "https://example.com/?next=player.vimeo.com/video/123", 100), "manual_review");
 assert.equal(resolveRecordingProgressProvider("vimeo", "https://player.vimeo.com/video/123", 100).adapter, "vimeo");
-assert.equal(resolveRecordingProgressProvider("zoom", "https://zoom.us/rec/share/example", 100).adapter, "unsupported_external");
 
 const evidence = (overrides = {}) => ({ watch: { required: true, status: "satisfied" }, checkpoints: { required: true, status: "satisfied" }, quiz: { required: true, status: "pending" }, practical: { required: true, status: "pending" }, reflection: { required: false, status: "not_required" }, oral_verification: { required: false, status: "not_required" }, ...overrides });
 assert.equal(evaluateRecordedRequirements({ purpose: "RP", progressIntegrityStatus: "clear", watchRequirementMet: true, checkpointRequirementMet: true, configuredRequiredCheckpoints: 2, requiredCheckpointCount: 2, requirements: evidence(), dueAt: null, allowLateCompletion: true }).learningStatus, "awaiting_quiz");
@@ -60,4 +62,71 @@ assert.deepEqual(resolveRecordingRequirementSnapshot(null), { status: "legacy", 
 assert.deepEqual(resolveRecordingRequirementSnapshot({}), { status: "legacy", requirements: null });
 assert.deepEqual(resolveRecordingRequirementSnapshot({ minWatchPercentage: 85, deadlineHours: 72 }), { status: "legacy", requirements: null });
 
-console.log(JSON.stringify({ timeAuthoringCases: 16, segmentMerge: "passed", elapsedTimeCap: "passed", providerModes: "passed", evaluatorCases: 10, requirementSnapshotCases: 4, passed: 44 }, null, 2));
+const [studentDetailSource, studentListSource, recordingServiceSource, recordingDataSource, zoomServiceSource, zoomMigrationSource, zoomCheckpointMigrationSource, checkpointGuidanceMigrationSource, zoomAdminSource, recordedLearningAdminSource, checkpointFormSource, checkpointAdminSource] = await Promise.all([
+  readFile(new URL("../app/student/(academic)/recordings/[assignmentId]/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/student/(academic)/recordings/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../lib/lms/recordingService.ts", import.meta.url), "utf8"),
+  readFile(new URL("../lib/lms/recordingData.ts", import.meta.url), "utf8"),
+  readFile(new URL("../lib/lms/zoomEvidenceService.ts", import.meta.url), "utf8"),
+  readFile(new URL("../supabase/lms_zoom_viewing_evidence.sql", import.meta.url), "utf8"),
+  readFile(new URL("../supabase/lms_zoom_manual_checkpoints.sql", import.meta.url), "utf8"),
+  readFile(new URL("../supabase/lms_checkpoint_answer_guidance.sql", import.meta.url), "utf8"),
+  readFile(new URL("../components/admin/ZoomEvidencePanel.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../components/admin/RecordedLearningAdminPanel.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../components/student/RecordingPlayer.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../components/admin/RecordingAdminActions.tsx", import.meta.url), "utf8"),
+]);
+assert.match(studentDetailSource, /isRevision \? <StudentPanel title="Revision recording"/);
+assert.match(studentDetailSource, /No minimum watch requirement/);
+assert.match(studentDetailSource, /No required checkpoints/);
+assert.match(studentDetailSource, /No academic deadline/);
+assert.match(studentDetailSource, /const playerCheckpoints = isRevision \|\| isZoomManual \? \[\]/);
+assert.match(studentListSource, /isRevision \? "Optional revision"/);
+assert.match(studentListSource, /Automatic revision viewing progress unavailable/);
+assert.match(studentListSource, /item\.purposeCode === "REV" \? item\.progress\.watchRequirementMet/);
+assert.match(recordingServiceSource, /input\.purpose === "REV" \? null/);
+assert.match(recordingServiceSource, /if \(input\.purpose !== "REV"\)/);
+assert.match(recordingServiceSource, /evaluation\.complete && \(purpose === "RP" \|\| purpose === "DR-E"\)/);
+assert.match(recordingServiceSource, /Zoom viewing must be verified from matched Zoom viewing evidence/);
+assert.match(studentDetailSource, /\["MU-E", "MU-U"\]\.includes\(detail\.purposeCode\)/);
+assert.match(studentDetailSource, /Automatic playback measurement is unavailable for this Zoom recording/);
+assert.match(studentListSource, /!isZoomManual/);
+assert.match(zoomAdminSource, /never labelled unique watch duration/i);
+assert.match(zoomServiceSource, /candidates\.length === 1/);
+assert.match(zoomServiceSource, /registered_email/);
+assert.match(zoomServiceSource, /inserted\.error\?\.code === "23505"/);
+assert.match(zoomServiceSource, /Zoom viewing evidence cannot verify official learning by itself/);
+assert.match(zoomServiceSource, /\.in\("purpose_code", \["RP", "DR-E", "MU-E", "MU-U"\]\)/);
+assert.match(zoomMigrationSource, /source_hash text not null unique/);
+assert.match(zoomMigrationSource, /revoke all on public\.zoom_recording_viewer_evidence from anon, authenticated/);
+assert.match(recordingServiceSource, /zoom_manual_verification/);
+assert.match(recordingServiceSource, /Zoom manual-verification checkpoints must not include a playback time or percentage/);
+assert.match(recordingServiceSource, /A checkpoint question is required for Zoom manual verification/);
+assert.match(recordingServiceSource, /question_type: "short_answer"/);
+assert.match(recordingDataSource, /position_seconds: null, position_percentage: null/);
+assert.match(zoomCheckpointMigrationSource, /position_percentage is not null\)::integer <= 1/);
+assert.match(recordedLearningAdminSource, /Zoom manual verification uses checkpoint order, not playback positions/);
+assert.match(recordedLearningAdminSource, /question: zoomManual \? form\.get\("question"\) : null/);
+assert.match(checkpointFormSource, /Checkpoint \{String\(checkpoint\.checkpoint_order\)\}/);
+assert.doesNotMatch(studentDetailSource, /around each configured point/);
+assert.match(recordedLearningAdminSource, /both understanding and evidence of engagement with this specific class/);
+assert.match(checkpointAdminSource, /Prefer facilitator examples, explanations, Scripture applications, demonstrations, or instructions over generic knowledge questions/);
+assert.match(checkpointAdminSource, /defaultValue="80"/);
+assert.match(checkpointAdminSource, /defaultValue="200"/);
+assert.match(recordingServiceSource, /Your response must contain at least/);
+assert.match(recordingServiceSource, /Your response must contain no more than/);
+assert.match(checkpointFormSource, /answerGuidance/);
+assert.match(checkpointGuidanceMigrationSource, /response_format.*short_text.*long_text/s);
+assert.match(checkpointGuidanceMigrationSource, /min_words/);
+assert.match(checkpointGuidanceMigrationSource, /max_words/);
+assert.match(studentDetailSource, /neither verifies attendance by itself/);
+assert.match(recordingDataSource, /Student recording checkpoint query failed/);
+assert.match(recordingDataSource, /checkpointResult\.error\.code === "42703"/);
+assert.match(recordingDataSource, /Student recording checkpoint legacy query failed/);
+assert.match(recordingDataSource, /recording_checkpoint_questions\(id, question_type, prompt, options, is_active, sort_order\)/);
+assert.match(recordingServiceSource, /Checkpoint answer guidance columns are not deployed/);
+assert.equal(normalizeViewerEmail(" Student@REALMS.example "), "student@realms.example");
+const zoomRows = parseZoomEvidenceCsv('Viewer Name,Viewer Email,View Date/Time,View Duration,Recording ID\n"Ada, Learner",Student@REALMS.example,2026-09-04T10:00:00Z,01:05:30,zoom-123');
+assert.deepEqual(zoomRows.map((row) => ({ name: row.viewerName, email: row.viewerEmail, duration: row.reportedDurationSeconds, identifier: row.recordingIdentifier })), [{ name: "Ada, Learner", email: "student@realms.example", duration: 3930, identifier: "zoom-123" }]);
+
+console.log(JSON.stringify({ timeAuthoringCases: 16, segmentMerge: "passed", elapsedTimeCap: "passed", providerModes: "passed", evaluatorCases: 10, requirementSnapshotCases: 4, purposeAwarePresentationCases: 12, zoomEvidenceCases: 14, zoomCheckpointCases: 10, checkpointIntegrityCases: 11, checkpointSchemaFallbackCases: 5, passed: 96 }, null, 2));

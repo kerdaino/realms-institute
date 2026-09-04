@@ -29,7 +29,7 @@ type Policy = {
 
 export function RecordedLearningAdminPanel({ sessionId, recordings, requirements, policy, courseCategory, assignmentCount, assessmentAssignments, assessmentQuizzes }: {
   sessionId: string;
-  recordings: Array<{ id: string; title: string; durationSeconds: number | null }>;
+  recordings: Array<{ id: string; title: string; provider: string; durationSeconds: number | null }>;
   requirements: RequirementConfig | null;
   policy: Policy | null;
   courseCategory: string;
@@ -39,6 +39,9 @@ export function RecordedLearningAdminPanel({ sessionId, recordings, requirements
 }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [selectedRecordingId, setSelectedRecordingId] = useState(recordings[0]?.id ?? "");
+  const selectedRecording = recordings.find((recording) => recording.id === selectedRecordingId) ?? recordings[0];
+  const isZoomManual = selectedRecording?.provider.toLowerCase() === "zoom";
   const defaults = {
     minWatch: requirements?.min_watch_percentage ?? policy?.min_watch_percentage ?? 85,
     deadline: requirements?.deadline_hours ?? policy?.default_deadline_hours ?? 72,
@@ -61,11 +64,17 @@ export function RecordedLearningAdminPanel({ sessionId, recordings, requirements
     if (response.ok) window.location.reload();
   }
 
-  return <div className="space-y-5">
+  return <div id="recorded-learning" className="scroll-mt-24 space-y-5">
+    {!requirements ? <p className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-950"><strong>No active session override is saved.</strong> The checked controls below show proposed policy defaults, not an enabled session configuration. Save valid links and checkpoint settings before official recorded-learning activation.</p> : null}
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
       <p>These requirements apply to students using an approved recorded-learning route or make-up assignment.</p>
       <p className="mt-2 text-sm font-medium text-slate-700">{defaults.minWatch}% minimum unique watch · {formatRequirementHours(defaults.deadline)} · {formatRequiredCheckpoints(defaults.requiresCheckpoints ? defaults.checkpoints : 0)}</p>
       <p className="mt-1 text-xs text-slate-500">Quiz guidance: {policy?.min_quiz_score ?? 70}% recommended minimum, with {policy?.max_quiz_attempts ?? 2} initial attempts.</p>
+    </div>
+    <div className="grid gap-2 text-sm sm:grid-cols-3">
+      <p className={`rounded-xl border p-3 ${defaults.requiresQuiz && !requirements?.quiz_id ? "border-rose-200 bg-rose-50 text-rose-900" : "border-slate-200 bg-white text-slate-700"}`}><strong className="block">Quiz requirement</strong>{defaults.requiresQuiz ? requirements?.quiz_id ? "Linked and configured" : "Blocked: choose a linked quiz" : "Not required"}</p>
+      <p className={`rounded-xl border p-3 ${defaults.requiresPractical && !requirements?.practical_assignment_id ? "border-rose-200 bg-rose-50 text-rose-900" : "border-slate-200 bg-white text-slate-700"}`}><strong className="block">Practical requirement</strong>{defaults.requiresPractical ? requirements?.practical_assignment_id ? "Linked and configured" : "Blocked: choose a linked practical" : "Not required"}</p>
+      <p className={`rounded-xl border p-3 ${defaults.requiresReflection && !requirements?.reflection_assignment_id ? "border-rose-200 bg-rose-50 text-rose-900" : "border-slate-200 bg-white text-slate-700"}`}><strong className="block">Reflection requirement</strong>{defaults.requiresReflection ? requirements?.reflection_assignment_id ? "Linked and configured" : "Blocked: choose a linked reflection" : "Not required"}</p>
     </div>
     {assignmentCount > 0 ? <p className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-950">{assignmentCount} assignment{assignmentCount === 1 ? " already exists" : "s already exist"}. Changing the session policy requires confirmation and an audit event. Completed evidence is not silently rewritten.</p> : null}
     {message ? <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-950">{message}</p> : null}
@@ -102,18 +111,17 @@ export function RecordedLearningAdminPanel({ sessionId, recordings, requirements
       const time = parseRecordingTime(form.get("position_time"));
       if (!time.ok) return setMessage(time.message);
       const percentageValue = String(form.get("position_percentage") ?? "").trim();
-      if (time.seconds === null && !percentageValue) return setMessage("Specify either Time in recording or Position percentage.");
-      if (time.seconds !== null && percentageValue) return setMessage("Specify either Time in recording or Position percentage, not both.");
+      const zoomManual = recordings.find((recording) => recording.id === recordingId)?.provider.toLowerCase() === "zoom";
+      if (!zoomManual && time.seconds === null && !percentageValue) return setMessage("Specify either Time in recording or Position percentage.");
+      if (!zoomManual && time.seconds !== null && percentageValue) return setMessage("Specify either Time in recording or Position percentage, not both.");
       const duration = recordings.find((recording) => recording.id === recordingId)?.durationSeconds ?? null;
       if (time.seconds !== null && duration !== null && time.seconds > duration) return setMessage("Time in recording cannot be later than the recording duration.");
-      void send(`/api/admin/recordings/checkpoints/${recordingId}`, "POST", { title: form.get("title"), position_seconds: time.seconds, position_percentage: percentageValue || null, checkpoint_order: form.get("checkpoint_order"), is_required: form.get("is_required") === "on" });
+      void send(`/api/admin/recordings/checkpoints/${recordingId}`, "POST", { title: form.get("title"), question: zoomManual ? form.get("question") : null, response_format: zoomManual ? form.get("response_format") : null, min_words: zoomManual ? form.get("min_words") : null, max_words: zoomManual ? form.get("max_words") : null, position_seconds: zoomManual ? null : time.seconds, position_percentage: zoomManual ? null : percentageValue || null, checkpoint_order: form.get("checkpoint_order"), is_required: form.get("is_required") === "on" });
     }} className="grid gap-3 rounded-xl border border-slate-200 p-4 md:grid-cols-2">
       <h3 className="font-semibold md:col-span-2">Add recording checkpoint</h3>
-      <label className="text-sm font-medium">Recording<select name="recording_id" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2">{recordings.map((recording) => <option key={recording.id} value={recording.id}>{recording.title}{recording.durationSeconds === null ? "" : ` · ${formatRecordingTime(recording.durationSeconds)}`}</option>)}</select></label>
+      <label className="text-sm font-medium">Recording<select name="recording_id" value={selectedRecordingId} onChange={(event) => setSelectedRecordingId(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2">{recordings.map((recording) => <option key={recording.id} value={recording.id}>{recording.title}{recording.durationSeconds === null ? "" : ` · ${formatRecordingTime(recording.durationSeconds)}`}</option>)}</select></label>
       <input name="title" required placeholder="Checkpoint title" className="rounded-lg border border-slate-300 px-3 py-2" />
-      <label className="text-sm font-medium">Time in recording <span className="font-normal text-slate-500">(HH:MM:SS or MM:SS)</span><input name="position_time" inputMode="numeric" placeholder="45:00" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
-      <label className="text-sm font-medium">Position percentage<input name="position_percentage" type="number" min="0" max="100" step="0.01" placeholder="For example 50" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
-      <p className="text-xs leading-5 text-slate-600 md:col-span-2">Specify either Time in recording or Position percentage. You do not need both.</p>
+      {isZoomManual ? <><p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm leading-6 text-blue-950 md:col-span-2">Use questions that require both understanding and evidence of engagement with this specific class. Prefer facilitator examples, explanations, Scripture applications, demonstrations, or instructions over generic knowledge questions.</p><label className="text-sm font-medium md:col-span-2">Question<textarea name="question" required rows={3} placeholder="Ask about the teaching content without revealing where the answer occurs." className="mt-1 block w-full rounded-lg border border-slate-300 p-3" /></label><label className="text-sm font-medium">Response size<select name="response_format" defaultValue="long_text" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2"><option value="short_text">Short text</option><option value="long_text">Long text</option></select></label><div className="grid grid-cols-2 gap-2"><label className="text-sm font-medium">Minimum words<input name="min_words" type="number" min="1" max="1000" defaultValue="80" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2" /></label><label className="text-sm font-medium">Maximum words<input name="max_words" type="number" min="1" max="1000" defaultValue="200" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2" /></label></div><p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-950 md:col-span-2">Zoom manual verification uses checkpoint order, not playback positions. No timestamp, percentage, or answer-location hint will be stored or shown to students.</p></> : <><label className="text-sm font-medium">Time in recording <span className="font-normal text-slate-500">(HH:MM:SS or MM:SS)</span><input name="position_time" inputMode="numeric" placeholder="45:00" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2" /></label><label className="text-sm font-medium">Position percentage<input name="position_percentage" type="number" min="0" max="100" step="0.01" placeholder="For example 50" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2" /></label><p className="text-xs leading-5 text-slate-600 md:col-span-2">Specify either Time in recording or Position percentage. You do not need both.</p></>}
       <input name="checkpoint_order" type="number" min="1" defaultValue="1" className="rounded-lg border border-slate-300 px-3 py-2" />
       <label className="flex items-center gap-2 text-sm"><input name="is_required" type="checkbox" defaultChecked />Required checkpoint</label>
       <button disabled={busy} className="rounded-lg bg-[#0b315c] px-4 py-2 font-semibold text-white md:col-span-2">Create checkpoint</button>

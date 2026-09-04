@@ -7,7 +7,7 @@ import { LmsAdminDataError, requireLmsAdminClient } from "@/lib/lms/adminData";
 import { archivePublishedSummary } from "@/lib/lms/graduationService";
 import { transitionClassSummary, type ClassSummaryTransition } from "@/lib/lms/sessionService";
 
-const adminActions = ["request_changes", "approve", "publish", "archive", "create_amendment"] as const;
+const adminActions = ["submit", "request_changes", "approve", "publish", "archive", "create_amendment"] as const;
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await isAdminAuthenticated())) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });

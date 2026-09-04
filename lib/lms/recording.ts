@@ -24,11 +24,11 @@ export const recordingPurposeStudentCopy: Record<RecordingPurposeCode, { heading
     description: "Completion contributes to your official recorded-attendance evidence after every required learning check is verified.",
   },
   "MU-E": {
-    heading: "Approved Make-Up Requirement",
+    heading: "Approved Make-Up Recording",
     description: "Your original excused-absence record remains unchanged. Complete this learning requirement and its evidence by the stated deadline.",
   },
   "MU-U": {
-    heading: "Required Make-Up Learning",
+    heading: "Required Make-Up Recording",
     description: "Your original attendance record remains unchanged. Complete the assigned learning evidence by the stated deadline.",
   },
   "LE-C": {
@@ -103,7 +103,7 @@ export function watchPercentage(uniqueSeconds: number, durationSeconds: number |
 }
 
 export type RecordingProgressProvider = {
-  adapter: "vimeo" | "manual" | "unsupported_external";
+  adapter: "vimeo" | "zoom_manual_verification" | "manual" | "unsupported_external";
   trackingMode: "automated" | "manual_review";
   supportedEvents: readonly string[];
 };
@@ -115,6 +115,7 @@ export function resolveRecordingProgressProvider(provider: string | null | undef
     catch { supportedEmbed = false; }
   }
   if (provider === "vimeo" && supportedEmbed && Boolean(durationSeconds && durationSeconds > 0)) return { adapter: "vimeo", trackingMode: "automated", supportedEvents: ["play", "pause", "timeupdate", "seeked", "playbackratechange", "ended"] };
+  if (provider === "zoom") return { adapter: "zoom_manual_verification", trackingMode: "manual_review", supportedEvents: [] };
   if (provider === "other") return { adapter: "manual", trackingMode: "manual_review", supportedEvents: [] };
   return { adapter: "unsupported_external", trackingMode: "manual_review", supportedEvents: [] };
 }

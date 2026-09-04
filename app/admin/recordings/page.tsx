@@ -3,10 +3,12 @@ import Link from "next/link";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { StatusBadge } from "@/components/admin/LmsUi";
 import { RecordingControlCentre } from "@/components/admin/RecordingControlCentre";
+import { ZoomEvidenceImportPanel } from "@/components/admin/ZoomEvidencePanel";
 import { requireAdmin } from "@/lib/adminAuth";
 import { requireLmsAdminClient } from "@/lib/lms/adminData";
 import { recordingPurposeLabels } from "@/lib/lms/recording";
 import { fetchAdminRecordingDashboard, fetchAdminRecordingOperations, recordingQueueLabels } from "@/lib/lms/recordingData";
+import { fetchZoomEvidence } from "@/lib/lms/zoomEvidenceService";
 
 const learningStates = ["not_started", "in_progress", "awaiting_checkpoint", "awaiting_quiz", "awaiting_practical", "awaiting_reflection", "under_review", "verified_complete", "late_complete", "incomplete", "integrity_review"];
 
@@ -15,13 +17,14 @@ export default async function AdminRecordingsPage({ searchParams }: { searchPara
   const search = await searchParams;
   const value = (key: string) => typeof search[key] === "string" ? search[key] as string : undefined;
   const supabase = requireLmsAdminClient();
-  const [data, operations] = await Promise.all([fetchAdminRecordingDashboard(supabase, {
+  const [data, operations, zoomEvidence] = await Promise.all([fetchAdminRecordingDashboard(supabase, {
     cohort: value("cohort"), course: value("course"), purpose: value("purpose"), learningStatus: value("learning_status"), recordingStatus: value("recording_status"), student: value("student"), deadlineFrom: value("deadline_from"), deadlineTo: value("deadline_to"), overdue: value("overdue"), integrityStatus: value("integrity_status"),
-  }), fetchAdminRecordingOperations(supabase, value("queue"))]);
+  }), fetchAdminRecordingOperations(supabase, value("queue")), fetchZoomEvidence(supabase)]);
   return <AdminShell title="Recording Control Centre" description="Recording sources, quality approval, purpose-specific assignments, progress, and live teaching exceptions. General replay remains separate from attendance and make-up evidence.">
     <section className="mb-8"><h2 className="text-xl font-semibold">Operational queues</h2><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{Object.entries(recordingQueueLabels).map(([key, label]) => <Link key={key} href={`/admin/recordings?queue=${key}`} className={`rounded-2xl border p-4 ${operations.selectedQueue === key ? "border-amber-500 bg-amber-50" : "border-slate-200 bg-white"}`}><p className="text-sm text-slate-600">{label}</p><p className="mt-2 text-2xl font-semibold text-slate-950">{operations.metrics[key as keyof typeof operations.metrics]}</p></Link>)}</div></section>
     {operations.selectedQueue ? <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">{recordingQueueLabels[operations.selectedQueue]}</h2><Link href="/admin/recordings" className="font-semibold text-amber-800">Clear queue</Link></div>{operations.queueItems.length ? <ul className="mt-4 divide-y divide-slate-200">{operations.queueItems.map((item, index) => <li key={`${item.queue}:${item.assignmentId ?? item.recordingId ?? item.makeupId ?? item.sessionId}:${index}`} className="flex flex-wrap items-center justify-between gap-4 py-4"><div><p className="font-semibold text-slate-950">{item.title}</p><p className="text-sm text-slate-600">{item.context}{item.student ? ` · ${item.student}` : ""}</p></div><Link href={item.href} className="font-semibold text-amber-800">Open operational record</Link></li>)}</ul> : <p className="mt-4 text-sm text-slate-600">No records are currently in this queue.</p>}</section> : null}
     <section className="mb-10"><h2 className="mb-4 text-xl font-semibold">Recording sources and publication</h2><RecordingControlCentre sessions={operations.sessions} recordings={operations.recordings} initialSessionId={value("session")} /></section>
+    <div className="mb-10"><ZoomEvidenceImportPanel recordings={operations.recordings.map((item) => ({ id: String(item.id), title: String(item.title), provider: item.provider }))} evidence={zoomEvidence.rows} migrationRequired={zoomEvidence.migrationRequired} /></div>
     <h2 className="mb-4 text-xl font-semibold">Student assignments and evidence</h2>
     <form className="mb-6 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-2 xl:grid-cols-5">
       <input name="student" defaultValue={value("student")} placeholder="Student name or number" className="min-h-11 rounded-lg border border-slate-300 px-3" />

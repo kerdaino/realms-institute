@@ -107,18 +107,35 @@ export async function getStudentRecordingAssignment(profileId: string, assignmen
   const assignment = await supabase.from("recording_learning_assignments").select(`${assignmentSelect}, recording_progress(*), recording_requirement_statuses(*)`).eq("id", assignmentId).eq("course_enrollments.student_enrollments.student_id", student.data.id).maybeSingle();
   if (assignment.error || !assignment.data) return null;
   const [raw] = await prepareAssignments(supabase, [assignment.data as unknown as Record<string, unknown>]); const recording = relation(raw.class_recordings);
-  const checkpoints = await supabase.from("recording_checkpoints").select("id, title, position_seconds, position_percentage, checkpoint_order, is_required, recording_checkpoint_questions(id, question_type, prompt, options, is_active, sort_order)").eq("class_recording_id", String(recording.id)).eq("is_active", true).order("checkpoint_order");
-  if (checkpoints.error) throw new LmsAdminDataError("Recording checkpoints could not be loaded.");
+  const checkpointResult = await supabase.from("recording_checkpoints").select("id, title, position_seconds, position_percentage, checkpoint_order, is_required, recording_checkpoint_questions(id, question_type, prompt, options, response_format, min_characters, max_characters, min_words, max_words, is_active, sort_order)").eq("class_recording_id", String(recording.id)).eq("is_active", true).order("checkpoint_order");
+  let checkpointRows: Array<Record<string, unknown>>;
+  if (checkpointResult.error) {
+    console.error("Student recording checkpoint query failed", { assignmentId, recordingId: recording.id, database: { code: checkpointResult.error.code, message: checkpointResult.error.message, details: checkpointResult.error.details, hint: checkpointResult.error.hint } });
+    if (checkpointResult.error.code === "42703" && /recording_checkpoint_questions.*(response_format|min_characters|max_characters|min_words|max_words)/i.test(checkpointResult.error.message)) {
+      const legacy = await supabase.from("recording_checkpoints").select("id, title, position_seconds, position_percentage, checkpoint_order, is_required, recording_checkpoint_questions(id, question_type, prompt, options, is_active, sort_order)").eq("class_recording_id", String(recording.id)).eq("is_active", true).order("checkpoint_order");
+      if (legacy.error) {
+        console.error("Student recording checkpoint legacy query failed", { assignmentId, recordingId: recording.id, database: { code: legacy.error.code, message: legacy.error.message, details: legacy.error.details, hint: legacy.error.hint } });
+        throw new LmsAdminDataError("Recording checkpoints could not be loaded.");
+      }
+      checkpointRows = (legacy.data ?? []).map((checkpoint) => ({ ...checkpoint, recording_checkpoint_questions: (checkpoint.recording_checkpoint_questions ?? []).map((question) => ({ ...question, response_format: null, min_characters: null, max_characters: null, min_words: null, max_words: null })) }));
+    } else {
+      throw new LmsAdminDataError("Recording checkpoints could not be loaded.");
+    }
+  } else checkpointRows = checkpointResult.data ?? [];
   const [attendance, attempts] = await Promise.all([
     supabase.from("session_attendance").select("attendance_status, attendance_route_used, finalized_at").eq("course_enrollment_id", String(raw.course_enrollment_id)).eq("class_session_id", String(raw.class_session_id)).maybeSingle(),
     supabase.from("recording_checkpoint_attempts").select("checkpoint_id, question_id, is_correct, answered_at").eq("recording_assignment_id", assignmentId),
   ]);
   if (attendance.error || attempts.error) throw new LmsAdminDataError("Recording evidence context could not be loaded.");
-  const completedCheckpointIds = (checkpoints.data ?? []).flatMap((checkpoint) => {
-    const questions = (checkpoint.recording_checkpoint_questions ?? []).filter((question) => question.is_active !== false);
-    return questions.length && questions.every((question) => (attempts.data ?? []).some((attempt) => attempt.question_id === question.id && attempt.is_correct === true)) ? [checkpoint.id] : [];
+  const completedCheckpointIds: string[] = checkpointRows.flatMap((checkpoint) => {
+    const questions = (checkpoint.recording_checkpoint_questions ?? []) as Array<Record<string, unknown>>;
+    const activeQuestions = questions.filter((question) => question.is_active !== false);
+    return activeQuestions.length && activeQuestions.every((question) => (attempts.data ?? []).some((attempt) => attempt.question_id === question.id && attempt.is_correct === true)) ? [String(checkpoint.id)] : [];
   });
-  return { ...mapAssignment(raw), checkpoints: checkpoints.data ?? [], completedCheckpointIds, attendance: attendance.data };
+  const studentCheckpoints: Array<Record<string, unknown>> = String(recording.provider).toLowerCase() === "zoom"
+    ? checkpointRows.map((checkpoint) => ({ ...checkpoint, position_seconds: null, position_percentage: null }))
+    : checkpointRows;
+  return { ...mapAssignment(raw), checkpoints: studentCheckpoints, completedCheckpointIds, attendance: attendance.data };
 }
 
 export type RecordingDashboardFilters = { cohort?: string; course?: string; student?: string; purpose?: string; learningStatus?: string; recordingStatus?: string; deadlineFrom?: string; deadlineTo?: string; overdue?: string; integrityStatus?: string };
@@ -214,12 +231,27 @@ export async function fetchAdminRecordingOperations(supabase: SupabaseClient, qu
   const selectedQueue = queue && queue in recordingQueueLabels ? queue as RecordingQueueKey : null;
   const recordingOperations = (recordings.data ?? []).map((recording) => {
     const related = (assignments.data ?? []).filter((assignment) => assignment.class_recording_id === recording.id);
+    const session = sessionById.get(String(recording.class_session_id));
+    const cutoff = session?.scheduled_end_at ?? session?.scheduled_start_at;
+    const recordedRouteDemand = session ? (enrollmentByOffering.get(String(session.cohort_course_id)) ?? []).filter((enrollment) => {
+      if (!["RP", "DR-E"].includes(String(enrollment.delivery_route))) return false;
+      const enrolledAt = enrollment.enrolled_at ?? relation(enrollment.student_enrollments).enrolled_at;
+      return !cutoff || typeof enrolledAt !== "string" || Date.parse(String(cutoff)) >= Date.parse(enrolledAt);
+    }) : [];
+    const officialAssignments = related.filter((assignment) => ["RP", "DR-E"].includes(String(assignment.purpose_code)));
+    const sessionMakeups = makeupBySession.get(String(recording.class_session_id)) ?? [];
+    const waitingMakeups = sessionMakeups.filter((makeup) => makeup.purpose_code === "MU-E" && !makeup.recording_learning_assignment_id && ["awaiting_materials", "alternative_required"].includes(String(makeup.makeup_status)));
     return {
       ...recording,
       purposes: [...new Set(related.map((assignment) => String(assignment.purpose_code)))],
       assignment_count: related.length,
       in_progress_count: related.filter((assignment) => assignment.assignment_status !== "completed").length,
       integrity_review_count: related.filter((assignment) => relation(assignment.recording_progress).integrity_status !== "clear").length,
+      official_evidence_eligible: recordingEvidenceReadiness(recording).ready,
+      recorded_route_eligible_count: recordedRouteDemand.length,
+      official_assignment_count: officialAssignments.length,
+      approved_makeup_waiting_count: waitingMakeups.length,
+      makeup_assignment_count: related.filter((assignment) => ["MU-E", "MU-U"].includes(String(assignment.purpose_code))).length,
     };
   });
   return {

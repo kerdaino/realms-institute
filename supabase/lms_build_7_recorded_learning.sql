@@ -55,13 +55,13 @@ create table if not exists public.recording_watch_segments (
 
 create table if not exists public.recording_checkpoints (
   id uuid primary key default gen_random_uuid(), class_recording_id uuid not null references public.class_recordings(id) on delete cascade, title text not null, position_seconds numeric(12,3), position_percentage numeric(5,2), checkpoint_order integer not null default 1, is_required boolean not null default true, is_active boolean not null default true,
-  created_at timestamptz not null default now(), updated_at timestamptz not null default now(), check ((position_seconds is not null)::integer + (position_percentage is not null)::integer = 1)
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now(), check ((position_seconds is not null)::integer + (position_percentage is not null)::integer <= 1)
 );
 alter table public.recording_checkpoints drop constraint if exists recording_checkpoints_check;
-do $$ begin alter table public.recording_checkpoints add constraint recording_checkpoints_position_check check ((position_seconds is not null)::integer + (position_percentage is not null)::integer = 1); exception when duplicate_object then null; end $$;
+do $$ begin alter table public.recording_checkpoints add constraint recording_checkpoints_position_check check ((position_seconds is not null)::integer + (position_percentage is not null)::integer <= 1); exception when duplicate_object then null; end $$;
 
 create table if not exists public.recording_checkpoint_questions (
-  id uuid primary key default gen_random_uuid(), checkpoint_id uuid not null references public.recording_checkpoints(id) on delete cascade, question_type text not null check (question_type in ('multiple_choice','true_false','short_answer')), prompt text not null, options jsonb not null default '[]'::jsonb, is_active boolean not null default true, sort_order integer not null default 0, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+  id uuid primary key default gen_random_uuid(), checkpoint_id uuid not null references public.recording_checkpoints(id) on delete cascade, question_type text not null check (question_type in ('multiple_choice','true_false','short_answer')), prompt text not null, options jsonb not null default '[]'::jsonb, response_format text check (response_format is null or response_format in ('short_text','long_text')), min_characters integer check (min_characters is null or min_characters >= 1), max_characters integer check (max_characters is null or max_characters >= 1), min_words integer check (min_words is null or min_words >= 1), max_words integer check (max_words is null or max_words >= 1), is_active boolean not null default true, sort_order integer not null default 0, created_at timestamptz not null default now(), updated_at timestamptz not null default now(), check (min_characters is null or max_characters is null or min_characters <= max_characters), check (min_words is null or max_words is null or min_words <= max_words)
 );
 
 create table if not exists public.recording_checkpoint_answer_keys (

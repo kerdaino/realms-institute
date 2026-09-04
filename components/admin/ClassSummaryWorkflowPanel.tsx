@@ -39,6 +39,7 @@ export function ClassSummaryWorkflowPanel({ sessionId, sessionTitle, summary, pu
 
   async function transition(action: string, note = "") {
     if (!summary) return;
+    if (action === "submit" && !window.confirm("Submit this administrator-authored draft into the review workflow? It will become read-only until an administrator decision is recorded.")) return;
     if (action === "publish" && !window.confirm("Publish this approved summary to enrolled students? Any current publication will be preserved as superseded.")) return;
     if (action === "archive" && !window.confirm("Archive this published summary? Students will no longer see it as current content.")) return;
     await request(`/api/admin/class-summaries/${String(summary.id)}/transition`, { action, note, expected_version: summary.lock_version });
@@ -56,6 +57,7 @@ export function ClassSummaryWorkflowPanel({ sessionId, sessionTitle, summary, pu
 
       {editable ? <SummaryForm summary={summary} sessionTitle={sessionTitle} busy={busy} onSubmit={save} /> : <SummaryReadOnly summary={summary!} />}
 
+      {status === "draft" || status === "changes_requested" ? <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4"><p className="text-sm leading-6 text-blue-950">Next valid action: submit this non-empty revision for administrator review. Approval and publication remain separate decisions.</p><button disabled={busy} onClick={() => void transition("submit")} className="mt-3 rounded-xl bg-[#0b315c] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">Submit administrator draft for review</button></div> : null}
       {status === "submitted" ? <ReviewControls busy={busy} onAction={transition} /> : null}
       {status === "approved" ? <div className="mt-5"><button disabled={busy} onClick={() => void transition("publish")} className="rounded-xl bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">Publish approved revision</button></div> : null}
       {status === "published" ? <PublishedControls busy={busy} onAction={transition} /> : null}

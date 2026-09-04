@@ -152,10 +152,20 @@ export async function transitionClassSummary(supabase: SupabaseClient, summaryId
   const current = await supabase.from("class_summaries").select("class_session_id, summary_status, version_number, lock_version").eq("id", summaryId).maybeSingle();
   if (current.data && Number(current.data.lock_version) !== expectedVersion) throw new LmsAdminDataError("This summary changed after it was opened. Reload before continuing.", 409);
   if (current.error || !current.data) throw new LmsAdminDataError("Class summary not found.", 404);
-  const result = await supabase.rpc("transition_class_summary", { p_summary_id: summaryId, p_action: action, p_expected_version: expectedVersion, p_note: note, p_actor_identifier: actor.actorUserId ?? actor.actorLabel });
+  const result = action === "submit" && actor.actorLabel === "REALMS Admin"
+    ? await supabase.rpc("submit_admin_class_summary", { p_summary_id: summaryId, p_expected_version: expectedVersion, p_note: note, p_actor_identifier: actor.actorUserId ?? actor.actorLabel })
+    : await supabase.rpc("transition_class_summary", { p_summary_id: summaryId, p_action: action, p_expected_version: expectedVersion, p_note: note, p_actor_identifier: actor.actorUserId ?? actor.actorLabel });
   if (result.error || !result.data) {
+    console.error("Class-summary transition RPC failed", {
+      summaryId,
+      action,
+      expectedVersion,
+      database: result.error ? { code: result.error.code, message: result.error.message, details: result.error.details, hint: result.error.hint } : null,
+    });
     if (result.error?.code === "40001") throw new LmsAdminDataError("This summary changed after it was opened. Reload before continuing.", 409);
     if (result.error?.code === "42501") throw new LmsAdminDataError("You are not authorised to perform this class-summary transition.", 403);
+    if (result.error?.code === "23514") throw new LmsAdminDataError(`The class-summary workflow rejected the ${action} audit event because the deployed database constraint is incompatible. Apply the reviewed class-summary transition migration, then retry.`, 409);
+    if (["PGRST202", "42883"].includes(result.error?.code ?? "")) throw new LmsAdminDataError("The required class-summary transition function is not deployed. Apply the reviewed class-summary transition migration, then retry.", 503);
     throw new LmsAdminDataError(result.error?.message || "Class summary transition could not be completed.", result.error?.code === "22023" ? 409 : 500);
   }
   const summary = result.data as Record<string, unknown>;

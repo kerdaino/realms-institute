@@ -143,8 +143,9 @@ create table if not exists public.class_summary_review_events (
   id uuid primary key default gen_random_uuid(),
   class_summary_id uuid not null references public.class_summaries(id) on delete restrict,
   event_type text not null check (event_type in (
-    'created', 'revised', 'submitted', 'changes_requested', 'approved',
-    'published', 'archived', 'superseded', 'amendment_created'
+    'created', 'revised', 'submit', 'submitted', 'changes_requested',
+    'approve', 'approved', 'publish', 'published', 'archive', 'archived',
+    'superseded', 'amendment_created'
   )),
   from_status text,
   to_status text not null,
@@ -379,8 +380,8 @@ begin
   end if;
 
   if p_action = 'submit' then
-    if is_admin or not public.realms_facilitator_assigned_to_session(current_summary.class_session_id) then
-      raise exception using errcode = '42501', message = 'Only an assigned active facilitator can submit this summary.';
+    if not is_admin and not public.realms_facilitator_assigned_to_session(current_summary.class_session_id) then
+      raise exception using errcode = '42501', message = 'Only an administrator or assigned active facilitator can submit this summary.';
     end if;
     if current_summary.summary_status not in ('draft', 'changes_requested') then
       raise exception using errcode = '22023', message = 'Only a draft or revised summary can be submitted.';
@@ -488,6 +489,7 @@ begin
     case
       when p_action = 'create_amendment' then 'amendment_created'
       when p_action = 'request_changes' then 'changes_requested'
+      when p_action = 'submit' then 'submitted'
       else p_action
     end,
     current_summary.summary_status,

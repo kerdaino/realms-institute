@@ -2,17 +2,19 @@ import Link from "next/link";
 
 import { AdminShell } from "@/components/admin/AdminShell";
 import { CheckpointQuestionAdminForm, RecordingAdminActions } from "@/components/admin/RecordingAdminActions";
+import { ZoomEvidenceReview } from "@/components/admin/ZoomEvidencePanel";
 import { AdminPanel, DataItem, StatusBadge, formatDate } from "@/components/admin/LmsUi";
 import { requireAdmin } from "@/lib/adminAuth";
 import { requireLmsAdminClient } from "@/lib/lms/adminData";
 import { fetchAdminRecordingDetail } from "@/lib/lms/recordingData";
 import { formatRecordingTime } from "@/lib/lms/recordingTime";
+import { fetchZoomEvidence } from "@/lib/lms/zoomEvidenceService";
 
 function object(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function relation(value: unknown) { return Array.isArray(value) ? object(value[0]) : object(value); }
 
 export default async function AdminRecordingDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdmin(); const { id } = await params; const detail = await fetchAdminRecordingDetail(requireLmsAdminClient(), id);
+  await requireAdmin(); const { id } = await params; const client = requireLmsAdminClient(); const [detail, zoomEvidence] = await Promise.all([fetchAdminRecordingDetail(client, id), fetchZoomEvidence(client, id)]);
   const progress = relation(detail.assignment.recording_progress); const statuses = (detail.assignment.recording_requirement_statuses ?? []) as Array<Record<string, unknown>>; const playback = (detail.assignment.recording_playback_sessions ?? []) as Array<Record<string, unknown>>;
   return <AdminShell title={detail.summary.recording.title} description={`${detail.summary.student.name} · ${detail.summary.course.code} · ${detail.summary.purposeLabel}`}>
     <div className="mb-5"><Link href="/admin/recordings" className="font-semibold text-amber-800">Back to recorded learning</Link></div>
@@ -20,6 +22,7 @@ export default async function AdminRecordingDetailPage({ params }: { params: Pro
     <AdminPanel title="Requirement evidence"><div className="grid gap-3 md:grid-cols-2">{statuses.map((item) => <article key={String(item.id)} className="rounded-xl border border-slate-200 p-4"><strong>{String(item.requirement_type)}</strong><StatusBadge value={String(item.requirement_status)} /><p className="mt-2 text-xs text-slate-500">{String(item.evidence_source ?? "No evidence yet")}</p></article>)}</div></AdminPanel>
     <AdminPanel title="Checkpoint question builder"><CheckpointQuestionAdminForm checkpoints={detail.checkpoints.map((item) => ({ id: item.id, title: item.title }))} /></AdminPanel>
     <AdminPanel title="Playback evidence"><dl className="mb-5 grid gap-4 sm:grid-cols-3"><DataItem label="First access">{formatDate(typeof progress.first_access_at === "string" ? progress.first_access_at : null, true)}</DataItem><DataItem label="Last access">{formatDate(typeof progress.last_access_at === "string" ? progress.last_access_at : null, true)}</DataItem><DataItem label="Playback sessions">{playback.length}</DataItem></dl><p className="text-sm text-slate-600">Raw segments are retained as technical evidence and merged server-side; overlapping time is counted once.</p>{playback.length ? <ol className="mt-4 space-y-2">{playback.map((item) => <li key={String(item.id)} className="rounded-xl border border-slate-200 p-3 text-sm"><strong>{String(item.player_provider ?? "Provider")}</strong><span className="ml-2 text-slate-500">{formatDate(typeof item.started_at === "string" ? item.started_at : null, true)} · {String(item.playback_status)}</span></li>)}</ol> : null}</AdminPanel>
+    {detail.summary.recording.provider === "zoom" ? <AdminPanel title="Zoom viewing evidence" description="Verification: Zoom evidence plus REALMS learning checks. Zoom reported duration is not unique watch duration."><ZoomEvidenceReview assignmentId={id} evidence={zoomEvidence.rows} migrationRequired={zoomEvidence.migrationRequired} /></AdminPanel> : null}
     <AdminPanel title="Administrative actions"><RecordingAdminActions assignmentId={id} /></AdminPanel>
     <AdminPanel title="Learning completion history">{detail.events.length ? <ol className="space-y-3">{detail.events.map((event) => <li key={event.id} className="rounded-xl border border-slate-200 p-4"><strong>{String(event.change_type)}</strong><p className="mt-1 text-sm text-slate-600">{String(event.reason)}</p><span className="mt-2 block text-xs text-slate-500">{formatDate(event.created_at, true)}</span></li>)}</ol> : <p className="text-sm text-slate-600">No learning-completion transition has been recorded.</p>}</AdminPanel>
     <AdminPanel title="Material audit history">{detail.audits.length ? <ol className="space-y-3">{detail.audits.map((event) => <li key={event.id} className="rounded-xl border border-slate-200 p-4"><strong>{String(event.action).replaceAll("_", " ")}</strong><span className="mt-2 block text-xs text-slate-500">{formatDate(event.created_at, true)}</span></li>)}</ol> : <p className="text-sm text-slate-600">No material recorded-learning audit event has been recorded.</p>}</AdminPanel>

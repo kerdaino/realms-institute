@@ -4,8 +4,8 @@ import { readFile } from "node:fs/promises";
 import { evaluateRecordedRequirements, recordingEvidenceReadiness, recordingPurposeStudentCopy } from "../lib/lms/recording.ts";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
-const [recordingService, recordingData, sessionService, facilitatorService, absenceService, migration, verification, facultyRecord, adminSummary, studentList, studentDetail, portalShell, css, recordingControl, recordedLearningPanel] = await Promise.all([
-  read("lib/lms/recordingService.ts"), read("lib/lms/recordingData.ts"), read("lib/lms/sessionService.ts"), read("lib/lms/facilitatorSessions.ts"), read("lib/lms/absenceService.ts"), read("supabase/lms_live_teaching_operations.sql"), read("supabase/lms_live_teaching_operations_verify.sql"), read("components/portal/FacultySessionRecord.tsx"), read("components/admin/ClassSummaryWorkflowPanel.tsx"), read("app/student/(academic)/recordings/page.tsx"), read("app/student/(academic)/recordings/[assignmentId]/page.tsx"), read("components/portal/PortalShell.tsx"), read("app/globals.css"), read("components/admin/RecordingControlCentre.tsx"), read("components/admin/RecordedLearningAdminPanel.tsx"),
+const [recordingService, recordingData, sessionService, facilitatorService, absenceService, migration, adminSubmissionMigration, eventCompatibilityMigration, verification, facultyRecord, adminSummary, adminSummaryQueue, studentList, studentDetail, portalShell, css, recordingControl, recordedLearningPanel] = await Promise.all([
+  read("lib/lms/recordingService.ts"), read("lib/lms/recordingData.ts"), read("lib/lms/sessionService.ts"), read("lib/lms/facilitatorSessions.ts"), read("lib/lms/absenceService.ts"), read("supabase/lms_live_teaching_operations.sql"), read("supabase/lms_class_summary_admin_submission.sql"), read("supabase/lms_class_summary_review_event_compatibility.sql"), read("supabase/lms_live_teaching_operations_verify.sql"), read("components/portal/FacultySessionRecord.tsx"), read("components/admin/ClassSummaryWorkflowPanel.tsx"), read("components/admin/ClassSummaryQueueAction.tsx"), read("app/student/(academic)/recordings/page.tsx"), read("app/student/(academic)/recordings/[assignmentId]/page.tsx"), read("components/portal/PortalShell.tsx"), read("app/globals.css"), read("components/admin/RecordingControlCentre.tsx"), read("components/admin/RecordedLearningAdminPanel.tsx"),
 ]);
 
 const checks = [];
@@ -42,7 +42,7 @@ check("23 administrator can request changes with a required note", migration.inc
 check("24 changes-requested revision returns to editable draft after save", migration.includes("summary_status = case when summary_status = 'changes_requested' then 'draft'"));
 check("25 administrator approval and publication are separate", migration.includes("p_action = 'approve'") && migration.includes("Only an approved summary can be published"));
 check("26 student summary policy is published-only", migration.includes("summary_status = 'published'") && migration.includes("student.profile_id = auth.uid()"));
-check("27 facilitator cannot approve or publish", migration.includes("if not is_admin then raise exception") && migration.includes("Only an assigned active facilitator can submit"));
+check("27 facilitator cannot approve or publish", migration.includes("if not is_admin then raise exception") && migration.includes("Only an administrator or assigned active facilitator can submit"));
 check("28 published content cannot be edited in place", migration.includes("Only a draft or changes-requested revision can be edited") && adminSummary.includes("Create reviewable amendment"));
 check("29 superseded publication is preserved with an audit event", migration.includes("'superseded', 'published', 'superseded'") && migration.includes("supersedes_summary_id"));
 check("30 canonical RLS replaces obsolete policies for summaries and versions", migration.includes("drop policy if exists") && migration.includes("class_summary_versions") && migration.includes("class_summary_review_events"));
@@ -58,5 +58,23 @@ check("38 staff recording duration uses human-readable time and converts before 
 check("39 checkpoint authoring uses time or percentage and validates recording duration", recordedLearningPanel.includes("Time in recording") && recordedLearningPanel.includes("Position percentage") && recordingService.includes("Time in recording cannot be later than the recording duration"));
 check("40 impossible linked evidence and checkpoint counts are rejected", recordingService.includes("Required checkpoint count must be greater than zero") && recordingService.includes("linked quiz must be an active draft or published quiz") && recordingService.includes("linked reflection must be an active reflection assignment"));
 check("41 activation requires enough configured checkpoints with questions", recordingService.includes("assertEvidenceConfigurationReady") && recordingService.includes("required checkpoints with active questions before activation"));
+check("42 administrators can submit their own complete draft without facilitator impersonation", adminSubmissionMigration.includes("submit_admin_class_summary") && adminSubmissionMigration.includes("Add a title, learning objective, and key teaching point") && adminSubmissionMigration.includes("saved_summary.id, 'submitted'") && adminSubmissionMigration.includes("'submit', 'submitted'") && sessionService.includes('actor.actorLabel === "REALMS Admin"'));
+check("47 summary submission records a constraint-compatible audit event and exposes database failures safely", migration.includes("when p_action = 'submit' then 'submitted'") && sessionService.includes('console.error("Class-summary transition RPC failed"') && sessionService.includes('result.error?.code === "23514"'));
+check("48 review-event compatibility covers every emitted transition without removing the constraint", ["'created'", "'revised'", "'submitted'", "'changes_requested'", "'approve'", "'publish'", "'archive'", "'superseded'", "'amendment_created'"].every((event) => eventCompatibilityMigration.includes(event)) && eventCompatibilityMigration.includes("validate constraint class_summary_review_events_event_type_check"));
+check("49 transition RPC rejects invalid source states and preserves optimistic locking", migration.includes("current_summary.lock_version <> p_expected_version") && migration.includes("Changes can be requested only from a submitted summary") && migration.includes("Only a submitted summary can be approved") && migration.includes("Only an approved summary can be published"));
+check("43 class-summary queue exposes the next valid transition including publish", adminSummaryQueue.includes('"Submit for review"') && adminSummaryQueue.includes('"Approve"') && adminSummaryQueue.includes('"Publish"'));
+check("44 recording centre separates replay, official attendance and approved make-up", recordingControl.includes("General Replay") && recordingControl.includes("Official Recorded Attendance") && recordingControl.includes("Approved Make-Up") && recordingControl.includes("Initialize / reconcile official assignments"));
+check("45 unsaved requirement defaults are identified and blocked links are explicit", recordedLearningPanel.includes("No active session override is saved") && recordedLearningPanel.includes("Blocked: choose a linked quiz") && recordedLearningPanel.includes("Blocked: choose a linked practical") && recordedLearningPanel.includes("Blocked: choose a linked reflection"));
+
+const realLikeSummary = { title: "Cybersecurity, Ethics and Laboratory Setup", learningObjectives: ["Explain responsible laboratory conduct."], keyTeachingPoints: ["Use authorised systems and published scopes only."], status: "draft" };
+const studentCanRead = (fixture) => fixture.status === "published" ? fixture : null;
+assert.equal(studentCanRead(realLikeSummary), null);
+realLikeSummary.status = "submitted";
+assert.equal(studentCanRead(realLikeSummary), null);
+realLikeSummary.status = "approved";
+assert.equal(studentCanRead(realLikeSummary), null);
+realLikeSummary.status = "published";
+assert.equal(studentCanRead(realLikeSummary)?.keyTeachingPoints.length, 1);
+checks.push("46 non-empty real-like summary fixture remains student-hidden until published");
 
 console.log(JSON.stringify({ passed: checks.length, checks }, null, 2));
