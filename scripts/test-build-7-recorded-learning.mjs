@@ -62,11 +62,15 @@ assert.deepEqual(resolveRecordingRequirementSnapshot(null), { status: "legacy", 
 assert.deepEqual(resolveRecordingRequirementSnapshot({}), { status: "legacy", requirements: null });
 assert.deepEqual(resolveRecordingRequirementSnapshot({ minWatchPercentage: 85, deadlineHours: 72 }), { status: "legacy", requirements: null });
 
-const [studentDetailSource, studentListSource, recordingServiceSource, recordingDataSource, zoomServiceSource, zoomMigrationSource, zoomCheckpointMigrationSource, checkpointGuidanceMigrationSource, zoomAdminSource, recordedLearningAdminSource, checkpointFormSource, checkpointAdminSource] = await Promise.all([
+const [studentDetailSource, studentListSource, recordingServiceSource, recordingDataSource, sessionDataSource, sessionRecordSource, adminSessionPageSource, checkpointRouteSource, zoomServiceSource, zoomMigrationSource, zoomCheckpointMigrationSource, checkpointGuidanceMigrationSource, zoomAdminSource, recordedLearningAdminSource, checkpointFormSource, checkpointAdminSource] = await Promise.all([
   readFile(new URL("../app/student/(academic)/recordings/[assignmentId]/page.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/student/(academic)/recordings/page.tsx", import.meta.url), "utf8"),
   readFile(new URL("../lib/lms/recordingService.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/lms/recordingData.ts", import.meta.url), "utf8"),
+  readFile(new URL("../lib/lms/sessionData.ts", import.meta.url), "utf8"),
+  readFile(new URL("../components/admin/SessionRecord.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/admin/sessions/[id]/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/api/admin/recordings/checkpoints/[id]/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/lms/zoomEvidenceService.ts", import.meta.url), "utf8"),
   readFile(new URL("../supabase/lms_zoom_viewing_evidence.sql", import.meta.url), "utf8"),
   readFile(new URL("../supabase/lms_zoom_manual_checkpoints.sql", import.meta.url), "utf8"),
@@ -125,6 +129,31 @@ assert.match(recordingDataSource, /checkpointResult\.error\.code === "42703"/);
 assert.match(recordingDataSource, /Student recording checkpoint legacy query failed/);
 assert.match(recordingDataSource, /recording_checkpoint_questions\(id, question_type, prompt, options, is_active, sort_order\)/);
 assert.match(recordingServiceSource, /Checkpoint answer guidance columns are not deployed/);
+assert.match(checkpointRouteSource, /await createRecordingCheckpoint[\s\S]*status: 201/);
+assert.match(checkpointRouteSource, /isAdminAuthenticated[\s\S]*Unauthorized/);
+assert.match(recordingServiceSource, /Recording checkpoint insert failed/);
+assert.match(recordingServiceSource, /code: error\.code, message: error\.message, details: error\.details, hint: error\.hint/);
+assert.match(recordingServiceSource, /This checkpoint already exists for this recording/);
+assert.match(recordingServiceSource, /required checkpoints are configured by this policy, but only/);
+assert.match(sessionDataSource, /recordingCheckpoints/);
+assert.match(sessionDataSource, /Admin session recording checkpoint query failed/);
+assert.match(sessionDataSource, /current\.error\.code !== "42703"/);
+assert.match(sessionRecordSource, /checkpoints=\{record\.recordingCheckpoints\.map/);
+assert.match(recordedLearningAdminSource, /configured \/ \{requiredByPolicy\} required/);
+assert.match(adminSessionPageSource, /Checkpoint created successfully\./);
+assert.match(recordedLearningAdminSource, /window\.location\.assign\(`\/admin\/sessions\/\$\{sessionId\}\?checkpoint=created#recorded-learning`\)/);
+assert.match(recordedLearningAdminSource, /!isZoomManual \? <p[\s\S]*Position:/);
+assert.match(checkpointRouteSource, /export async function DELETE[\s\S]*isAdminAuthenticated[\s\S]*removeRecordingCheckpoint/);
+assert.match(checkpointRouteSource, /export async function PATCH[\s\S]*isAdminAuthenticated[\s\S]*updateRecordingCheckpoint/);
+assert.match(checkpointRouteSource, /revalidatePath\(`\/admin\/sessions\/\$\{result\.sessionId\}`\)/);
+assert.match(recordingServiceSource, /recording_checkpoint_attempts[\s\S]*head: true[\s\S]*checkpoint_id/);
+assert.match(recordingServiceSource, /student learning evidence and cannot be deleted/);
+assert.match(recordingServiceSource, /student learning evidence and cannot be edited/);
+assert.match(recordingServiceSource, /normalizeCheckpointOrder[\s\S]*index \+ 1/);
+assert.match(recordedLearningAdminSource, /Remove this checkpoint\?\\n\\nThis action is allowed only if no student learning evidence depends on it\./);
+assert.match(recordedLearningAdminSource, /\?checkpoint=removed#recorded-learning/);
+assert.match(adminSessionPageSource, /Checkpoint removed successfully\./);
+assert.match(recordedLearningAdminSource, />Edit<\/button><button[\s\S]*>Remove<\/button>/);
 assert.equal(normalizeViewerEmail(" Student@REALMS.example "), "student@realms.example");
 const zoomRows = parseZoomEvidenceCsv('Viewer Name,Viewer Email,View Date/Time,View Duration,Recording ID\n"Ada, Learner",Student@REALMS.example,2026-09-04T10:00:00Z,01:05:30,zoom-123');
 assert.deepEqual(zoomRows.map((row) => ({ name: row.viewerName, email: row.viewerEmail, duration: row.reportedDurationSeconds, identifier: row.recordingIdentifier })), [{ name: "Ada, Learner", email: "student@realms.example", duration: 3930, identifier: "zoom-123" }]);

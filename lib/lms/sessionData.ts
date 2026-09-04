@@ -91,6 +91,21 @@ export async function fetchAdminSession(supabase: SupabaseClient, id: string) {
   fail("Recorded-learning policy", recordingPolicy.error);
   fail("Session assignment links", assessmentAssignments.error);
   fail("Session quiz links", assessmentQuizzes.error);
+  const recordingIds = (recordings.data ?? []).map((recording) => String(recording.id));
+  let recordingCheckpoints: Array<Record<string, unknown>> = [];
+  if (recordingIds.length) {
+    const current = await supabase.from("recording_checkpoints").select("id, class_recording_id, title, checkpoint_order, is_required, is_active, position_seconds, position_percentage, created_at, recording_checkpoint_questions(id, prompt, question_type, response_format, min_characters, max_characters, min_words, max_words, is_active, sort_order)").in("class_recording_id", recordingIds).eq("is_active", true).order("checkpoint_order");
+    if (current.error) {
+      console.error("Admin session recording checkpoint query failed", { sessionId: id, database: { code: current.error.code, message: current.error.message, details: current.error.details, hint: current.error.hint } });
+      if (current.error.code !== "42703" || !/recording_checkpoint_questions.*(response_format|min_characters|max_characters|min_words|max_words)/i.test(current.error.message)) fail("Recording checkpoints", current.error);
+      const legacy = await supabase.from("recording_checkpoints").select("id, class_recording_id, title, checkpoint_order, is_required, is_active, position_seconds, position_percentage, created_at, recording_checkpoint_questions(id, prompt, question_type, is_active, sort_order)").in("class_recording_id", recordingIds).eq("is_active", true).order("checkpoint_order");
+      if (legacy.error) {
+        console.error("Admin session recording checkpoint legacy query failed", { sessionId: id, database: { code: legacy.error.code, message: legacy.error.message, details: legacy.error.details, hint: legacy.error.hint } });
+        fail("Recording checkpoints", legacy.error);
+      }
+      recordingCheckpoints = (legacy.data ?? []).map((checkpoint) => ({ ...checkpoint, recording_checkpoint_questions: (checkpoint.recording_checkpoint_questions ?? []).map((question) => ({ ...question, response_format: null, min_characters: null, max_characters: null, min_words: null, max_words: null })) })) as Array<Record<string, unknown>>;
+    } else recordingCheckpoints = (current.data ?? []) as Array<Record<string, unknown>>;
+  }
   const summaryRevisions = summaries.data ?? [];
   const summary = currentSummaryRevision(summaryRevisions);
   const publishedSummary = summaryRevisions.find((item) => item.summary_status === "published") ?? null;
@@ -104,7 +119,7 @@ export async function fetchAdminSession(supabase: SupabaseClient, id: string) {
     const result = await supabase.from("class_summary_review_events").select("*").in("class_summary_id", summaryIds).order("created_at", { ascending: false });
     fail("Class summary review history", result.error); reviewEvents = result.data ?? [];
   }
-  return { session: session.data, summary, publishedSummary, summaryRevisions, summaryVersions: versions, summaryReviewEvents: reviewEvents, resources: resources.data ?? [], recordings: recordings.data ?? [], changes: changes.data ?? [], audits: audits.data ?? [], recordingRequirements: recordingRequirements.data, recordingPolicy: recordingPolicy.data, recordingAssignmentCount: assignmentCount.count ?? 0, assessmentAssignments: assessmentAssignments.data ?? [], assessmentQuizzes: assessmentQuizzes.data ?? [] };
+  return { session: session.data, summary, publishedSummary, summaryRevisions, summaryVersions: versions, summaryReviewEvents: reviewEvents, resources: resources.data ?? [], recordings: recordings.data ?? [], recordingCheckpoints, changes: changes.data ?? [], audits: audits.data ?? [], recordingRequirements: recordingRequirements.data, recordingPolicy: recordingPolicy.data, recordingAssignmentCount: assignmentCount.count ?? 0, assessmentAssignments: assessmentAssignments.data ?? [], assessmentQuizzes: assessmentQuizzes.data ?? [] };
 }
 
 export async function fetchCohortSessions(supabase: SupabaseClient, cohortId: string) {

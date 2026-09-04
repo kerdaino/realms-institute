@@ -36,6 +36,10 @@ function boolean(value: unknown) { return value === true; }
 function optionalNumber(value: unknown, minimum: number, maximum?: number) { if (value === null || value === undefined || value === "") return null; const number = Number(value); if (!Number.isFinite(number) || number < minimum || (maximum !== undefined && number > maximum)) invalid("A valid numeric requirement is required."); return number; }
 function optionalWholeNumber(value: unknown, minimum: number, maximum: number, label: string) { const number = optionalNumber(value, minimum, maximum); if (number !== null && !Number.isInteger(number)) invalid(`${label} must be a whole number.`); return number; }
 function wordCount(value: string) { return value.trim() ? value.trim().split(/\s+/u).length : 0; }
+function normalizedCheckpointText(value: unknown) { return typeof value === "string" ? value.trim().replace(/\s+/gu, " ").toLocaleLowerCase() : ""; }
+function logDatabaseError(context: string, error: { code?: string; message?: string; details?: string; hint?: string } | null, identifiers: Record<string, unknown>) {
+  if (error) console.error(context, { ...identifiers, database: { code: error.code, message: error.message, details: error.details, hint: error.hint } });
+}
 
 function assignmentRequirements(assignment: Record<string, unknown>) {
   return resolveRecordingRequirementSnapshot(assignment.requirement_snapshot);
@@ -571,6 +575,23 @@ export async function saveSessionRecordingRequirements(supabase: SupabaseClient,
   if (boolean(body.requires_practical) && !linkedIds.practical_assignment_id) throw new LmsAdminDataError("Choose the practical assignment that supplies this recorded-learning evidence.", 400);
   if (boolean(body.requires_reflection) && !linkedIds.reflection_assignment_id) throw new LmsAdminDataError("Choose the reflection assignment that supplies this recorded-learning evidence.", 400);
   if (boolean(body.requires_checkpoints) && (!Number.isInteger(checkpointCount) || !checkpointCount || checkpointCount <= 0)) throw new LmsAdminDataError("Required checkpoint count must be a whole number greater than zero when checkpoints are required.", 400);
+  if (boolean(body.requires_checkpoints) && checkpointCount) {
+    const sessionRecordings = await supabase.from("class_recordings").select("id").eq("class_session_id", sessionId).eq("recording_status", "available");
+    if (sessionRecordings.error) {
+      logDatabaseError("Session recording lookup failed during checkpoint validation", sessionRecordings.error, { sessionId });
+      throw new LmsAdminDataError("Required recording checkpoints could not be checked.");
+    }
+    const recordingIds = (sessionRecordings.data ?? []).map((recording) => String(recording.id));
+    const checkpoints = recordingIds.length
+      ? await supabase.from("recording_checkpoints").select("id, recording_checkpoint_questions(id, is_active)").in("class_recording_id", recordingIds).eq("is_required", true).eq("is_active", true)
+      : { data: [], error: null };
+    if (checkpoints.error) {
+      logDatabaseError("Required checkpoint validation query failed", checkpoints.error, { sessionId });
+      throw new LmsAdminDataError("Required recording checkpoints could not be checked.");
+    }
+    const configured = (checkpoints.data ?? []).filter((checkpoint) => (checkpoint.recording_checkpoint_questions ?? []).some((question) => question.is_active !== false)).length;
+    if (configured < checkpointCount) throw new LmsAdminDataError(`${checkpointCount} required checkpoints are configured by this policy, but only ${configured} required checkpoint${configured === 1 ? "" : "s"} currently exist${configured === 1 ? "s" : ""}.`, 409);
+  }
   const values = { class_session_id: sessionId, min_watch_percentage: minWatch, deadline_hours: deadline, requires_checkpoints: boolean(body.requires_checkpoints), required_checkpoint_count: checkpointCount, requires_quiz: boolean(body.requires_quiz), requires_practical: boolean(body.requires_practical), requires_reflection: boolean(body.requires_reflection), requires_oral_verification: boolean(body.requires_oral_verification), allow_late_completion: boolean(body.allow_late_completion), ...linkedIds, requirement_status: "active", updated_at: new Date().toISOString() };
   const saved = await supabase.from("session_recording_requirements").upsert(values, { onConflict: "class_session_id" }).select("*").single();
   if (saved.error) throw new LmsAdminDataError("Recorded-learning requirements could not be saved.");
@@ -592,17 +613,121 @@ export async function createRecordingCheckpoint(supabase: SupabaseClient, record
   const zoomMaxWords = zoomManual ? optionalWholeNumber(body.max_words, 1, 1000, "Maximum words") : null;
   if (zoomMinWords !== null && zoomMaxWords !== null && zoomMinWords > zoomMaxWords) invalid("Minimum words cannot exceed maximum words.");
   if (seconds !== null && recording.data.duration_seconds !== null && seconds > Number(recording.data.duration_seconds)) throw new LmsAdminDataError("Time in recording cannot be later than the recording duration.", 400);
+  if (zoomManual) {
+    const existing = await supabase.from("recording_checkpoints").select("id, title, recording_checkpoint_questions(prompt, is_active)").eq("class_recording_id", recordingId).eq("is_active", true);
+    if (existing.error) {
+      logDatabaseError("Recording checkpoint duplicate check failed", existing.error, { recordingId });
+      throw new LmsAdminDataError("Existing recording checkpoints could not be checked.");
+    }
+    const duplicate = (existing.data ?? []).find((checkpoint) => normalizedCheckpointText(checkpoint.title) === normalizedCheckpointText(title)
+      && (checkpoint.recording_checkpoint_questions ?? []).some((question) => question.is_active !== false && normalizedCheckpointText(question.prompt) === normalizedCheckpointText(zoomQuestion)));
+    if (duplicate) throw new LmsAdminDataError("This checkpoint already exists for this recording.", 409);
+  }
   const saved = await supabase.from("recording_checkpoints").insert({ class_recording_id: recordingId, title, position_seconds: seconds, position_percentage: percentage, checkpoint_order: order, is_required: body.is_required !== false, is_active: true }).select("*").single();
-  if (saved.error) throw new LmsAdminDataError("Recording checkpoint could not be created.");
+  if (saved.error) {
+    logDatabaseError("Recording checkpoint insert failed", saved.error, { recordingId });
+    throw new LmsAdminDataError("Recording checkpoint could not be created.");
+  }
   if (zoomManual) {
     const question = await supabase.from("recording_checkpoint_questions").insert({ checkpoint_id: saved.data.id, question_type: "short_answer", prompt: zoomQuestion, options: [], response_format: zoomResponseFormat, min_words: zoomMinWords, max_words: zoomMaxWords, is_active: true, sort_order: 0 });
     if (question.error) {
-      await supabase.from("recording_checkpoints").delete().eq("id", saved.data.id);
+      logDatabaseError("Zoom recording checkpoint question insert failed", question.error, { recordingId, checkpointId: saved.data.id });
+      const cleanup = await supabase.from("recording_checkpoints").delete().eq("id", saved.data.id);
+      logDatabaseError("Incomplete recording checkpoint cleanup failed", cleanup.error, { recordingId, checkpointId: saved.data.id });
       throw new LmsAdminDataError("The Zoom checkpoint question could not be created.");
     }
   }
   await recordLmsAudit(supabase, { action: "recording_requirements_updated", entityType: "class_recording", entityId: recordingId, actorUserId: actor.actorUserId, metadata: { checkpoint_id: saved.data.id } });
-  return saved.data;
+  return { id: saved.data.id, title: saved.data.title, checkpoint_order: saved.data.checkpoint_order, is_required: saved.data.is_required };
+}
+
+async function loadCheckpointEvidence(supabase: SupabaseClient, checkpointId: string) {
+  const checkpoint = await supabase.from("recording_checkpoints").select("id, class_recording_id, title, checkpoint_order, is_required, is_active, created_at, class_recordings(class_session_id, provider), recording_checkpoint_questions(id, prompt, response_format, min_characters, max_characters, min_words, max_words, is_active, sort_order)").eq("id", checkpointId).maybeSingle();
+  if (checkpoint.error) {
+    logDatabaseError("Recording checkpoint management lookup failed", checkpoint.error, { checkpointId });
+    throw new LmsAdminDataError("Recording checkpoint could not be loaded.");
+  }
+  if (!checkpoint.data) throw new LmsAdminDataError("Recording checkpoint not found.", 404);
+  const questionIds = (checkpoint.data.recording_checkpoint_questions ?? []).map((question) => String(question.id));
+  const [attempts, statuses] = await Promise.all([
+    supabase.from("recording_checkpoint_attempts").select("id", { count: "exact", head: true }).eq("checkpoint_id", checkpointId),
+    supabase.from("recording_requirement_statuses").select("id", { count: "exact", head: true }).eq("evidence_reference", checkpointId),
+  ]);
+  if (attempts.error || statuses.error) {
+    logDatabaseError("Recording checkpoint attempt dependency lookup failed", attempts.error, { checkpointId, questionIds });
+    logDatabaseError("Recording checkpoint requirement dependency lookup failed", statuses.error, { checkpointId, questionIds });
+    throw new LmsAdminDataError("Checkpoint learning evidence could not be checked.");
+  }
+  return { checkpoint: checkpoint.data, hasEvidence: (attempts.count ?? 0) > 0 || (statuses.count ?? 0) > 0, attemptCount: attempts.count ?? 0, requirementReferenceCount: statuses.count ?? 0 };
+}
+
+async function normalizeCheckpointOrder(supabase: SupabaseClient, recordingId: string, excludedId?: string, positioned?: { id: string; order: number }) {
+  const result = await supabase.from("recording_checkpoints").select("id, checkpoint_order, created_at").eq("class_recording_id", recordingId).eq("is_active", true).order("checkpoint_order").order("created_at");
+  if (result.error) {
+    logDatabaseError("Recording checkpoint order lookup failed", result.error, { recordingId });
+    throw new LmsAdminDataError("Recording checkpoint order could not be normalized.");
+  }
+  const ordered = (result.data ?? []).filter((checkpoint) => checkpoint.id !== excludedId && checkpoint.id !== positioned?.id);
+  if (positioned) {
+    const target = (result.data ?? []).find((checkpoint) => checkpoint.id === positioned.id);
+    if (target) ordered.splice(Math.min(Math.max(positioned.order - 1, 0), ordered.length), 0, target);
+  }
+  for (const [index, checkpoint] of ordered.entries()) {
+    if (checkpoint.checkpoint_order === index + 1) continue;
+    const updated = await supabase.from("recording_checkpoints").update({ checkpoint_order: index + 1, updated_at: new Date().toISOString() }).eq("id", checkpoint.id);
+    if (updated.error) {
+      logDatabaseError("Recording checkpoint order update failed", updated.error, { recordingId, checkpointId: checkpoint.id, checkpointOrder: index + 1 });
+      throw new LmsAdminDataError("Recording checkpoint order could not be normalized.");
+    }
+  }
+}
+
+export async function updateRecordingCheckpoint(supabase: SupabaseClient, checkpointId: string, body: Record<string, unknown>, actor: Actor) {
+  const evidence = await loadCheckpointEvidence(supabase, checkpointId);
+  if (evidence.hasEvidence) throw new LmsAdminDataError("This checkpoint already has student learning evidence and cannot be edited.", 409);
+  const title = requiredText(body.title, "Checkpoint title is required.", 240);
+  const prompt = requiredText(body.question, "Checkpoint question is required.");
+  const responseFormat = ["short_text", "long_text"].includes(String(body.response_format)) ? String(body.response_format) : invalid("Choose a valid response format.");
+  const minWords = optionalWholeNumber(body.min_words, 1, 1000, "Minimum words");
+  const maxWords = optionalWholeNumber(body.max_words, 1, 1000, "Maximum words");
+  const requestedOrder = optionalWholeNumber(body.checkpoint_order, 1, 100, "Checkpoint order") ?? 1;
+  if (minWords !== null && maxWords !== null && minWords > maxWords) invalid("Minimum words cannot exceed maximum words.");
+  const questions = (evidence.checkpoint.recording_checkpoint_questions ?? []).filter((question) => question.is_active !== false).sort((a, b) => Number(a.sort_order) - Number(b.sort_order));
+  const question = questions[0];
+  if (!question) throw new LmsAdminDataError("This checkpoint has no active question to edit.", 409);
+  const existing = await supabase.from("recording_checkpoints").select("id, title, recording_checkpoint_questions(prompt, is_active)").eq("class_recording_id", evidence.checkpoint.class_recording_id).eq("is_active", true).neq("id", checkpointId);
+  if (existing.error) {
+    logDatabaseError("Recording checkpoint duplicate edit check failed", existing.error, { checkpointId });
+    throw new LmsAdminDataError("Existing recording checkpoints could not be checked.");
+  }
+  if ((existing.data ?? []).some((item) => normalizedCheckpointText(item.title) === normalizedCheckpointText(title) && (item.recording_checkpoint_questions ?? []).some((candidate) => candidate.is_active !== false && normalizedCheckpointText(candidate.prompt) === normalizedCheckpointText(prompt)))) throw new LmsAdminDataError("This checkpoint already exists for this recording.", 409);
+  const questionUpdate = await supabase.from("recording_checkpoint_questions").update({ prompt, response_format: responseFormat, min_characters: null, max_characters: null, min_words: minWords, max_words: maxWords, updated_at: new Date().toISOString() }).eq("id", question.id);
+  if (questionUpdate.error) {
+    logDatabaseError("Recording checkpoint question update failed", questionUpdate.error, { checkpointId, questionId: question.id });
+    throw new LmsAdminDataError("Checkpoint question could not be updated.");
+  }
+  const checkpointUpdate = await supabase.from("recording_checkpoints").update({ title, checkpoint_order: requestedOrder, is_required: body.is_required === true, updated_at: new Date().toISOString() }).eq("id", checkpointId);
+  if (checkpointUpdate.error) {
+    logDatabaseError("Recording checkpoint update failed", checkpointUpdate.error, { checkpointId });
+    throw new LmsAdminDataError("Recording checkpoint could not be updated.");
+  }
+  await normalizeCheckpointOrder(supabase, String(evidence.checkpoint.class_recording_id), undefined, { id: checkpointId, order: requestedOrder });
+  await recordLmsAudit(supabase, { action: "recording_requirements_updated", entityType: "class_recording", entityId: String(evidence.checkpoint.class_recording_id), actorUserId: actor.actorUserId, metadata: { checkpoint_id: checkpointId, operation: "updated" } });
+  return { checkpointId, sessionId: String(relation(evidence.checkpoint.class_recordings).class_session_id) };
+}
+
+export async function removeRecordingCheckpoint(supabase: SupabaseClient, checkpointId: string, actor: Actor) {
+  const evidence = await loadCheckpointEvidence(supabase, checkpointId);
+  if (evidence.hasEvidence) throw new LmsAdminDataError("This checkpoint already has student learning evidence and cannot be deleted.", 409);
+  const recordingId = String(evidence.checkpoint.class_recording_id);
+  await normalizeCheckpointOrder(supabase, recordingId, checkpointId);
+  const removed = await supabase.from("recording_checkpoints").delete().eq("id", checkpointId);
+  if (removed.error) {
+    logDatabaseError("Recording checkpoint deletion failed", removed.error, { checkpointId, recordingId });
+    throw new LmsAdminDataError("Recording checkpoint could not be removed.");
+  }
+  await recordLmsAudit(supabase, { action: "recording_requirements_updated", entityType: "class_recording", entityId: recordingId, actorUserId: actor.actorUserId, metadata: { checkpoint_id: checkpointId, operation: "removed", title: evidence.checkpoint.title } });
+  return { checkpointId, sessionId: String(relation(evidence.checkpoint.class_recordings).class_session_id) };
 }
 
 export async function createCheckpointQuestion(supabase: SupabaseClient, checkpointId: string, body: Record<string, unknown>, actor: Actor) {
