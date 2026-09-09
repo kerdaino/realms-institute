@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import vm from "node:vm";
+import ts from "typescript";
+import * as recordingDomain from "../lib/lms/recording.ts";
 import { readFile } from "node:fs/promises";
 
 import { creditedPlaybackSegment, evaluateRecordedRequirements, mergeWatchedSegments, providerTrackingMode, resolveRecordingProgressProvider, resolveRecordingRequirementSnapshot, uniqueWatchedSeconds, watchPercentage } from "../lib/lms/recording.ts";
@@ -157,5 +160,112 @@ assert.match(recordedLearningAdminSource, />Edit<\/button><button[\s\S]*>Remove<
 assert.equal(normalizeViewerEmail(" Student@REALMS.example "), "student@realms.example");
 const zoomRows = parseZoomEvidenceCsv('Viewer Name,Viewer Email,View Date/Time,View Duration,Recording ID\n"Ada, Learner",Student@REALMS.example,2026-09-04T10:00:00Z,01:05:30,zoom-123');
 assert.deepEqual(zoomRows.map((row) => ({ name: row.viewerName, email: row.viewerEmail, duration: row.reportedDurationSeconds, identifier: row.recordingIdentifier })), [{ name: "Ada, Learner", email: "student@realms.example", duration: 3930, identifier: "zoom-123" }]);
+
+// Execute the actual service with an in-memory query boundary; never connect to production.
+class TestDataError extends Error {
+  constructor(message, status = 500) { super(message); this.status = status; }
+}
+const serviceModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(recordingServiceSource, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, {
+  exports: serviceModule.exports,
+  require(name) {
+    if (name === "server-only") return {};
+    if (name === "@/lib/lms/recording") return recordingDomain;
+    if (name === "@/lib/lms/adminData") return { LmsAdminDataError: TestDataError };
+    if (name === "@/lib/lms/adminAudit") return { recordLmsAudit: async () => {} };
+    return new Proxy({}, { get: (_, key) => () => { throw new Error(`Unexpected service dependency: ${name}.${String(key)}`); } });
+  },
+  console,
+});
+const service = serviceModule.exports;
+function recordingFixture(status = "draft", count = 2) {
+  const recording = { id: "recording", class_session_id: "session", title: "Class recording", recording_date: "2026-08-24", provider: "zoom", recording_status: status, quality_checked: true, access_level: "enrolled_students", external_url: "https://zoom.us/rec/share/example", duration_seconds: 6689 };
+  const tables = {
+    class_sessions: [{ id: "session", cohort_course_id: "course", cohort_courses: { cohort_id: "cohort", courses: { course_category: "discipleship" } } }],
+    class_recordings: [recording],
+    session_recording_requirements: [],
+    recording_completion_policies: [],
+    course_enrollments: [{ cohort_course_id: "course", enrollment_status: "active", delivery_route: "DR-E" }],
+    recording_learning_assignments: [],
+    recording_checkpoints: Array.from({ length: count }, (_, index) => ({ id: `checkpoint-${index}`, class_recording_id: "recording", is_active: true, is_required: true, checkpoint_order: index + 1, position_seconds: null, position_percentage: null, recording_checkpoint_questions: [{ id: `question-${index}`, is_active: true, question_type: "short_answer" }] })),
+    recording_checkpoint_attempts: [],
+    recording_progress: [],
+    recording_requirement_statuses: [],
+    session_learning_completion: [],
+  };
+  const writes = [];
+  const db = { from(table) {
+    assert.ok(Object.hasOwn(tables, table), `Unexpected table access: ${table}`);
+    const filters = []; let single = false; let values; let operation;
+    const query = {
+      select() { return query; },
+      eq(key, value) { filters.push(row => row[key] === value); return query; },
+      in(key, values) { filters.push(row => values.includes(row[key])); return query; },
+      single() { single = true; return query; },
+      maybeSingle() { single = true; return query; },
+      upsert(value) { operation = "upsert"; values = value; return query; },
+      update(value) { operation = "update"; values = value; return query; },
+      then(resolve, reject) {
+        return Promise.resolve().then(() => {
+          let rows = tables[table].filter(row => filters.every(filter => filter(row)));
+          if (operation) {
+            writes.push({ table, operation });
+            if (operation === "upsert") { rows = [structuredClone(values)]; tables[table] = rows; }
+            else rows.forEach(row => Object.assign(row, values));
+          }
+          return { data: single ? rows[0] ?? null : rows, count: rows.length, error: null };
+        }).then(resolve, reject);
+      },
+    };
+    return query;
+  } };
+  return { db, tables, writes, recording };
+}
+const policyBody = { min_watch_percentage: 85, deadline_hours: 96, required_checkpoint_count: 2, requires_checkpoints: true, requires_quiz: false, requires_practical: false, requires_reflection: false, requires_oral_verification: false, allow_late_completion: false, quiz_id: null, practical_assignment_id: null, reflection_assignment_id: null };
+const actor = { actorLabel: "REALMS Admin" };
+const draft = recordingFixture();
+const savedPolicy = await service.saveSessionRecordingRequirements(draft.db, "session", policyBody, actor);
+for (const [key, value] of Object.entries(policyBody)) assert.equal(savedPolicy[key], value);
+assert.equal(draft.recording.recording_status, "draft");
+assert.equal(recordingDomain.recordingEvidenceReadiness(draft.recording).ready, false);
+assert.deepEqual(draft.writes, [{ table: "session_recording_requirements", operation: "upsert" }]);
+assert.equal(draft.tables.recording_learning_assignments.length, 0);
+assert.ok(draft.tables.recording_checkpoints.every(row => row.position_seconds === null && row.position_percentage === null));
+const insufficient = recordingFixture("draft", 1);
+await assert.rejects(service.saveSessionRecordingRequirements(insufficient.db, "session", policyBody, actor), error => error.status === 409 && error.message.includes("only 1 required checkpoint"));
+assert.deepEqual(insufficient.writes, []);
+const available = recordingFixture("available");
+await service.saveSessionRecordingRequirements(available.db, "session", policyBody, actor);
+await service.assertRecordingActivationReady(available.db, "session", "recording");
+// An explicitly saved requirement still blocks activation if its link is absent.
+for (const requirement of ["quiz", "practical", "reflection"]) {
+  available.tables.session_recording_requirements[0][`requires_${requirement}`] = true;
+  await assert.rejects(service.assertRecordingActivationReady(available.db, "session", "recording"), error => error.status === 409 && error.message === `Link a valid ${requirement} before activating official recorded learning.`);
+  available.tables.session_recording_requirements[0][`requires_${requirement}`] = false;
+}
+for (const status of ["archived", "superseded", "failed", "deleted"]) {
+  const inactive = recordingFixture(status);
+  await assert.rejects(service.saveSessionRecordingRequirements(inactive.db, "session", policyBody, actor), error => error.status === 409);
+  assert.deepEqual(inactive.writes, []);
+}
+for (const change of [row => { row.is_active = false; }, row => { row.is_required = false; }, row => { row.recording_checkpoint_questions[0].is_active = false; }]) {
+  const invalid = recordingFixture();
+  change(invalid.tables.recording_checkpoints[1]);
+  await assert.rejects(service.saveSessionRecordingRequirements(invalid.db, "session", policyBody, actor), error => error.status === 409);
+}
+const protectedAssignments = recordingFixture();
+protectedAssignments.tables.recording_learning_assignments.push({ id: "existing", class_session_id: "session" });
+await assert.rejects(service.saveSessionRecordingRequirements(protectedAssignments.db, "session", policyBody, actor), error => error.status === 409 && error.message.includes("assignments already exist"));
+assert.deepEqual(protectedAssignments.writes, []);
+// Exercise General Replay through the actual evaluator; attendance access is forbidden by the fixture.
+const replay = recordingFixture("available");
+replay.tables.recording_learning_assignments.push({ id: "replay", purpose_code: "REV", class_session_id: "session", course_enrollment_id: "enrollment", class_recordings: replay.recording, requirement_snapshot: frozenRequirements });
+replay.tables.recording_progress.push({ id: "progress", recording_assignment_id: "replay", integrity_status: "clear", watch_requirement_met: true, watch_percentage: 100 });
+const replayResult = await service.evaluateRecordedLearningAssignment(replay.db, "replay", actor);
+assert.equal(replayResult.complete, true);
+assert.ok(replay.writes.every(write => ["recording_progress", "recording_requirement_statuses"].includes(write.table)));
+console.log("Authoring-policy regression cases A-G and inactive-state/evidence protections passed.");
 
 console.log(JSON.stringify({ timeAuthoringCases: 16, segmentMerge: "passed", elapsedTimeCap: "passed", providerModes: "passed", evaluatorCases: 10, requirementSnapshotCases: 4, purposeAwarePresentationCases: 12, zoomEvidenceCases: 14, zoomCheckpointCases: 10, checkpointIntegrityCases: 11, checkpointSchemaFallbackCases: 5, passed: 96 }, null, 2));

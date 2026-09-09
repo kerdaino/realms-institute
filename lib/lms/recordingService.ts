@@ -576,7 +576,7 @@ export async function saveSessionRecordingRequirements(supabase: SupabaseClient,
   if (boolean(body.requires_reflection) && !linkedIds.reflection_assignment_id) throw new LmsAdminDataError("Choose the reflection assignment that supplies this recorded-learning evidence.", 400);
   if (boolean(body.requires_checkpoints) && (!Number.isInteger(checkpointCount) || !checkpointCount || checkpointCount <= 0)) throw new LmsAdminDataError("Required checkpoint count must be a whole number greater than zero when checkpoints are required.", 400);
   if (boolean(body.requires_checkpoints) && checkpointCount) {
-    const sessionRecordings = await supabase.from("class_recordings").select("id").eq("class_session_id", sessionId).eq("recording_status", "available");
+    const sessionRecordings = await supabase.from("class_recordings").select("id").eq("class_session_id", sessionId).in("recording_status", ["draft", "available"]);
     if (sessionRecordings.error) {
       logDatabaseError("Session recording lookup failed during checkpoint validation", sessionRecordings.error, { sessionId });
       throw new LmsAdminDataError("Required recording checkpoints could not be checked.");
