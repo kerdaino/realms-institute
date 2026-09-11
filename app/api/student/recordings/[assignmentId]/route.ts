@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireLmsAdminClient } from "@/lib/lms/adminData";
 import { getCurrentUser, getCurrentUserRoles } from "@/lib/lms/auth";
 import { ensureRevisionAssignmentForRecording } from "@/lib/lms/recordingService";
+import { reconcileStudentMakeupForSession } from "@/lib/lms/absenceService";
 import { getStudentRecordingTarget, StudentLearningDataError } from "@/lib/lms/studentLearning";
 
 // Legacy recording links share this dynamic segment with recorded-learning assignment
@@ -15,7 +16,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ assi
   try {
     const target = await getStudentRecordingTarget(recordingId);
     if (!target) return NextResponse.json({ message: "This recording is not available in your student account." }, { status: 403 });
-    const assignment = await ensureRevisionAssignmentForRecording(requireLmsAdminClient(), user.id, recordingId);
+    const supabase = requireLmsAdminClient();
+    const makeup = await reconcileStudentMakeupForSession(supabase, user.id, target.classSessionId);
+    const assignment = makeup?.recording_learning_assignment_id
+      ? { id: makeup.recording_learning_assignment_id }
+      : await ensureRevisionAssignmentForRecording(supabase, user.id, recordingId);
     return NextResponse.redirect(new URL(`/student/recordings/${assignment.id}`, request.url));
   } catch (error) {
     if (!(error instanceof StudentLearningDataError)) console.error("Student recording access failed", error instanceof Error ? { name: error.name, message: error.message } : { name: "UnknownError" });

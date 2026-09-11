@@ -530,5 +530,6 @@ export async function getStudentRecordingTarget(recordingId: string) {
   if (!result.data || recordingAvailability(object(result.data), new Date()) !== "available") return null;
   const session = await getStudentSessionDetail(result.data.class_session_id);
   if (!session) return null;
-  return safeHttpUrl(result.data.external_url) ?? safeHttpUrl(result.data.embed_url);
+  const url = safeHttpUrl(result.data.external_url) ?? safeHttpUrl(result.data.embed_url);
+  return url ? { url, classSessionId: String(result.data.class_session_id) } : null;
 }

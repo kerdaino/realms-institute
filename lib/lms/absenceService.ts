@@ -215,6 +215,16 @@ export async function initializeAwaitingMakeupsForSession(supabase: SupabaseClie
   return { awaiting: result.data?.length ?? 0, assigned, warnings: [...new Set(warnings)] };
 }
 
+export async function reconcileStudentMakeupForSession(supabase: SupabaseClient, profileId: string, sessionId: string) {
+  const student = await supabase.from("students").select("id").eq("profile_id", profileId).maybeSingle();
+  if (student.error || !student.data) throw new LmsAdminDataError("Student learning identity could not be resolved.", 403);
+  const result = await supabase.from("makeup_requirements").select("*, course_enrollments!inner(student_enrollments!inner(student_id))").eq("class_session_id", sessionId).eq("course_enrollments.student_enrollments.student_id", student.data.id).in("purpose_code", ["MU-E", "MU-U", "LE-C"]).in("makeup_status", ["awaiting_materials", "alternative_required"]).limit(1).maybeSingle();
+  if (result.error) throw new LmsAdminDataError("Official recovery learning could not be checked.");
+  if (!result.data) return null;
+  const reconciled = await attachMakeupMaterials(supabase, result.data, { actorLabel: "System" });
+  return reconciled.makeup.recording_learning_assignment_id ? reconciled.makeup : null;
+}
+
 async function applyApprovedAttendance(supabase: SupabaseClient, request: Record<string, unknown>, actor: Actor) {
   const attendance = await supabase.from("session_attendance").select("*").eq("course_enrollment_id", request.course_enrollment_id).eq("class_session_id", request.class_session_id).maybeSingle();
   if (attendance.error) throw new LmsAdminDataError("Official attendance could not be checked.");

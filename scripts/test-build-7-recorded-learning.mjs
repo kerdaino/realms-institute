@@ -128,6 +128,8 @@ assert.match(checkpointGuidanceMigrationSource, /min_words/);
 assert.match(checkpointGuidanceMigrationSource, /max_words/);
 assert.match(studentDetailSource, /neither verifies attendance by itself/);
 assert.match(recordingDataSource, /Student recording checkpoint query failed/);
+assert.match(recordingDataSource, /Student recording assignments query failed/);
+assert.match(recordingDataSource, /details: result\.error\.details, hint: result\.error\.hint/);
 assert.match(recordingDataSource, /checkpointResult\.error\.code === "42703"/);
 assert.match(recordingDataSource, /Student recording checkpoint legacy query failed/);
 assert.match(recordingDataSource, /recording_checkpoint_questions\(id, question_type, prompt, options, is_active, sort_order\)/);

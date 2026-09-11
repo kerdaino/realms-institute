@@ -95,7 +95,12 @@ export async function getStudentRecordingAssignments(profileId: string) {
   const student = await supabase.from("students").select("id").eq("profile_id", profileId).maybeSingle();
   if (student.error || !student.data) throw new LmsAdminDataError("Student access required.", 403);
   const result = await supabase.from("recording_learning_assignments").select(`${assignmentSelect}, recording_progress(*), recording_requirement_statuses(*)`).eq("course_enrollments.student_enrollments.student_id", student.data.id).order("due_at", { ascending: true, nullsFirst: false });
-  if (result.error) throw new LmsAdminDataError("Recorded-learning assignments could not be loaded.");
+  if (result.error) {
+    console.error("Student recording assignments query failed", {
+      database: { code: result.error.code, message: result.error.message, details: result.error.details, hint: result.error.hint },
+    });
+    throw new LmsAdminDataError("Recorded-learning assignments could not be loaded.");
+  }
   const rows = await prepareAssignments(supabase, (result.data ?? []).map((row) => row as unknown as Record<string, unknown>));
   return rows.map(mapAssignment);
 }

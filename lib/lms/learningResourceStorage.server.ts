@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { recordLmsAudit } from "@/lib/lms/adminAudit";
 import { isOneOf, readHttpUrl, readText, resourceTypes } from "@/lib/lms/adminConstants";
 import { LmsAdminDataError } from "@/lib/lms/adminData";
+import { currentStudentEnrollmentStatuses } from "@/lib/lms/currentEnrollment";
 import { isLearningResourceType } from "@/lib/lms/learningResources";
 import { privateFileLimits, privateFileSignedUrlSeconds, privateStorageBuckets } from "@/lib/lms/privateFilePolicy";
 import { validatePrivateUpload } from "@/lib/lms/privateStorage.server";
@@ -168,19 +169,26 @@ export async function createStudentLearningResourceDownload(supabase: SupabaseCl
     .from("student_enrollments")
     .select("id")
     .eq("student_id", student.data.id)
-    .in("enrolment_status", ["active", "enrolled", "matriculated"]);
+    .in("enrolment_status", [...currentStudentEnrollmentStatuses]);
   if (enrollments.error) throw new LmsAdminDataError("Your enrolment could not be verified.", 503);
   const enrollmentIds = (enrollments.data ?? []).map((item) => item.id);
-  if (!enrollmentIds.length) throw new LmsAdminDataError("You do not have permission to access this learning material.", 403);
-  const courseEnrollment = await supabase
+  const courseEnrollment = enrollmentIds.length ? await supabase
     .from("course_enrollments")
     .select("id")
     .in("student_enrollment_id", enrollmentIds)
     .eq("cohort_course_id", offeringId)
     .in("enrollment_status", ["active", "enrolled"])
     .limit(1)
-    .maybeSingle();
-  if (courseEnrollment.error || !courseEnrollment.data) throw new LmsAdminDataError("You do not have permission to access this learning material.", 403);
+    .maybeSingle() : { data: null, error: null };
+  if (courseEnrollment.error) throw new LmsAdminDataError("Your enrolment could not be verified.", 503);
+  if (!courseEnrollment.data) {
+    const [officialAssignment, recoveryRequirement] = await Promise.all([
+      supabase.from("recording_learning_assignments").select("id, course_enrollments!inner(student_enrollments!inner(student_id))").eq("class_session_id", resource.class_session_id).eq("course_enrollments.student_enrollments.student_id", student.data.id).in("purpose_code", ["RP", "DR-E", "MU-E", "MU-U", "LE-C"]).limit(1).maybeSingle(),
+      supabase.from("makeup_requirements").select("id, course_enrollments!inner(student_enrollments!inner(student_id))").eq("class_session_id", resource.class_session_id).eq("course_enrollments.student_enrollments.student_id", student.data.id).in("purpose_code", ["MU-E", "MU-U", "LE-C"]).not("makeup_status", "in", "(cancelled,waived)").limit(1).maybeSingle(),
+    ]);
+    if (officialAssignment.error || recoveryRequirement.error) throw new LmsAdminDataError("Your learning access could not be verified.", 503);
+    if (!officialAssignment.data && !recoveryRequirement.data) throw new LmsAdminDataError("You do not have permission to access this learning material.", 403);
+  }
   return signedLearningResourceUrl(supabase, resource.storage_path, resource.file_name);
 }
 

@@ -96,6 +96,13 @@ check("student download requires active visible resource and owned enrolment", (
   assert.match(service, /\.in\("student_enrollment_id", enrollmentIds\)/);
   assert.match(service, /\.eq\("cohort_course_id", offeringId\)/);
 });
+check("student download accepts the shared current-enrolment lifecycle and narrow official recovery routes", () => {
+  assert.match(service, /currentStudentEnrollmentStatuses/);
+  assert.match(service, /\["RP", "DR-E", "MU-E", "MU-U", "LE-C"\]/);
+  assert.match(service, /\["MU-E", "MU-U", "LE-C"\]/);
+  assert.doesNotMatch(service, /\["REV", "RP", "DR-E", "MU-E", "MU-U", "LE-C"\]/);
+  assert.match(service, /cancelled,waived/);
+});
 check("student route authenticates the student before signing", () => {
   assert.match(studentDownload, /getCurrentUser/);
   assert.match(studentDownload, /getCurrentUserRoles/);
@@ -150,5 +157,5 @@ check("resource audit events cover creation upload and deactivation", () => {
   assert.match(facilitatorItem, /updateSessionResource/);
 });
 
-assert.equal(passed, 26);
+assert.equal(passed, 27);
 console.log(`Learning-resource checks passed (${passed}).`);
