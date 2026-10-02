@@ -70,8 +70,12 @@ create table if not exists public.recording_checkpoint_answer_keys (
 
 create table if not exists public.recording_checkpoint_attempts (
   id uuid primary key default gen_random_uuid(), recording_assignment_id uuid not null references public.recording_learning_assignments(id) on delete cascade, checkpoint_id uuid not null references public.recording_checkpoints(id) on delete cascade, question_id uuid not null references public.recording_checkpoint_questions(id) on delete cascade,
-  submitted_answer jsonb, is_correct boolean, attempt_number integer not null default 1 check (attempt_number > 0), answered_at timestamptz not null default now(), created_at timestamptz not null default now()
+  submitted_answer jsonb, is_correct boolean, attempt_number integer not null default 1 check (attempt_number > 0), review_cycle integer check (review_cycle is null or review_cycle > 0), answered_at timestamptz not null default now(), evaluated_at timestamptz, evaluated_by text, evaluator_note text, created_at timestamptz not null default now()
 );
+alter table public.recording_checkpoint_attempts add column if not exists review_cycle integer check (review_cycle is null or review_cycle > 0);
+alter table public.recording_checkpoint_attempts add column if not exists evaluated_at timestamptz;
+alter table public.recording_checkpoint_attempts add column if not exists evaluated_by text;
+alter table public.recording_checkpoint_attempts add column if not exists evaluator_note text;
 
 create table if not exists public.recording_requirement_statuses (
   id uuid primary key default gen_random_uuid(), recording_assignment_id uuid not null references public.recording_learning_assignments(id) on delete cascade, requirement_type text not null check (requirement_type in ('watch','checkpoints','quiz','practical','reflection','oral_verification')),
@@ -89,6 +93,8 @@ create index if not exists playback_assignment_idx on public.recording_playback_
 create index if not exists watch_segment_playback_idx on public.recording_watch_segments(playback_session_id, segment_start_seconds);
 create index if not exists checkpoint_recording_idx on public.recording_checkpoints(class_recording_id, checkpoint_order);
 create index if not exists checkpoint_attempt_assignment_idx on public.recording_checkpoint_attempts(recording_assignment_id, answered_at);
+create unique index if not exists checkpoint_attempt_review_cycle_unique on public.recording_checkpoint_attempts(recording_assignment_id, question_id, review_cycle) where review_cycle is not null;
+create unique index if not exists checkpoint_attempt_number_unique_for_managed_rows on public.recording_checkpoint_attempts(recording_assignment_id, question_id, attempt_number) where review_cycle is not null;
 create index if not exists learning_change_completion_idx on public.learning_completion_change_events(learning_completion_id, created_at desc);
 
 alter table public.recording_completion_policies enable row level security;

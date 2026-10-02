@@ -7,6 +7,7 @@ import { readFile } from "node:fs/promises";
 import { creditedPlaybackSegment, evaluateRecordedRequirements, mergeWatchedSegments, providerTrackingMode, resolveRecordingProgressProvider, resolveRecordingRequirementSnapshot, uniqueWatchedSeconds, watchPercentage } from "../lib/lms/recording.ts";
 import { normalizeViewerEmail, parseZoomEvidenceCsv } from "../lib/lms/zoomEvidence.ts";
 import { formatRecordingTime, formatRequiredCheckpoints, formatRequirementHours, parseRecordingTime } from "../lib/lms/recordingTime.ts";
+import { formatInstitutionalTimestamp } from "../lib/lms/dateTime.ts";
 
 assert.deepEqual(parseRecordingTime("02:00:00"), { ok: true, seconds: 7200 });
 assert.deepEqual(parseRecordingTime("01:35:00"), { ok: true, seconds: 5700 });
@@ -24,6 +25,7 @@ assert.equal(formatRequirementHours(72), "Complete within 72 hours");
 assert.equal(formatRequiredCheckpoints(2), "2 required checkpoints");
 assert.equal(formatRequiredCheckpoints(1), "1 required checkpoint");
 assert.equal(formatRequiredCheckpoints(0), "No checkpoints required");
+assert.equal(formatInstitutionalTimestamp("2026-10-02T11:58:01.000Z"), "02/10/2026, 12:58:01");
 
 const merged = mergeWatchedSegments([{ start: 0, end: 40 }, { start: 20, end: 60 }, { start: 75, end: 90 }, { start: 90, end: 100 }]);
 assert.deepEqual(merged, [{ start: 0, end: 60 }, { start: 75, end: 100 }]);
@@ -65,7 +67,7 @@ assert.deepEqual(resolveRecordingRequirementSnapshot(null), { status: "legacy", 
 assert.deepEqual(resolveRecordingRequirementSnapshot({}), { status: "legacy", requirements: null });
 assert.deepEqual(resolveRecordingRequirementSnapshot({ minWatchPercentage: 85, deadlineHours: 72 }), { status: "legacy", requirements: null });
 
-const [studentDetailSource, studentListSource, recordingServiceSource, recordingDataSource, sessionDataSource, sessionRecordSource, adminSessionPageSource, checkpointRouteSource, zoomServiceSource, zoomMigrationSource, zoomCheckpointMigrationSource, checkpointGuidanceMigrationSource, zoomAdminSource, recordedLearningAdminSource, checkpointFormSource, checkpointAdminSource] = await Promise.all([
+const [studentDetailSource, studentListSource, recordingServiceSource, recordingDataSource, sessionDataSource, sessionRecordSource, adminSessionPageSource, adminRecordingDetailSource, checkpointRouteSource, zoomServiceSource, zoomMigrationSource, zoomCheckpointMigrationSource, checkpointGuidanceMigrationSource, checkpointReviewMigrationSource, checkpointIdempotencyMigrationSource, checkpointCleanupSource, zoomAdminSource, recordedLearningAdminSource, checkpointFormSource, checkpointAdminSource] = await Promise.all([
   readFile(new URL("../app/student/(academic)/recordings/[assignmentId]/page.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/student/(academic)/recordings/page.tsx", import.meta.url), "utf8"),
   readFile(new URL("../lib/lms/recordingService.ts", import.meta.url), "utf8"),
@@ -73,11 +75,15 @@ const [studentDetailSource, studentListSource, recordingServiceSource, recording
   readFile(new URL("../lib/lms/sessionData.ts", import.meta.url), "utf8"),
   readFile(new URL("../components/admin/SessionRecord.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/admin/sessions/[id]/page.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/admin/recordings/[id]/page.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/api/admin/recordings/checkpoints/[id]/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/lms/zoomEvidenceService.ts", import.meta.url), "utf8"),
   readFile(new URL("../supabase/lms_zoom_viewing_evidence.sql", import.meta.url), "utf8"),
   readFile(new URL("../supabase/lms_zoom_manual_checkpoints.sql", import.meta.url), "utf8"),
   readFile(new URL("../supabase/lms_checkpoint_answer_guidance.sql", import.meta.url), "utf8"),
+  readFile(new URL("../supabase/lms_checkpoint_attempt_review.sql", import.meta.url), "utf8"),
+  readFile(new URL("../supabase/lms_checkpoint_submission_idempotency.sql", import.meta.url), "utf8"),
+  readFile(new URL("../scripts/cleanup-recording-checkpoint-duplicates.mjs", import.meta.url), "utf8"),
   readFile(new URL("../components/admin/ZoomEvidencePanel.tsx", import.meta.url), "utf8"),
   readFile(new URL("../components/admin/RecordedLearningAdminPanel.tsx", import.meta.url), "utf8"),
   readFile(new URL("../components/student/RecordingPlayer.tsx", import.meta.url), "utf8"),
@@ -99,6 +105,8 @@ assert.match(studentDetailSource, /\["MU-E", "MU-U"\]\.includes\(detail\.purpose
 assert.match(studentDetailSource, /Automatic playback measurement is unavailable for this Zoom recording/);
 assert.match(studentListSource, /!isZoomManual/);
 assert.match(zoomAdminSource, /never labelled unique watch duration/i);
+assert.match(zoomAdminSource, /formatInstitutionalTimestamp\(String\(item\.viewed_at\)\)/);
+assert.doesNotMatch(zoomAdminSource, /toLocale(?:String|DateString|TimeString)\(/);
 assert.match(zoomServiceSource, /candidates\.length === 1/);
 assert.match(zoomServiceSource, /registered_email/);
 assert.match(zoomServiceSource, /inserted\.error\?\.code === "23505"/);
@@ -126,6 +134,46 @@ assert.match(checkpointFormSource, /answerGuidance/);
 assert.match(checkpointGuidanceMigrationSource, /response_format.*short_text.*long_text/s);
 assert.match(checkpointGuidanceMigrationSource, /min_words/);
 assert.match(checkpointGuidanceMigrationSource, /max_words/);
+assert.match(recordingDataSource, /recording_checkpoint_attempts"\)\.select\("\*"\)\.eq\("recording_assignment_id", assignmentId\)/);
+assert.match(adminRecordingDetailSource, /Checkpoint responses/);
+assert.match(adminRecordingDetailSource, /attempts=\{detail\.checkpointAttempts\}/);
+assert.match(checkpointAdminSource, /Learner response/);
+assert.match(checkpointAdminSource, /submitted_answer/);
+assert.match(checkpointAdminSource, /Accept response/);
+assert.match(checkpointAdminSource, /Needs revision/);
+assert.match(recordingServiceSource, /action === "review_checkpoint_attempt"/);
+assert.match(recordingServiceSource, /decision === "revision_required" && !note/);
+assert.match(recordingServiceSource, /evaluated_at: evaluatedAt, evaluated_by: evaluatedBy, evaluator_note: note \|\| null/);
+assert.match(recordingServiceSource, /action: "recording_checkpoint_attempt_reviewed"/);
+assert.match(recordingServiceSource, /evidence_source: "checkpoint_attempts"/);
+assert.doesNotMatch(recordingServiceSource.match(/if \(action === "review_checkpoint_attempt"\)[\s\S]*?return evaluateRecordedLearningAssignment/)?.[0] ?? "", /external_manual_verification/);
+assert.match(checkpointReviewMigrationSource, /is_correct field remains the canonical decision/);
+assert.match(checkpointReviewMigrationSource, /evaluated_at timestamptz/);
+assert.match(checkpointReviewMigrationSource, /evaluated_by text/);
+assert.match(checkpointReviewMigrationSource, /evaluator_note text/);
+assert.match(recordingServiceSource, /rpc\("submit_recording_checkpoint_attempt"/);
+assert.doesNotMatch(recordingServiceSource.match(/export async function submitRecordingCheckpointAnswer[\s\S]*?\n}/)?.[0] ?? "", /attempt_number.*\+ 1/);
+assert.match(checkpointIdempotencyMigrationSource, /pg_advisory_xact_lock/);
+assert.match(checkpointIdempotencyMigrationSource, /checkpoint_attempt_review_cycle_unique/);
+assert.match(checkpointIdempotencyMigrationSource, /checkpoint_attempt_number_unique_for_managed_rows/);
+assert.match(checkpointIdempotencyMigrationSource, /attempt\.is_correct is null or attempt\.is_correct is true/);
+assert.match(checkpointIdempotencyMigrationSource, /existing\.evaluator_note, false/);
+assert.match(checkpointIdempotencyMigrationSource, /next_attempt, next_cycle/);
+assert.match(checkpointIdempotencyMigrationSource, /cleanup_accidental_checkpoint_attempt_burst/);
+assert.match(checkpointIdempotencyMigrationSource, /failed the safety checks/);
+assert.match(checkpointIdempotencyMigrationSource, /recording_checkpoint_attempts_deduplicated/);
+assert.match(checkpointCleanupSource, /process\.argv\.includes\("--apply"\)/);
+assert.match(checkpointCleanupSource, /Dry run only/);
+assert.match(checkpointCleanupSource, /is_correct === null && row\.evaluated_at === null/);
+assert.match(checkpointFormSource, /Submitting…/);
+assert.match(checkpointFormSource, /\["under_review", "accepted"\]\.includes/);
+assert.match(checkpointFormSource, /Submit revised response/);
+assert.match(studentDetailSource, /attempts=\{detail\.checkpointAttempts\.filter/);
+assert.match(checkpointAdminSource, /Earlier stored records/);
+assert.match(checkpointAdminSource, /not automatically treated as genuine academic revisions/);
+assert.match(checkpointAdminSource, /formatInstitutionalTimestamp\(String\(attempt\.answered_at\)\)/);
+assert.match(checkpointAdminSource, /formatInstitutionalTimestamp\(String\(attempt\.evaluated_at\)\)/);
+assert.doesNotMatch(checkpointAdminSource, /toLocale(?:String|DateString|TimeString)\(/);
 assert.match(studentDetailSource, /neither verifies attendance by itself/);
 assert.match(recordingDataSource, /Student recording checkpoint query failed/);
 assert.match(recordingDataSource, /Student recording assignments query failed/);
@@ -204,6 +252,7 @@ function recordingFixture(status = "draft", count = 2) {
     const query = {
       select() { return query; },
       eq(key, value) { filters.push(row => row[key] === value); return query; },
+      is(key, value) { filters.push(row => row[key] === value); return query; },
       in(key, values) { filters.push(row => values.includes(row[key])); return query; },
       single() { single = true; return query; },
       maybeSingle() { single = true; return query; },
@@ -268,6 +317,79 @@ replay.tables.recording_progress.push({ id: "progress", recording_assignment_id:
 const replayResult = await service.evaluateRecordedLearningAssignment(replay.db, "replay", actor);
 assert.equal(replayResult.complete, true);
 assert.ok(replay.writes.every(write => ["recording_progress", "recording_requirement_statuses"].includes(write.table)));
+
+// Native short-answer review uses is_correct, records reviewer metadata, and re-evaluates without external evidence.
+const reviewed = recordingFixture("available");
+reviewed.tables.recording_learning_assignments.push({ id: "reviewed", purpose_code: "REV", class_session_id: "session", course_enrollment_id: "enrollment", class_recordings: reviewed.recording, requirement_snapshot: { ...frozenRequirements, requiredCheckpointCount: 2, requiresQuiz: false, requiresPractical: false, requiresReflection: false } });
+reviewed.tables.recording_progress.push({ id: "review-progress", recording_assignment_id: "reviewed", integrity_status: "clear", watch_requirement_met: true, watch_percentage: 100 });
+reviewed.tables.recording_requirement_statuses.push({ recording_assignment_id: "reviewed", requirement_type: "checkpoints", is_required: true, requirement_status: "pending", evidence_source: "checkpoint_attempts" });
+reviewed.tables.recording_checkpoint_attempts.push(
+  { id: "pending-attempt", recording_assignment_id: "reviewed", checkpoint_id: "checkpoint-0", question_id: "question-0", submitted_answer: "Full written response", is_correct: null, attempt_number: 1 },
+  { id: "accepted-attempt", recording_assignment_id: "reviewed", checkpoint_id: "checkpoint-1", question_id: "question-1", submitted_answer: "Earlier accepted response", is_correct: true, attempt_number: 1 },
+);
+const acceptedReview = await service.applyAdminRecordingAction(reviewed.db, "reviewed", { action: "review_checkpoint_attempt", attempt_id: "pending-attempt", decision: "accept", note: "Shows understanding." }, actor);
+assert.equal(reviewed.tables.recording_checkpoint_attempts[0].is_correct, true);
+assert.equal(reviewed.tables.recording_checkpoint_attempts[0].evaluated_by, "REALMS Admin");
+assert.ok(reviewed.tables.recording_checkpoint_attempts[0].evaluated_at);
+assert.equal(reviewed.tables.recording_checkpoint_attempts[0].evaluator_note, "Shows understanding.");
+assert.equal(acceptedReview.checkpoints.met, true);
+assert.equal(reviewed.tables.recording_requirement_statuses[0].requirement_status, "satisfied");
+assert.equal(reviewed.tables.recording_requirement_statuses[0].evidence_source, "checkpoint_attempts");
+assert.ok(!reviewed.writes.some(write => write.table === "session_attendance"));
+
+const revision = recordingFixture("available");
+revision.tables.recording_learning_assignments.push({ id: "revision", purpose_code: "REV", class_session_id: "session", course_enrollment_id: "enrollment", class_recordings: revision.recording, requirement_snapshot: { ...frozenRequirements, requiredCheckpointCount: 1, requiresQuiz: false, requiresPractical: false, requiresReflection: false } });
+revision.tables.recording_progress.push({ id: "revision-progress", recording_assignment_id: "revision", integrity_status: "clear", watch_requirement_met: true, watch_percentage: 100 });
+revision.tables.recording_requirement_statuses.push({ recording_assignment_id: "revision", requirement_type: "checkpoints", is_required: true, requirement_status: "pending", evidence_source: "checkpoint_attempts" });
+revision.tables.recording_checkpoint_attempts.push({ id: "revision-attempt", recording_assignment_id: "revision", checkpoint_id: "checkpoint-0", question_id: "question-0", submitted_answer: "Needs more detail", is_correct: null, attempt_number: 1 });
+await assert.rejects(service.applyAdminRecordingAction(revision.db, "revision", { action: "review_checkpoint_attempt", attempt_id: "revision-attempt", decision: "revision_required", note: "" }, actor), error => error.status === 400);
+const revisionReview = await service.applyAdminRecordingAction(revision.db, "revision", { action: "review_checkpoint_attempt", attempt_id: "revision-attempt", decision: "revision_required", note: "Please explain the class example." }, actor);
+assert.equal(revision.tables.recording_checkpoint_attempts[0].is_correct, false);
+assert.equal(revisionReview.checkpoints.met, false);
+assert.equal(revision.tables.recording_requirement_statuses[0].requirement_status, "pending");
+assert.ok(!revision.writes.some(write => write.table === "session_attendance"));
+
+// Production-shaped lifecycle model for the database RPC contract: the SQL source assertions above
+// ensure the deployed implementation uses the same serialized rules and unique keys.
+function checkpointSubmissionBoundary() {
+  const rows = []; let queue = Promise.resolve();
+  const submit = (answer) => {
+    const run = queue.then(() => {
+      const active = [...rows].reverse().find((row) => row.is_correct === null || row.is_correct === true);
+      if (active) return { row: active, reused: true };
+      const row = { id: `attempt-${rows.length + 1}`, submitted_answer: answer, is_correct: null, attempt_number: rows.length + 1, review_cycle: rows.length + 1 };
+      rows.push(row); return { row, reused: false };
+    });
+    queue = run.then(() => undefined); return run;
+  };
+  const review = (decision) => { const current = rows.at(-1); current.is_correct = decision === "accept"; current.evaluated_at = new Date().toISOString(); };
+  return { rows, submit, review };
+}
+const oneSubmit = checkpointSubmissionBoundary();
+const first = await oneSubmit.submit("one response");
+assert.equal(oneSubmit.rows.length, 1);
+assert.equal(first.row.attempt_number, 1);
+const doubleClick = await Promise.all([oneSubmit.submit("one response"), oneSubmit.submit("one response")]);
+assert.equal(oneSubmit.rows.length, 1);
+assert.ok(doubleClick.every((result) => result.reused));
+const productionBurst = checkpointSubmissionBoundary();
+const burstResults = await Promise.all(Array.from({ length: 12 }, () => productionBurst.submit("substantially identical production response")));
+assert.equal(productionBurst.rows.length, 1);
+assert.equal(new Set(burstResults.map((result) => result.row.id)).size, 1);
+const retry = await productionBurst.submit("substantially identical production response");
+assert.equal(retry.reused, true);
+assert.equal(productionBurst.rows.length, 1);
+productionBurst.review("accept");
+await productionBurst.submit("another response");
+assert.equal(productionBurst.rows.length, 1, "Accepted responses remain terminal.");
+const revisionCycle = checkpointSubmissionBoundary();
+await revisionCycle.submit("first draft");
+revisionCycle.review("revision_required");
+const concurrentRevision = await Promise.all([revisionCycle.submit("revised"), revisionCycle.submit("revised")]);
+assert.equal(revisionCycle.rows.length, 2);
+assert.deepEqual(revisionCycle.rows.map((row) => row.attempt_number), [1, 2]);
+assert.deepEqual(revisionCycle.rows.map((row) => row.review_cycle), [1, 2]);
+assert.equal(new Set(concurrentRevision.map((result) => result.row.id)).size, 1);
 console.log("Authoring-policy regression cases A-G and inactive-state/evidence protections passed.");
 
-console.log(JSON.stringify({ timeAuthoringCases: 16, segmentMerge: "passed", elapsedTimeCap: "passed", providerModes: "passed", evaluatorCases: 10, requirementSnapshotCases: 4, purposeAwarePresentationCases: 12, zoomEvidenceCases: 14, zoomCheckpointCases: 10, checkpointIntegrityCases: 11, checkpointSchemaFallbackCases: 5, passed: 96 }, null, 2));
+console.log(JSON.stringify({ timeAuthoringCases: 16, segmentMerge: "passed", elapsedTimeCap: "passed", providerModes: "passed", evaluatorCases: 10, requirementSnapshotCases: 4, purposeAwarePresentationCases: 12, zoomEvidenceCases: 14, zoomCheckpointCases: 10, checkpointIntegrityCases: 11, checkpointSchemaFallbackCases: 5, checkpointReviewCases: 13, checkpointSubmissionIdempotencyCases: 15, passed: 124 }, null, 2));

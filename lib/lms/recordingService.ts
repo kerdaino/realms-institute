@@ -534,21 +534,16 @@ export async function submitRecordingCheckpointAnswer(supabase: SupabaseClient, 
     if (question.min_words !== null && words < Number(question.min_words)) invalid(`Your response must contain at least ${question.min_words} words.`);
     if (question.max_words !== null && words > Number(question.max_words)) invalid(`Your response must contain no more than ${question.max_words} words.`);
   }
-  const latest = await supabase.from("recording_checkpoint_attempts").select("answered_at, attempt_number").eq("recording_assignment_id", assignmentId).eq("question_id", questionId).order("answered_at", { ascending: false }).limit(1).maybeSingle();
-  if (latest.error) throw new LmsAdminDataError("Checkpoint attempt history could not be loaded.");
-  const rapid = Boolean(latest.data?.answered_at && Date.now() - Date.parse(latest.data.answered_at) < 2000);
   const answerKey = question.question_type === "short_answer" ? { data: null, error: null } : await supabase.from("recording_checkpoint_answer_keys").select("correct_answer").eq("question_id", questionId).maybeSingle();
   if (answerKey.error) throw new LmsAdminDataError("Checkpoint answer could not be evaluated.");
   const isCorrect = question.question_type === "short_answer" ? null : answersEqual(answerKey.data?.correct_answer, body.answer);
-  const inserted = await supabase.from("recording_checkpoint_attempts").insert({ recording_assignment_id: assignmentId, checkpoint_id: checkpointId, question_id: questionId, submitted_answer: body.answer ?? null, is_correct: isCorrect, attempt_number: Number(latest.data?.attempt_number ?? 0) + 1 }).select("id, is_correct, attempt_number, answered_at").single();
-  if (inserted.error) throw new LmsAdminDataError("Checkpoint response could not be saved.");
-  if (rapid) {
-    await supabase.from("recording_progress").update({ integrity_status: "review_required", progress_status: "integrity_review", integrity_note: "rapid_checkpoint_submissions", updated_at: new Date().toISOString() }).eq("recording_assignment_id", assignmentId);
-    await recordLmsAudit(supabase, { action: "recording_integrity_flagged", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: profileId, metadata: { public_reason: "Checkpoint activity requires review." } });
-  }
+  const submitted = await supabase.rpc("submit_recording_checkpoint_attempt", { p_recording_assignment_id: assignmentId, p_checkpoint_id: checkpointId, p_question_id: questionId, p_submitted_answer: body.answer ?? null, p_is_correct: isCorrect, p_evaluated_by: isCorrect === null ? null : "System" }).single();
+  if (submitted.error || !submitted.data) throw new LmsAdminDataError("Checkpoint response could not be saved.");
+  const canonicalAttempt = submitted.data as Record<string, unknown>;
   const evaluation = await evaluateRecordedLearningAssignment(supabase, assignmentId, { actorLabel: "System", actorUserId: profileId });
-  if (evaluation.checkpoints?.met) await recordLmsAudit(supabase, { action: "recording_checkpoint_completed", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: profileId, metadata: { checkpoint_id: checkpointId } });
-  return { attempt: inserted.data, status: isCorrect === null ? "under_review" : isCorrect ? "accepted" : "not_completed", evaluation };
+  if (canonicalAttempt.inserted && evaluation.checkpoints?.met) await recordLmsAudit(supabase, { action: "recording_checkpoint_completed", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: profileId, metadata: { checkpoint_id: checkpointId } });
+  const canonicalCorrectness = canonicalAttempt.is_correct as boolean | null;
+  return { attempt: canonicalAttempt, status: canonicalCorrectness === null ? "under_review" : canonicalCorrectness ? "accepted" : "not_completed", reused: !canonicalAttempt.inserted, evaluation };
 }
 
 export async function saveSessionRecordingRequirements(supabase: SupabaseClient, sessionId: string, body: Record<string, unknown>, actor: Actor) {
@@ -756,6 +751,23 @@ export async function createCheckpointQuestion(supabase: SupabaseClient, checkpo
 export async function applyAdminRecordingAction(supabase: SupabaseClient, assignmentId: string, body: Record<string, unknown>, actor: Actor) {
   const action = requiredText(body.action, "A recorded-learning action is required.", 80);
   if (action === "reevaluate") return evaluateRecordedLearningAssignment(supabase, assignmentId, actor);
+  if (action === "review_checkpoint_attempt") {
+    const attemptId = requiredText(body.attempt_id, "A checkpoint attempt is required.", 100);
+    const decision = requiredText(body.decision, "A checkpoint review decision is required.", 40);
+    if (!['accept', 'revision_required'].includes(decision)) invalid("Choose a valid checkpoint review decision.");
+    const note = typeof body.note === "string" ? body.note.trim() : "";
+    if (decision === "revision_required" && !note) invalid("A revision reason is required.");
+    if (note.length > 2000) invalid("Checkpoint feedback must contain no more than 2000 characters.");
+    const current = await supabase.from("recording_checkpoint_attempts").select("id, checkpoint_id, question_id, is_correct, attempt_number").eq("id", attemptId).eq("recording_assignment_id", assignmentId).maybeSingle();
+    if (current.error || !current.data) throw new LmsAdminDataError("Checkpoint attempt not found.", 404);
+    if (current.data.is_correct !== null) throw new LmsAdminDataError("This checkpoint attempt has already been evaluated.", 409);
+    const evaluatedAt = new Date().toISOString();
+    const evaluatedBy = actorReference(actor);
+    const reviewed = await supabase.from("recording_checkpoint_attempts").update({ is_correct: decision === "accept", evaluated_at: evaluatedAt, evaluated_by: evaluatedBy, evaluator_note: note || null }).eq("id", attemptId).eq("recording_assignment_id", assignmentId).is("is_correct", null).select("id");
+    if (reviewed.error || !reviewed.data?.length) throw new LmsAdminDataError("Checkpoint review could not be saved.", 409);
+    await recordLmsAudit(supabase, { action: "recording_checkpoint_attempt_reviewed", entityType: "recording_learning_assignment", entityId: assignmentId, actorUserId: actor.actorUserId, metadata: { attempt_id: attemptId, checkpoint_id: current.data.checkpoint_id, question_id: current.data.question_id, attempt_number: current.data.attempt_number, decision, evaluator_note: note || null, evaluated_at: evaluatedAt, evaluated_by: evaluatedBy, evidence_source: "checkpoint_attempts" } });
+    return evaluateRecordedLearningAssignment(supabase, assignmentId, actor);
+  }
   if (action === "extend_deadline") {
     const dueAt = requiredText(body.due_at, "A new deadline is required.", 80); if (!Number.isFinite(Date.parse(dueAt))) invalid("A valid new deadline is required.");
     const reason = requiredText(body.reason, "A reason for extending the deadline is required.", 1000);

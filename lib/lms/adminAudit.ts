@@ -58,6 +58,8 @@ export type LmsAuditAction =
   | "recording_started"
   | "recording_watch_requirement_met"
   | "recording_checkpoint_completed"
+  | "recording_checkpoint_attempt_reviewed"
+  | "recording_checkpoint_attempts_deduplicated"
   | "recording_deadline_extended"
   | "recording_requirement_verified_external"
   | "recorded_learning_verified"

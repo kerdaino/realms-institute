@@ -129,7 +129,7 @@ export async function getStudentRecordingAssignment(profileId: string, assignmen
   } else checkpointRows = checkpointResult.data ?? [];
   const [attendance, attempts] = await Promise.all([
     supabase.from("session_attendance").select("attendance_status, attendance_route_used, finalized_at").eq("course_enrollment_id", String(raw.course_enrollment_id)).eq("class_session_id", String(raw.class_session_id)).maybeSingle(),
-    supabase.from("recording_checkpoint_attempts").select("checkpoint_id, question_id, is_correct, answered_at").eq("recording_assignment_id", assignmentId),
+    supabase.from("recording_checkpoint_attempts").select("id, checkpoint_id, question_id, submitted_answer, is_correct, attempt_number, review_cycle, answered_at, evaluated_at, evaluator_note").eq("recording_assignment_id", assignmentId).order("answered_at", { ascending: false }),
   ]);
   if (attendance.error || attempts.error) throw new LmsAdminDataError("Recording evidence context could not be loaded.");
   const completedCheckpointIds: string[] = checkpointRows.flatMap((checkpoint) => {
@@ -140,7 +140,7 @@ export async function getStudentRecordingAssignment(profileId: string, assignmen
   const studentCheckpoints: Array<Record<string, unknown>> = String(recording.provider).toLowerCase() === "zoom"
     ? checkpointRows.map((checkpoint) => ({ ...checkpoint, position_seconds: null, position_percentage: null }))
     : checkpointRows;
-  return { ...mapAssignment(raw), checkpoints: studentCheckpoints, completedCheckpointIds, attendance: attendance.data };
+  return { ...mapAssignment(raw), checkpoints: studentCheckpoints, checkpointAttempts: attempts.data ?? [], completedCheckpointIds, attendance: attendance.data };
 }
 
 export type RecordingDashboardFilters = { cohort?: string; course?: string; student?: string; purpose?: string; learningStatus?: string; recordingStatus?: string; deadlineFrom?: string; deadlineTo?: string; overdue?: string; integrityStatus?: string };
@@ -303,15 +303,16 @@ export async function fetchAdminRecordingDetail(supabase: SupabaseClient, assign
   const assignment = await supabase.from("recording_learning_assignments").select(`${assignmentSelect}, recording_progress(*), recording_requirement_statuses(*), recording_playback_sessions(*, recording_watch_segments(*))`).eq("id", assignmentId).maybeSingle();
   if (assignment.error || !assignment.data) throw new LmsAdminDataError("Recorded-learning assignment not found.", 404);
   const [raw] = await prepareAssignments(supabase, [assignment.data as unknown as Record<string, unknown>]); const recording = relation(raw.class_recordings); const completion = relation(raw.session_learning_completion);
-  const [checkpoints, attendance, events, audits] = await Promise.all([
+  const [checkpoints, checkpointAttempts, attendance, events, audits] = await Promise.all([
     supabase.from("recording_checkpoints").select("*, recording_checkpoint_questions(*, recording_checkpoint_answer_keys(*))").eq("class_recording_id", String(recording.id)).order("checkpoint_order"),
+    supabase.from("recording_checkpoint_attempts").select("*").eq("recording_assignment_id", assignmentId).order("answered_at", { ascending: false }),
     supabase.from("session_attendance").select("*").eq("course_enrollment_id", String(raw.course_enrollment_id)).eq("class_session_id", String(raw.class_session_id)).maybeSingle(),
     typeof completion.id === "string" ? supabase.from("learning_completion_change_events").select("*").eq("learning_completion_id", completion.id).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
     supabase.from("audit_logs").select("*").eq("entity_type", "recording_learning_assignment").eq("entity_id", assignmentId).order("created_at", { ascending: false }).limit(200),
   ]);
-  if (checkpoints.error || attendance.error || events.error || audits.error) throw new LmsAdminDataError("Recorded-learning evidence could not be loaded.");
+  if (checkpoints.error || checkpointAttempts.error || attendance.error || events.error || audits.error) throw new LmsAdminDataError("Recorded-learning evidence could not be loaded.");
   const student = relation(relation(relation(raw.course_enrollments).student_enrollments).students);
-  return { assignment: raw, summary: { ...mapAssignment(raw), student: { id: String(student.id), number: String(student.student_number), name: String(student.preferred_name || student.legal_name) } }, checkpoints: checkpoints.data ?? [], attendance: attendance.data, events: events.data ?? [], audits: audits.data ?? [] };
+  return { assignment: raw, summary: { ...mapAssignment(raw), student: { id: String(student.id), number: String(student.student_number), name: String(student.preferred_name || student.legal_name) } }, checkpoints: checkpoints.data ?? [], checkpointAttempts: checkpointAttempts.data ?? [], attendance: attendance.data, events: events.data ?? [], audits: audits.data ?? [] };
 }
 
 export async function fetchFacilitatorRecordingAssignments(supabase: SupabaseClient, facilitatorId: string) {
