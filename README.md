@@ -1,121 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# REALMS Institute
 
-## Getting Started
+The public web platform for REALMS Institute, an independent Christian formation and practical-skills training institution.
 
-First, run the development server:
+Live site: https://realmsinstitute.vercel.app/
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Current public state
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Public registration is closed. The School of Discovery is the active school shown on the website. Other schools presented on the site are future plans and should not be interpreted as launched programmes.
 
-## Backend setup
+## Delivered platform areas
 
-1. Copy `.env.example` to `.env.local`.
-2. Add your `PAYSTACK_SECRET_KEY`.
-3. Set `NEXT_PUBLIC_SITE_URL=http://localhost:3000`.
-4. Run `npm run dev`.
-5. Complete a registration using Paystack test credentials.
+- Public institutional website and programme information
+- School of Discovery routes and curriculum information
+- Registration, applicant and payment-related workflows
+- Student, learning-resource and recorded-learning workflows
+- Administrative review and registration-management interfaces
+- Certificate and public certificate-verification routes
+- Supabase-backed data workflows
+- Paystack payment integration
+- Resend email integration and delivery-state handling
+- Responsive interfaces and production-oriented maintenance
 
-Use Paystack test mode first before any live announcement. Do not commit secret keys or use a live key during local testing.
+Some repository migrations and developing modules may require a separate deployment step. Code present in the repository is not, by itself, proof that a migration or feature is active in production.
 
-## Supabase setup
+## Architecture and boundaries
 
-1. Create a Supabase project.
-2. Open the SQL Editor.
-3. Run `supabase/schema.sql`.
-4. Copy the project URL into `NEXT_PUBLIC_SUPABASE_URL`.
-5. Copy the service role key into `SUPABASE_SERVICE_ROLE_KEY`.
-6. Restart the development server.
+- Next.js App Router and TypeScript
+- Supabase/PostgreSQL for application data
+- Privileged database operations remain server-side
+- Paystack transaction handling uses verified payment state rather than browser assertions
+- Email-delivery state is tracked separately from payment or registration state
+- Administrative and student actions retain their authorisation boundaries
+- Retry-sensitive workflows use persisted idempotency and database constraints where implemented
 
-Never expose `SUPABASE_SERVICE_ROLE_KEY` in client-side code or commit it to the repository.
+Do not expose SUPABASE_SERVICE_ROLE_KEY, payment secrets, email API keys, administrative credentials or student data in client-side code or commits.
 
-Before testing the August 2026 registration form, rerun the complete `supabase/schema.sql` file in the Supabase SQL Editor. Its additive migration adds the applicant-route, alumni, theological screening, scholarship, nullable payment, review-audit, and scholarship email-delivery fields required by the upgraded flow. Existing paid records with no `amount_paid` remain readable through the admin UI fallback for verified successful payments; new payments always use Paystack's verified transaction amount.
+## Local setup
 
-The upgraded self-pay flow saves the full application before Paystack initialization, uses a real Paystack payment reference, and sends only compact application identifiers and fee context in Paystack metadata. Scholarship requests are saved without creating a Paystack transaction or payment reference. Do not enable the scholarship or prior-theological flows until the schema migration has been applied successfully.
+1. Copy .env.example to .env.local.
+2. Add the required Supabase, Paystack, Resend and site configuration values.
+3. Install dependencies with npm install.
+4. Run the development server with npm run dev.
+5. Open http://localhost:3000.
 
-For an existing `registrations` table, run this migration before testing new payments:
+Use provider test modes and non-production data during local verification. Apply required database migrations before testing features that depend on them.
 
-```sql
-alter table registrations
-add column if not exists fee_policy_consent boolean not null default false,
-add column if not exists computer_access_confirmed boolean not null default false,
-add column if not exists public_fee_display text,
-add column if not exists exchange_note text,
-add column if not exists application_status text not null default 'pending_review',
-add column if not exists admin_note text,
-add column if not exists reviewed_at timestamptz,
-add column if not exists reviewed_by text;
-```
+## Useful checks
 
-For email tracking on an existing `registrations` table, run this migration:
+    npm run lint
+    npx tsc --noEmit
+    npm run build
 
-```sql
-alter table registrations
-add column if not exists confirmation_email_sent boolean not null default false,
-add column if not exists confirmation_email_sent_at timestamptz,
-add column if not exists admin_email_sent boolean not null default false,
-add column if not exists admin_email_sent_at timestamptz,
-add column if not exists scholarship_confirmation_email_sent boolean not null default false,
-add column if not exists scholarship_confirmation_email_sent_at timestamptz,
-add column if not exists scholarship_admin_email_sent boolean not null default false,
-add column if not exists scholarship_admin_email_sent_at timestamptz,
-add column if not exists admission_email_sent boolean not null default false,
-add column if not exists admission_email_sent_at timestamptz;
-```
+Run the relevant focused test scripts for any workflow being changed. A successful local build does not prove that a database migration, external email delivery or live payment flow has been deployed.
 
-## Resend Email Setup
+## Privacy and portfolio use
 
-1. Add and verify domain in Resend.
-2. Add DNS records in Vercel DNS.
-3. Create Resend API key.
-4. Add environment variables:
-
-```bash
-RESEND_API_KEY=
-RESEND_FROM_EMAIL="REALMS Institute <admissions@mail.grccglobal.org>"
-REALMS_ADMIN_EMAIL=gloryrealm2025@gmail.com
-```
-
-Application emails always use `REALMS Institute <admissions@mail.grccglobal.org>` as the sender and `gloryrealm2025@gmail.com` as the reply-to address. Scholarship applicant and admin confirmations have independent sent/sent-at columns and are marked sent only after Resend returns success.
-
-5. Restart dev server.
-6. Test with a fresh Paystack transaction.
-
-Email sending should never block payment verification or registration saving. Use `NEXT_PUBLIC_SITE_URL=https://realms.grccglobal.org` in production and `NEXT_PUBLIC_SITE_URL=http://localhost:3000` for local testing.
-
-## Admin setup
-
-1. Add `REALMS_ADMIN_PASSWORD` to `.env.local`.
-2. Run the app.
-3. Visit `/admin`.
-4. Log in with the configured password.
-5. Manage registrations from `/admin/dashboard` and `/admin/registrations`.
-
-This is temporary password protection for launch. Replace it with proper user authentication and role-based access for long-term use.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Do not publish student, applicant, payment or administrative records. Screenshots used as project evidence must contain only public pages or approved anonymised data. No learner-count, revenue, conversion, uptime or performance claim should be made without authorised records.
