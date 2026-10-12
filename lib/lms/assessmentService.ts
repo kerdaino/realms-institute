@@ -127,10 +127,10 @@ export async function saveAssignment(supabase: SupabaseClient, body: Row, actor:
     updated_at: new Date().toISOString(),
   };
   if (assignmentId) {
-    const current = await supabase.from("assignments").select("id, assignment_status").eq("id", assignmentId).maybeSingle();
+    const current = await supabase.from("assignments").select("id, assignment_status, lock_version").eq("id", assignmentId).maybeSingle();
     if (current.error || !current.data) invalid("Assignment not found.", 404);
     if (current.data.assignment_status !== "draft") invalid("Only draft assignments can be edited. Close or archive a published assignment instead.", 409);
-    const saved = await supabase.from("assignments").update(values).eq("id", assignmentId).select("*").single();
+    const saved = await supabase.from("assignments").update({ ...values, lock_version: Number(current.data.lock_version) + 1 }).eq("id", assignmentId).select("*").single();
     if (saved.error) throw new LmsAdminDataError("Assignment could not be updated.");
     return saved.data;
   }
@@ -159,16 +159,76 @@ export async function setAssignmentStatus(supabase: SupabaseClient, assignmentId
   ]);
   if (assignment.error || !assignment.data) invalid("Assignment not found.", 404);
   if (rubric.error || submissionCount.error) throw new LmsAdminDataError("Assignment publication checks could not be completed.");
+  if (status === "closed") invalid("Use the confirmed Close assignment action and record a reason.", 409);
+  if (status === "published" && assignment.data.assignment_status === "closed") invalid("Use Reopen assignment and record a reason.", 409);
   if (status === "draft" && assignment.data.assignment_status !== "draft") invalid("A published assignment cannot be returned to draft.", 409);
   if (status === "archived" && (submissionCount.count ?? 0) > 0 && body.confirm_archive !== true) invalid("Confirm archival because student submissions already exist.", 409);
   const rubricTotal = (rubric.data ?? []).reduce((sum, item) => sum + Number(item.max_points), 0);
   const mismatch = rubricTotal > 0 && Math.abs(rubricTotal - Number(assignment.data.max_score)) > 0.001;
   if (status === "published" && mismatch && body.confirm_rubric_mismatch !== true) invalid(`Rubric points total ${rubricTotal}, but the assignment maximum is ${assignment.data.max_score}. Confirm publication to keep this intentional mismatch.`, 409);
   const wasPublished = assignment.data.assignment_status === "published";
-  const saved = await supabase.from("assignments").update({ assignment_status: status, published_at: status === "published" ? assignment.data.published_at ?? new Date().toISOString() : assignment.data.published_at, updated_by: actor.actorUserId ?? null, updated_at: new Date().toISOString() }).eq("id", assignmentId).select("*").single();
+  const saved = await supabase.from("assignments").update({ assignment_status: status, published_at: status === "published" ? assignment.data.published_at ?? new Date().toISOString() : assignment.data.published_at, updated_by: actor.actorUserId ?? null, updated_at: new Date().toISOString(), lock_version: Number(assignment.data.lock_version) + 1 }).eq("id", assignmentId).select("*").single();
   if (saved.error) throw new LmsAdminDataError("Assignment status could not be updated.");
   if (status === "published" && !wasPublished) await recordLmsAudit(supabase, { action: "assignment_published", entityType: "assignment", entityId: assignmentId, actorUserId: actor.actorUserId, metadata: { rubric_total: rubricTotal, max_score: assignment.data.max_score, rubric_mismatch: mismatch } });
   return { assignment: saved.data, rubricTotal, rubricMismatch: mismatch };
+}
+
+function expectedAssignmentVersion(value: unknown) {
+  const version = Number(value);
+  if (!Number.isInteger(version) || version < 1) invalid("Reload the assignment before making this change.", 409);
+  return version;
+}
+
+function assignmentAdministrationError(error: { code?: string; message?: string } | null, fallback: string): never {
+  if (error?.code === "40001") invalid("This assignment changed after you loaded it. Reload the page and try again.", 409);
+  if (error?.code === "P0002") invalid("Assignment not found.", 404);
+  if (error?.code === "22023" && error.message) invalid(error.message, 409);
+  throw new LmsAdminDataError(fallback);
+}
+
+export async function extendAssignmentDeadline(supabase: SupabaseClient, assignmentId: string, body: Row, actor: AssessmentActor) {
+  const reason = requiredText(body.reason, "Record the reason for extending the assignment deadline.", 2_000);
+  const deadlineText = requiredText(body.new_deadline, "Choose a new assignment deadline.", 80);
+  const newDeadline = new Date(deadlineText);
+  if (!Number.isFinite(newDeadline.valueOf())) invalid("Enter a valid new assignment deadline.");
+  const result = await supabase.rpc("extend_assignment_deadline", {
+    p_assignment_id: assignmentId,
+    p_new_deadline: newDeadline.toISOString(),
+    p_reason: reason,
+    p_expected_version: expectedAssignmentVersion(body.expected_version),
+    p_actor_user_id: actor.actorUserId ?? null,
+    p_actor_label: actor.actorLabel,
+  }).single();
+  if (result.error || !result.data) assignmentAdministrationError(result.error, "The assignment deadline could not be extended.");
+  return result.data;
+}
+
+export async function closeAssignment(supabase: SupabaseClient, assignmentId: string, body: Row, actor: AssessmentActor) {
+  const result = await supabase.rpc("close_assignment", {
+    p_assignment_id: assignmentId,
+    p_reason: requiredText(body.reason, "Record the reason for closing the assignment.", 2_000),
+    p_expected_version: expectedAssignmentVersion(body.expected_version),
+    p_actor_user_id: actor.actorUserId ?? null,
+    p_actor_label: actor.actorLabel,
+  }).single();
+  if (result.error || !result.data) assignmentAdministrationError(result.error, "The assignment could not be closed.");
+  return result.data;
+}
+
+export async function reopenAssignment(supabase: SupabaseClient, assignmentId: string, body: Row, actor: AssessmentActor) {
+  const deadlineText = optionalText(body.new_deadline, 80);
+  const newDeadline = deadlineText ? new Date(deadlineText) : null;
+  if (newDeadline && !Number.isFinite(newDeadline.valueOf())) invalid("Enter a valid new assignment deadline.");
+  const result = await supabase.rpc("reopen_assignment", {
+    p_assignment_id: assignmentId,
+    p_new_deadline: newDeadline?.toISOString() ?? null,
+    p_reason: requiredText(body.reason, "Record the reason for reopening the assignment.", 2_000),
+    p_expected_version: expectedAssignmentVersion(body.expected_version),
+    p_actor_user_id: actor.actorUserId ?? null,
+    p_actor_label: actor.actorLabel,
+  }).single();
+  if (result.error || !result.data) assignmentAdministrationError(result.error, "The assignment could not be reopened.");
+  return result.data;
 }
 
 export async function submitAssignment(supabase: SupabaseClient, profileId: string, assignmentId: string, body: Row, actor: AssessmentActor, options: { hasValidatedFile?: boolean } = {}) {
