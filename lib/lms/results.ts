@@ -207,7 +207,7 @@ export function assessmentMatchesStudentProgramme(input: {
   studentSkillPathway: string;
 }) {
   if (input.courseCategory === "discipleship") return !input.courseDiscipleshipRoute || input.courseDiscipleshipRoute === input.studentDiscipleshipRoute;
-  if (input.courseCategory === "skill") return !input.courseSkillPathway || normalizeSkillPathway(input.courseSkillPathway) === normalizeSkillPathway(input.studentSkillPathway);
+  if (["skill", "capstone"].includes(input.courseCategory)) return !input.courseSkillPathway || normalizeSkillPathway(input.courseSkillPathway) === normalizeSkillPathway(input.studentSkillPathway);
   return false;
 }
 

@@ -4,6 +4,7 @@ import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { onboardingStatuses, studentStatuses, isOneOf, isUuid } from "@/lib/lms/adminConstants";
 import { recordLmsAudit } from "@/lib/lms/adminAudit";
 import { fetchAdminStudent, requireLmsAdminClient } from "@/lib/lms/adminData";
+import { synchronizeEligibleProgrammeEnrollments } from "@/lib/lms/programmeEnrollmentLifecycle";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await isAdminAuthenticated())) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
@@ -32,5 +33,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!current.data.orientation_completed_at && updates.orientation_completed_at) audits.push(recordLmsAudit(supabase, { action: "student_orientation_completed", entityType: "student", entityId: id }));
   if (!current.data.matriculated_at && updates.matriculated_at) audits.push(recordLmsAudit(supabase, { action: "student_matriculated", entityType: "student", entityId: id }));
   await Promise.all(audits);
-  return NextResponse.json({ student: result.data });
+  let synchronizedEnrollments: Record<string, unknown>[] = [];
+  if (updates.student_status === "active" && updates.onboarding_status === "completed") {
+    try { synchronizedEnrollments = await synchronizeEligibleProgrammeEnrollments(supabase, id); }
+    catch (error) { return NextResponse.json({ message: error instanceof Error ? error.message : "Student saved, but programme enrolment synchronization failed." }, { status: 409 }); }
+  }
+  return NextResponse.json({ student: result.data, synchronizedEnrollments });
 }

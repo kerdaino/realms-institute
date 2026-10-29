@@ -7,6 +7,7 @@ export type LmsAuditAction =
   | "student_onboarding_updated"
   | "student_orientation_completed"
   | "student_matriculated"
+  | "programme_enrollment_activated"
   | "student_note_added"
   | "student_portal_access_sent"
   | "facilitator_portal_access_sent"
